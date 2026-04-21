@@ -1,0 +1,1422 @@
+{
+  "floor": {
+    "id": "floor_1",
+    "name": "办公楼一层",
+    "width": 1005,
+    "height": 450,
+    "background": "",
+    "scale": 1,
+    "origin": [48, 197]
+  },
+  "areas": [
+    {
+      "id": "office_a_floor",
+      "name": "办公区A地面",
+      "type": "floor",
+      "height": 1,
+      "color": "#ffffff",
+      "opacity": 1,
+      "points": [
+        [108, 336],
+        [261, 336],
+        [261, 257],
+        [993, 257],
+        [993, 334],
+        [888, 334],
+        [888, 587],
+        [262, 587],
+        [262, 437],
+        [109, 437]
+      ]
+    }
+  ],
+  "walls": [
+    {
+      "id": "office_a_1",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        108,
+        336
+      ],
+      "end": [
+        261,
+        336
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_2",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        261,
+        336
+      ],
+      "end": [
+        261,
+        256
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_3",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        261,
+        257
+      ],
+      "end": [
+        993,
+        257
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_4",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        993,
+        257
+      ],
+      "end": [
+        993,
+        334
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_5",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        993,
+        334
+      ],
+      "end": [
+        888,
+        334
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_6",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        888,
+        334
+      ],
+      "end": [
+        888,
+        587
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_7",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        888,
+        587
+      ],
+      "end": [
+        262,
+        587
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_8",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        262,
+        587
+      ],
+      "end": [
+        262,
+        437
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_9",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        262,
+        437
+      ],
+      "end": [
+        109,
+        437
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_a_10",
+      "groupId": "office_a",
+      "name": "办公区A",
+      "start": [
+        109,
+        437
+      ],
+      "end": [
+        109,
+        336
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_b_1",
+      "groupId": "office_b",
+      "name": "办公区B",
+      "start": [
+        262,
+        437
+      ],
+      "end": [
+        262,
+        416
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_b_2",
+      "groupId": "office_b",
+      "name": "办公区B",
+      "start": [
+        261,
+        416
+      ],
+      "end": [
+        370,
+        416
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_b_3",
+      "groupId": "office_b",
+      "name": "办公区B",
+      "start": [
+        369,
+        416
+      ],
+      "end": [
+        369,
+        586
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_C_1",
+      "groupId": "office_C",
+      "name": "办公区C",
+      "start": [
+        262,
+        336
+      ],
+      "end": [
+        369,
+        336
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_C_2",
+      "groupId": "office_C",
+      "name": "办公区C",
+      "start": [
+        368,
+        336
+      ],
+      "end": [
+        368,
+        258
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_E",
+      "groupId": "office_E",
+      "name": "办公区E",
+      "start": [
+        316,
+        417
+      ],
+      "end": [
+        316,
+        454
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_F",
+      "groupId": "office_F",
+      "name": "办公区F",
+      "start": [
+        332,
+        453
+      ],
+      "end": [
+        368,
+        453
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_G_1",
+      "groupId": "office_G",
+      "name": "办公区G",
+      "start": [
+        262,
+        335
+      ],
+      "end": [
+        262,
+        386
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_G_2",
+      "groupId": "office_G",
+      "name": "办公区G",
+      "start": [
+        261,
+        386
+      ],
+      "end": [
+        369,
+        386
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_G_3",
+      "groupId": "office_G",
+      "name": "办公区G",
+      "start": [
+        368,
+        386
+      ],
+      "end": [
+        368,
+        376
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_1",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        394,
+        587
+      ],
+      "end": [
+        394,
+        516
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_2",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        394,
+        517
+      ],
+      "end": [
+        456,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_3",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        466,
+        517
+      ],
+      "end": [
+        486,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_4",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        496,
+        517
+      ],
+      "end": [
+        556,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_5",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        566,
+        517
+      ],
+      "end": [
+        585,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_6",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        595,
+        517
+      ],
+      "end": [
+        660,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_7",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        671,
+        517
+      ],
+      "end": [
+        689,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_8",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        700,
+        517
+      ],
+      "end": [
+        728,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_H_9",
+      "groupId": "office_H",
+      "name": "办公区H",
+      "start": [
+        727,
+        517
+      ],
+      "end": [
+        727,
+        588
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_I",
+      "groupId": "office_I",
+      "name": "办公区I",
+      "start": [
+        474,
+        588
+      ],
+      "end": [
+        474,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_J",
+      "groupId": "office_J",
+      "name": "办公区J",
+      "start": [
+        574,
+        588
+      ],
+      "end": [
+        574,
+        516
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_K",
+      "groupId": "office_K",
+      "name": "办公区K",
+      "start": [
+        523,
+        586
+      ],
+      "end": [
+        523,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_L",
+      "groupId": "office_L",
+      "name": "办公区L",
+      "start": [
+        625,
+        588
+      ],
+      "end": [
+        625,
+        516
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_O",
+      "groupId": "office_O",
+      "name": "办公区O",
+      "start": [
+        677,
+        588
+      ],
+      "end": [
+        677,
+        517
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_P_1",
+      "groupId": "office_P",
+      "name": "办公区P",
+      "start": [
+        782,
+        586
+      ],
+      "end": [
+        782,
+        516
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_P_2",
+      "groupId": "office_P",
+      "name": "办公区P",
+      "start": [
+        782,
+        516
+      ],
+      "end": [
+        887,
+        516
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_Q_1",
+      "groupId": "office_Q",
+      "name": "办公区Q",
+      "start": [
+        888,
+        491
+      ],
+      "end": [
+        782,
+        491
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_Q_2",
+      "groupId": "office_Q",
+      "name": "办公区Q",
+      "start": [
+        782,
+        491
+      ],
+      "end": [
+        782,
+        336
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_Q_3",
+      "groupId": "office_Q",
+      "name": "办公区Q",
+      "start": [
+        782,
+        336
+      ],
+      "end": [
+        888,
+        336
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_S_1",
+      "groupId": "office_S",
+      "name": "办公区S",
+      "start": [
+        780,
+        257
+      ],
+      "end": [
+        780,
+        309
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_S_2",
+      "groupId": "office_S",
+      "name": "办公区S",
+      "start": [
+        779,
+        309
+      ],
+      "end": [
+        992,
+        309
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_T_1",
+      "groupId": "office_T",
+      "name": "办公区T",
+      "start": [
+        572,
+        258
+      ],
+      "end": [
+        572,
+        294
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_T_2",
+      "groupId": "office_T",
+      "name": "办公区T",
+      "start": [
+        572,
+        294
+      ],
+      "end": [
+        758,
+        294
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_T_3",
+      "groupId": "office_T",
+      "name": "办公区T",
+      "start": [
+        758,
+        294
+      ],
+      "end": [
+        758,
+        257
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_U",
+      "groupId": "office_U",
+      "name": "办公区U",
+      "start": [
+        608,
+        257
+      ],
+      "end": [
+        608,
+        295
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_V",
+      "groupId": "office_V",
+      "name": "办公区V",
+      "start": [
+        642,
+        256
+      ],
+      "end": [
+        642,
+        294
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_W",
+      "groupId": "office_W",
+      "name": "办公区W",
+      "start": [
+        678,
+        257
+      ],
+      "end": [
+        678,
+        294
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_X",
+      "groupId": "office_X",
+      "name": "办公区X",
+      "start": [
+        713,
+        257
+      ],
+      "end": [
+        714,
+        294
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_Y",
+      "groupId": "office_Y",
+      "name": "办公区Y",
+      "start": [
+        736,
+        258
+      ],
+      "end": [
+        737,
+        294
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_Z",
+      "groupId": "office_Z",
+      "name": "办公区Z",
+      "start": [
+        889,
+        258
+      ],
+      "end": [
+        889,
+        308
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_1",
+      "groupId": "office_1",
+      "name": "办公区1",
+      "start": [
+        395,
+        333
+      ],
+      "end": [
+        395,
+        388
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_2",
+      "groupId": "office_2",
+      "name": "办公区2",
+      "start": [
+        395,
+        411
+      ],
+      "end": [
+        395,
+        494
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_3_1",
+      "groupId": "office_3",
+      "name": "办公区3",
+      "start": [
+        595,
+        335
+      ],
+      "end": [
+        576,
+        335
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_3_2",
+      "groupId": "office_3",
+      "name": "办公区3",
+      "start": [
+        576,
+        334
+      ],
+      "end": [
+        576,
+        493
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_3_3",
+      "groupId": "office_3",
+      "name": "办公区3",
+      "start": [
+        576,
+        492
+      ],
+      "end": [
+        594,
+        492
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_4",
+      "groupId": "office_4",
+      "name": "办公区4",
+      "start": [
+        576,
+        362
+      ],
+      "end": [
+        594,
+        362
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_5",
+      "groupId": "office_5",
+      "name": "办公区5",
+      "start": [
+        576,
+        388
+      ],
+      "end": [
+        594,
+        388
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_6",
+      "groupId": "office_6",
+      "name": "办公区6",
+      "start": [
+        576,
+        414
+      ],
+      "end": [
+        594,
+        414
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_7",
+      "groupId": "office_7",
+      "name": "办公区7",
+      "start": [
+        576,
+        440
+      ],
+      "end": [
+        594,
+        440
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_8",
+      "groupId": "office_8",
+      "name": "办公区8",
+      "start": [
+        576,
+        465
+      ],
+      "end": [
+        594,
+        465
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_9_1",
+      "groupId": "office_9",
+      "name": "办公区9",
+      "start": [
+        621,
+        342
+      ],
+      "end": [
+        621,
+        332
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_9_2",
+      "groupId": "office_9",
+      "name": "办公区9",
+      "start": [
+        621,
+        333
+      ],
+      "end": [
+        660,
+        333
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_9_3",
+      "groupId": "office_9",
+      "name": "办公区9",
+      "start": [
+        660,
+        332
+      ],
+      "end": [
+        660,
+        492
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_9_4",
+      "groupId": "office_9",
+      "name": "办公区9",
+      "start": [
+        661,
+        492
+      ],
+      "end": [
+        620,
+        492
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_9_5",
+      "groupId": "office_9",
+      "name": "办公区9",
+      "start": [
+        621,
+        492
+      ],
+      "end": [
+        621,
+        452
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_10_1",
+      "groupId": "office_10",
+      "name": "办公区10",
+      "start": [
+        620,
+        408
+      ],
+      "end": [
+        620,
+        439
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_10_2",
+      "groupId": "office_10",
+      "name": "办公区10",
+      "start": [
+        619,
+        439
+      ],
+      "end": [
+        659,
+        439
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_11_1",
+      "groupId": "office_11",
+      "name": "办公区11",
+      "start": [
+        621,
+        356
+      ],
+      "end": [
+        621,
+        389
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_11_2",
+      "groupId": "office_11",
+      "name": "办公区11",
+      "start": [
+        620,
+        389
+      ],
+      "end": [
+        659,
+        389
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    },
+    {
+      "id": "office_12",
+      "groupId": "office_12",
+      "name": "办公区12",
+      "start": [
+        261,
+        453
+      ],
+      "end": [
+        303,
+        453
+      ],
+      "thickness": 2,
+      "height": 30,
+      "color": "#ffffff"
+    }
+  ],
+  "devices": [],
+  "overlay": {
+    "path": "image.png",
+    "scale": 1.7,
+    "offset": [40, -40],
+    "opacity": 0.82
+  },
+  "models": [
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [-75, 135.94],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [25, 135.94],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [128, 135.94],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [-78.2, 135.94],
+      "rotation": [0, 180, 0]
+    },
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [22, 135.94],
+      "rotation": [0, 180, 0]
+    },
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [125, 135.94],
+      "rotation": [0, 180, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [-205.79, -112.99],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [-245, -112.12],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3b.glb",
+      "scale": 11.5,
+      "center": [-281, -112.12],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [-111, 141],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3b.glb",
+      "scale": 11.5,
+      "center": [-148, 141],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [-47, 141],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [-3, 141],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [55, 141],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [102, 141],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk3.glb",
+      "scale": 11.5,
+      "center": [155, 141],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk4.glb",
+      "scale": 12.2,
+      "center": [170, 45],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "desk4.glb",
+      "scale": 12.2,
+      "center": [170, 8],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "desk4.glb",
+      "scale": 12.2,
+      "center": [170, -31],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "desk4.glb",
+      "scale": 12.2,
+      "center": [170, -70],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "desk2.glb",
+      "scale": 12.2,
+      "center": [263.33, -145.83],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk2.glb",
+      "scale": 12.2,
+      "center": [300, -145.83],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk2.glb",
+      "scale": 12.2,
+      "center": [368, -145.83],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk2.glb",
+      "scale": 12.2,
+      "center": [405, -145.83],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk2b.glb",
+      "scale": 12.2,
+      "center": [330, -145.83],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "desk2b.glb",
+      "scale": 12.2,
+      "center": [435, -145.83],
+      "rotation": [0, 90, 0]
+    },
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [228, -140],
+      "rotation": [0, 180, 0]
+    },
+    {
+      "path": "cabinet.glb",
+      "scale": 9,
+      "center": [338, -140],
+      "rotation": [0, 180, 0]
+    },
+    {
+      "path": "desk5.glb",
+      "scale": 12.2,
+      "center": [-241.91, 140.26],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "desk5.glb",
+      "scale": 12.2,
+      "center": [-241.91, 102],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "desk5.glb",
+      "scale": 12.2,
+      "center": [-241.91, 65],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [-205.78, 15.26],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [-55.19, 61.85],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [-26.21, 61.85],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [2.28, 61.85],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [-54.87, 32.43],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [-26.32, 32.24],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [2.24, 32.78],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [43.24, -146.93],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [75.23, -146.88],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [110.04, -147.07],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "rel.glb",
+      "scale": 12.2,
+      "center": [144.6, -146.83],
+      "rotation": [0, 45, 0]
+    },
+    {
+      "path": "boss.glb",
+      "scale": 10,
+      "center": [-259.9, 11.06],
+      "rotation": [0, 90, 0]
+    }
+  ]
+}
