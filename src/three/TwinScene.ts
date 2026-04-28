@@ -76,6 +76,7 @@ export class TwinScene {
   private readonly livePoseMarkers = new Map<string, THREE.Group>();
   private readonly livePoseTrails = new Map<string, THREE.Line>();
   private readonly livePoseSamples = new Map<string, LivePoseSample[]>();
+  private trailsVisible = true;
   private overlayBaseSize = new THREE.Vector2(1, 1);
   private resizeHandler: () => void;
   private clickHandler: (event: MouseEvent) => void;
@@ -438,6 +439,7 @@ export class TwinScene {
     }
 
     const trail = this.createLivePoseTrail(trailId);
+    trail.visible = this.trailsVisible;
     this.livePoseGroup.add(trail);
     this.livePoseTrails.set(trailId, trail);
     return trail;
@@ -469,7 +471,7 @@ export class TwinScene {
     );
     trail.geometry.dispose();
     trail.geometry = new THREE.BufferGeometry().setFromPoints(points);
-    trail.visible = points.length > 1;
+    trail.visible = this.trailsVisible && points.length > 1;
   }
 
   private disposeObjectResources(object: THREE.Object3D): void {
@@ -617,6 +619,59 @@ export class TwinScene {
         object.visible = visible;
       }
     });
+  }
+
+  setTrailsVisible(visible: boolean): void {
+    this.trailsVisible = visible;
+    this.livePoseTrails.forEach((trail) => {
+      const position = trail.geometry.getAttribute('position');
+      trail.visible = visible && Boolean(position && position.count > 1);
+    });
+  }
+
+  clearAllTrails(): void {
+    this.livePoseSamples.clear();
+    this.livePoseTrails.forEach((trail) => {
+      trail.geometry.dispose();
+      trail.geometry = new THREE.BufferGeometry();
+      trail.visible = false;
+    });
+  }
+
+  resetView(): void {
+    this.setCameraView('overview');
+  }
+
+  setCameraView(view: 'overview' | 'top' | 'side'): void {
+    if (!this.camera || !this.controls) {
+      return;
+    }
+
+    const target = new THREE.Vector3(0, 0, 0);
+    if (view === 'top') {
+      this.camera.position.set(0, 640, 0.01);
+    } else if (view === 'side') {
+      this.camera.position.set(0, 220, 540);
+    } else {
+      this.camera.position.set(220, 240, 360);
+    }
+
+    this.controls.target.copy(target);
+    this.camera.lookAt(target);
+    this.controls.update();
+  }
+
+  zoom(delta: number): void {
+    if (!this.camera || !this.controls) {
+      return;
+    }
+
+    const direction = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+    const scale = delta < 0 ? 1.16 : 0.86;
+    const nextLength = THREE.MathUtils.clamp(direction.length() * scale, this.controls.minDistance, this.controls.maxDistance);
+    direction.setLength(nextLength);
+    this.camera.position.copy(this.controls.target).add(direction);
+    this.controls.update();
   }
 
   updateLivePose(pose: LivePose | null): void {
