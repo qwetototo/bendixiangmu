@@ -49,13 +49,7 @@
         <section class="glass-panel area-card">
           <h2>区域统计</h2>
           <div class="donut-wrap">
-            <div class="donut" :style="{ background: areaDonutGradient }">
-              <div class="donut__inner">
-                <span>区域分布</span>
-                <strong>{{ onlineDevices }}</strong>
-                <small>在线设备</small>
-              </div>
-            </div>
+            <div ref="areaChartContainer" class="area-chart" />
           </div>
           <div class="area-list">
             <div v-for="item in areaStats" :key="item.name" class="area-row">
@@ -199,11 +193,18 @@
         </section>
       </aside>
     </section>
+
+    <footer class="beian-footer">
+      <img :src="footerGaIcon" alt="" class="beian-footer__icon" />
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+        苏ICP备2026022812号
+      </a>
+    </footer>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   AimOutlined,
   BlockOutlined,
@@ -221,12 +222,16 @@ import {
   StepBackwardOutlined,
   StepForwardOutlined,
 } from '@ant-design/icons-vue';
+import * as echarts from 'echarts';
+import type { ECharts, EChartsOption } from 'echarts';
+import footerGaIcon from '@/assets/image/footer_ga-1.png';
 import { useSceneStore } from '@/stores/scene';
 import { MqttPoseClient, type MqttConnectionError, type MqttConnectionStatus } from '@/services/mqttPose';
 import { TwinScene, type LivePose, type PickPointResult } from '@/three/TwinScene';
 
 const sceneStore = useSceneStore();
 const sceneContainer = ref<HTMLDivElement | null>(null);
+const areaChartContainer = ref<HTMLDivElement | null>(null);
 const pickedPoint = ref<PickPointResult | null>(null);
 const wallTagsVisible = ref(false);
 const livePose = ref<LivePose | null>(null);
@@ -248,6 +253,7 @@ const measureEnabled = ref(false);
 
 let twinScene: TwinScene | null = null;
 let mqttClient: MqttPoseClient | null = null;
+let areaChart: ECharts | null = null;
 let clockTimer = 0;
 
 const deviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10021'];
@@ -276,15 +282,6 @@ const timeline = [
 
 const onlineDevices = computed(() => (livePose.value ? 12 : 11));
 const replayDuration = computed(() => (replayPlaying.value ? '2小时35分钟' : '已暂停'));
-const areaDonutGradient = computed(() => {
-  let cursor = 0;
-  const segments = areaStats.map((item) => {
-    const start = cursor;
-    cursor += item.percent;
-    return `${item.color} ${start}% ${cursor}%`;
-  });
-  return `conic-gradient(${segments.join(', ')})`;
-});
 
 const mqttStatusText = computed(() => {
   if (mqttStatus.value === 'connected') {
@@ -312,6 +309,118 @@ function formatClock(date: Date): string {
 function resolveMqttWebSocketUrl(): string {
   const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
   return configuredUrl || 'ws://111.229.115.131:8080';
+}
+
+function createAreaChartOption(): EChartsOption {
+  return {
+    color: areaStats.map((item) => item.color),
+    tooltip: {
+      trigger: 'item',
+      confine: true,
+      backgroundColor: 'rgba(5, 18, 33, 0.94)',
+      borderColor: 'rgba(105, 167, 232, 0.36)',
+      textStyle: {
+        color: '#e9f4ff',
+        fontSize: 12,
+      },
+      formatter: (params) => {
+        const item = (Array.isArray(params) ? params[0] : params) as {
+          name?: string;
+          value?: number | string;
+          percent?: number;
+        };
+        return `${item.name ?? ''}<br/>在线设备：${item.value ?? 0}<br/>占比：${item.percent ?? 0}%`;
+      },
+    },
+    graphic: [
+      {
+        type: 'text',
+        left: 'center',
+        top: '38%',
+        silent: true,
+        style: {
+          text: '区域分布',
+          fill: 'rgba(226, 239, 249, 0.74)',
+          fontSize: 12,
+          align: 'center',
+        },
+      },
+      {
+        type: 'text',
+        left: 'center',
+        top: '49%',
+        silent: true,
+        style: {
+          text: `${onlineDevices.value}`,
+          fill: '#2e87ff',
+          fontSize: 25,
+          fontWeight: 800,
+          align: 'center',
+        },
+      },
+      {
+        type: 'text',
+        left: 'center',
+        top: '64%',
+        silent: true,
+        style: {
+          text: '在线设备',
+          fill: 'rgba(226, 239, 249, 0.74)',
+          fontSize: 12,
+          align: 'center',
+        },
+      },
+    ],
+    series: [
+      {
+        name: '区域统计',
+        type: 'pie',
+        radius: ['64%', '86%'],
+        center: ['50%', '50%'],
+        avoidLabelOverlap: true,
+        minAngle: 4,
+        padAngle: 2,
+        animationType: 'scale',
+        animationEasing: 'elasticOut',
+        animationDelay: (index: number) => index * 90,
+        label: {
+          show: false,
+        },
+        labelLine: {
+          show: false,
+        },
+        itemStyle: {
+          borderColor: '#071527',
+          borderWidth: 3,
+        },
+        emphasis: {
+          scale: true,
+          scaleSize: 8,
+          itemStyle: {
+            shadowBlur: 18,
+            shadowColor: 'rgba(47, 134, 255, 0.42)',
+          },
+        },
+        data: areaStats.map((item) => ({
+          name: item.name,
+          value: item.count,
+        })),
+      },
+    ],
+  };
+}
+
+function renderAreaChart() {
+  if (!areaChartContainer.value) {
+    return;
+  }
+
+  areaChart ??= echarts.init(areaChartContainer.value, undefined, { renderer: 'canvas' });
+  areaChart.setOption(createAreaChartOption());
+}
+
+function resizeAreaChart() {
+  areaChart?.resize();
 }
 
 function applyCameraMode() {
@@ -343,6 +452,8 @@ onMounted(() => {
   clockTimer = window.setInterval(() => {
     currentTime.value = formatClock(new Date());
   }, 1000);
+  renderAreaChart();
+  window.addEventListener('resize', resizeAreaChart);
 
   if (!sceneContainer.value) {
     return;
@@ -381,17 +492,27 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.clearInterval(clockTimer);
+  window.removeEventListener('resize', resizeAreaChart);
+  areaChart?.dispose();
+  areaChart = null;
   mqttClient?.disconnect();
   mqttClient = null;
   twinScene?.destroy();
   twinScene = null;
 });
+
+watch(onlineDevices, () => {
+  renderAreaChart();
+});
 </script>
 
 <style scoped>
 .twin-screen {
+  display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(4, 18, 32, 0.72), rgba(4, 11, 20, 0.94)),
@@ -403,6 +524,7 @@ onBeforeUnmount(() => {
 .topbar {
   position: relative;
   z-index: 5;
+  flex: 0 0 64px;
   display: flex;
   align-items: center;
   gap: 22px;
@@ -505,11 +627,42 @@ onBeforeUnmount(() => {
 
 .workspace {
   position: relative;
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 292px;
   gap: 18px;
-  height: calc(100vh - 64px);
-  padding: 14px 20px 28px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 20px;
+}
+
+.beian-footer {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-top: 1px solid rgba(92, 151, 213, 0.16);
+  background: rgba(5, 18, 31, 0.78);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.beian-footer__icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.beian-footer a {
+  color: rgba(226, 239, 252, 0.88);
+  text-decoration: none;
+}
+
+.beian-footer a:hover {
+  color: #fff;
 }
 
 .left-rail,
@@ -520,6 +673,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  min-height: 0;
 }
 
 .glass-panel {
@@ -573,6 +727,7 @@ onBeforeUnmount(() => {
 
 .area-card {
   flex: 1;
+  min-height: 0;
 }
 
 .donut-wrap {
@@ -581,33 +736,9 @@ onBeforeUnmount(() => {
   padding: 24px 0 12px;
 }
 
-.donut {
-  display: grid;
-  place-items: center;
+.area-chart {
   width: 156px;
   height: 156px;
-  border-radius: 50%;
-}
-
-.donut__inner {
-  display: grid;
-  place-items: center;
-  width: 108px;
-  height: 108px;
-  border-radius: 50%;
-  background: #071527;
-  text-align: center;
-}
-
-.donut__inner span,
-.donut__inner small {
-  color: rgba(226, 239, 249, 0.74);
-  font-size: 12px;
-}
-
-.donut__inner strong {
-  color: #2e87ff;
-  font-size: 25px;
 }
 
 .area-list {
@@ -658,6 +789,7 @@ onBeforeUnmount(() => {
 .event-list {
   display: grid;
   gap: 12px;
+  overflow: auto;
   padding: 12px 16px 16px;
 }
 
@@ -713,6 +845,7 @@ onBeforeUnmount(() => {
 .scene-shell {
   position: relative;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -866,6 +999,8 @@ onBeforeUnmount(() => {
 
 .player-card {
   flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: 14px;
 }
 
