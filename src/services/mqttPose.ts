@@ -146,6 +146,7 @@ export class MqttPoseClient {
 
   private parsePose(rawData: string): LivePose | null {
     try {
+      console.log('Received MQTT message', { rawData });
       const outer = JSON.parse(rawData) as OuterMqttMessage;
       if (outer.type !== 'mqtt' || !outer.payload) {
         return null;

@@ -308,7 +308,8 @@ function formatClock(date: Date): string {
 
 function resolveMqttWebSocketUrl(): string {
   const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
-  return configuredUrl || 'ws://111.229.115.131:8080';
+  // return configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
+    return configuredUrl || 'ws://localhost:8080';
 }
 
 function createAreaChartOption(): EChartsOption {
