@@ -1,7 +1,6 @@
 <template>
-  <main class="twin-screen">
+  <main :class="['twin-screen', `twin-screen--${themeMode ?? 'dark'}`, { 'twin-screen--embedded': embedded }]">
     <header class="topbar">
-      <div class="topbar__brand">室内定位监控平台</div>
       <div class="topbar__status">
         <span>实时更新：</span>
         <strong>{{ currentTime }}</strong>
@@ -109,7 +108,7 @@
             <FilterOutlined />
             <span>设备筛选</span>
           </button>
-          <button type="button" :class="{ active: replayPanelOpen }" @click="replayPanelOpen = !replayPanelOpen">
+          <button type="button" :class="{ active: isReplayLoaded() }" @click="toggleReplayMode">
             <AimOutlined />
             <span>轨迹回放</span>
           </button>
@@ -120,6 +119,22 @@
           <button type="button" @click="wallTagsVisible = !wallTagsVisible; twinScene?.toggleWallTags(wallTagsVisible)">
             <BorderOuterOutlined />
             <span>电子围栏</span>
+          </button>
+          <button
+            type="button"
+            :class="{ active: livePoseLabelsVisible }"
+            @click="livePoseLabelsVisible = !livePoseLabelsVisible; twinScene?.toggleLivePoseLabels(livePoseLabelsVisible)"
+          >
+            <TagsOutlined />
+            <span>定位标签</span>
+          </button>
+          <button
+            type="button"
+            :class="{ active: trailsVisible }"
+            @click="trailsVisible = !trailsVisible; twinScene?.setTrailsVisible(trailsVisible)"
+          >
+            <DeploymentUnitOutlined />
+            <span>轨迹显示</span>
           </button>
           <button type="button" @click="measureEnabled = !measureEnabled">
             <ColumnWidthOutlined />
@@ -144,8 +159,8 @@
           <h2>轨迹回放</h2>
           <label>
             <span>人员/设备</span>
-            <select v-model="selectedReplayDevice">
-              <option v-for="device in deviceOptions" :key="device" :value="device">{{ device }}</option>
+            <select v-model="selectedReplayDevice" @change="applyReplayDeviceSelection">
+              <option v-for="device in replayDeviceOptions" :key="device.value" :value="device.value">{{ device.label }}</option>
             </select>
           </label>
           <label>
@@ -158,28 +173,29 @@
           </label>
           <div class="replay-actions">
             <button type="button" class="primary-button" @click="startReplay">开始回放</button>
-            <button type="button" class="ghost-button" @click="clearReplay">清除回放</button>
+            <button type="button" class="ghost-button" @click="exitReplayMode">返回实时</button>
           </div>
         </section>
 
         <section class="glass-panel player-card">
           <p>轨迹时长：{{ replayDuration }}</p>
           <div class="player-controls">
-            <button type="button" title="上一段">
+            <button type="button" title="后退15秒" @click="stepReplay(-1)">
               <StepBackwardOutlined />
             </button>
-            <button type="button" class="play-button" title="播放/暂停" @click="replayPlaying = !replayPlaying">
+            <button type="button" class="play-button" title="播放/暂停" @click="toggleReplayPlaying">
               <PauseCircleOutlined v-if="replayPlaying" />
               <PlayCircleOutlined v-else />
             </button>
-            <button type="button" title="下一段">
+            <button type="button" title="前进15秒" @click="stepReplay(1)">
               <StepForwardOutlined />
             </button>
           </div>
           <div class="progress-row">
-            <input v-model.number="replayProgress" type="range" min="0" max="100" />
+            <input v-model.number="replayProgress" type="range" min="0" max="100" step="0.1" @input="seekReplay" />
             <span>{{ replaySpeed }}x</span>
           </div>
+          <div class="progress-time">{{ replayTimeText }}</div>
           <div class="timeline">
             <article v-for="item in timeline" :key="item.time" class="timeline-item">
               <i :class="{ green: item.type === 'start' || item.type === 'current' }" />
@@ -212,6 +228,7 @@ import {
   ClearOutlined,
   ColumnWidthOutlined,
   CompassOutlined,
+  DeploymentUnitOutlined,
   FilterOutlined,
   HeatMapOutlined,
   MinusOutlined,
@@ -221,19 +238,38 @@ import {
   SettingOutlined,
   StepBackwardOutlined,
   StepForwardOutlined,
+  TagsOutlined,
 } from '@ant-design/icons-vue';
 import * as echarts from 'echarts';
 import type { ECharts, EChartsOption } from 'echarts';
 import footerGaIcon from '@/assets/image/footer_ga-1.png';
 import { useSceneStore } from '@/stores/scene';
 import { MqttPoseClient, type MqttConnectionError, type MqttConnectionStatus } from '@/services/mqttPose';
-import { TwinScene, type LivePose, type PickPointResult } from '@/three/TwinScene';
+import { TwinScene, type LivePose, type PathPoint, type PickPointResult } from '@/three/TwinScene';
+
+const props = defineProps<{
+  embedded?: boolean;
+  themeMode?: 'dark' | 'light';
+}>();
+
+interface ReplayPoint extends PathPoint {
+  deviceId: string;
+  time: number;
+  theta?: number;
+}
+
+const ALL_REPLAY_DEVICES = '__all__';
+const REPLAY_MAX_FRAMES = 600;
+const AREA_CLUSTER_THRESHOLD = 3;
+const REPLAY_SEEK_STEP_MS = 15_000;
 
 const sceneStore = useSceneStore();
 const sceneContainer = ref<HTMLDivElement | null>(null);
 const areaChartContainer = ref<HTMLDivElement | null>(null);
 const pickedPoint = ref<PickPointResult | null>(null);
 const wallTagsVisible = ref(false);
+const livePoseLabelsVisible = ref(true);
+const trailsVisible = ref(false);
 const livePose = ref<LivePose | null>(null);
 const mqttStatus = ref<MqttConnectionStatus>('connecting');
 const mqttError = ref<MqttConnectionError | null>(null);
@@ -241,22 +277,32 @@ const currentTime = ref(formatClock(new Date()));
 const cameraMode = ref<'overview' | 'top' | 'side'>('overview');
 const viewMode = ref('monitor');
 const filterOpen = ref(false);
-const replayPanelOpen = ref(true);
-const replayPlaying = ref(true);
-const replayProgress = ref(42);
+const replayPanelOpen = ref(false);
+const replayPlaying = ref(false);
+const replayProgress = ref(0);
+const replayFrameIndex = ref(0);
+const replayCurrentTime = ref(0);
+const replayDirection = ref<1 | -1>(1);
 const replaySpeed = ref(1.0);
-const selectedReplayDevice = ref('TAG-10086');
+const selectedReplayDevice = ref(ALL_REPLAY_DEVICES);
 const selectedDevices = ref(['TAG-10086', 'TAG-10001', 'TAG-10004']);
-const replayStart = ref('2024-05-20T00:00');
-const replayEnd = ref('2024-05-20T23:59');
+const replayStart = ref(formatDateTimeLocal(getStartOfToday()));
+const replayEnd = ref(formatDateTimeLocal(getEndOfToday()));
+const replayPoints = ref<ReplayPoint[]>([]);
+const replayFrameTimes = ref<number[]>([]);
 const measureEnabled = ref(false);
 
 let twinScene: TwinScene | null = null;
 let mqttClient: MqttPoseClient | null = null;
 let areaChart: ECharts | null = null;
 let clockTimer = 0;
+let replayTimer = 0;
+const replayHistories = new Map<string, ReplayPoint[]>();
+const replayTracks = new Map<string, ReplayPoint[]>();
+const replayTrackIndexes = new Map<string, number>();
 
-const deviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10021'];
+const deviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10005'];
+const replayDeviceOptions = [{ label: '全部', value: ALL_REPLAY_DEVICES }, ...deviceOptions.map((device) => ({ label: device, value: device }))];
 const totalDevices = 156;
 const areaStats = [
   { name: '办公区', count: 8, percent: 66.7, color: '#247cff' },
@@ -272,16 +318,74 @@ const events = [
   { title: '设备低电量', device: 'TAG-10032', time: '10:20:33', level: 'warn', icon: '电' },
   { title: '越界告警', device: 'TAG-10042', time: '10:15:27', level: 'alarm', icon: '!' },
 ];
-const timeline = [
-  { time: '10:30:45', title: '当前位置', place: '办公区-工位区A', type: 'current' },
-  { time: '10:28:12', title: '经过', place: '会议室2门口', type: 'point' },
-  { time: '10:25:18', title: '经过', place: '走廊转角', type: 'point' },
-  { time: '10:20:33', title: '经过', place: '办公区-工位区B', type: 'point' },
-  { time: '10:15:27', title: '起点', place: '办公区-工位区C', type: 'start' },
-];
-
 const onlineDevices = computed(() => (livePose.value ? 12 : 11));
-const replayDuration = computed(() => (replayPlaying.value ? '2小时35分钟' : '已暂停'));
+const isLightTheme = computed(() => props.themeMode === 'light');
+const chartTextColor = computed(() => (isLightTheme.value ? 'rgba(52, 65, 89, 0.72)' : 'rgba(226, 239, 249, 0.74)'));
+const chartTooltipBackground = computed(() => (isLightTheme.value ? 'rgba(255, 255, 255, 0.96)' : 'rgba(5, 18, 33, 0.94)'));
+const chartTooltipBorderColor = computed(() => (isLightTheme.value ? 'rgba(78, 101, 140, 0.18)' : 'rgba(105, 167, 232, 0.36)'));
+const replayDuration = computed(() => {
+  if (replayFrameTimes.value.length < 2) {
+    return '暂无轨迹';
+  }
+
+  const start = replayFrameTimes.value[0];
+  const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
+  return formatDuration(Math.max(0, end - start));
+});
+
+const currentReplayIndex = computed(() => {
+  if (replayFrameTimes.value.length <= 1) {
+    return 0;
+  }
+
+  return findReplayFrameIndexAtTime(replayCurrentTime.value || replayFrameTimes.value[0]);
+});
+
+const replayTimeText = computed(() => {
+  if (replayFrameTimes.value.length === 0) {
+    return '--:--:-- / --:--:--';
+  }
+
+  const current = replayCurrentTime.value || replayFrameTimes.value[0];
+  const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
+  return `${formatClock(new Date(current))} / ${formatClock(new Date(end))}`;
+});
+
+const timeline = computed(() => {
+  if (replayPoints.value.length === 0) {
+    return [{ id: '0', time: '--:--:--', title: '暂无轨迹', place: getReplayDeviceName(), type: 'point' }];
+  }
+
+  if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
+    const currentTime = replayFrameTimes.value[currentReplayIndex.value] ?? replayPoints.value[0].time;
+    const clusters = getReplayClustersAtTime(currentTime);
+    if (clusters.length > 0) {
+      return clusters.map((cluster, index) => ({
+        id: `${currentTime}-${index}`,
+        time: formatClock(new Date(currentTime)),
+        title: `${cluster.area} 聚集`,
+        place: `${cluster.count} 个定位点处于同一区域`,
+        type: 'current',
+      }));
+    }
+
+    return [{ id: `${currentTime}-single`, time: formatClock(new Date(currentTime)), title: '正常分布', place: '未发现区域聚集', type: 'point' }];
+  }
+
+  const indexes = Array.from(new Set([0, currentReplayIndex.value, replayFrameTimes.value.length - 1])).sort((a, b) => b - a);
+  return indexes.map((index) => {
+    const time = replayFrameTimes.value[index] ?? replayPoints.value[0].time;
+    const point = findReplayPointAtTime(replayPoints.value, time);
+    const type = index === 0 ? 'start' : index === currentReplayIndex.value ? 'current' : 'point';
+    return {
+      id: `${time}-${index}`,
+      time: formatClock(new Date(time)),
+      title: type === 'start' ? '起点' : type === 'current' ? '当前位置' : '经过',
+      place: `${point.deviceId} X ${point.x.toFixed(1)} / Z ${point.y.toFixed(1)}`,
+      type,
+    };
+  });
+});
 
 const mqttStatusText = computed(() => {
   if (mqttStatus.value === 'connected') {
@@ -306,6 +410,51 @@ function formatClock(date: Date): string {
   return `${hours}:${minutes}:${seconds}`;
 }
 
+function formatDateTimeLocal(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function getStartOfToday(): Date {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function getEndOfToday(): Date {
+  const date = new Date();
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}小时${minutes}分钟`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}分钟${seconds}秒`;
+  }
+
+  return `${seconds}秒`;
+}
+
+function getReplayDeviceName(): string {
+  return selectedReplayDevice.value === ALL_REPLAY_DEVICES ? '全部设备' : selectedReplayDevice.value;
+}
+
+function resolveReplayPointTime(point: PathPoint | LivePose, fallbackTime: number): number {
+  return typeof point.time === 'number' && Number.isFinite(point.time) ? point.time : fallbackTime;
+}
+
 function resolveMqttWebSocketUrl(): string {
   const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
   // return configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
@@ -318,10 +467,10 @@ function createAreaChartOption(): EChartsOption {
     tooltip: {
       trigger: 'item',
       confine: true,
-      backgroundColor: 'rgba(5, 18, 33, 0.94)',
-      borderColor: 'rgba(105, 167, 232, 0.36)',
+      backgroundColor: chartTooltipBackground.value,
+      borderColor: chartTooltipBorderColor.value,
       textStyle: {
-        color: '#e9f4ff',
+        color: chartTextColor.value,
         fontSize: 12,
       },
       formatter: (params) => {
@@ -341,7 +490,7 @@ function createAreaChartOption(): EChartsOption {
         silent: true,
         style: {
           text: '区域分布',
-          fill: 'rgba(226, 239, 249, 0.74)',
+          fill: chartTextColor.value,
           fontSize: 12,
           align: 'center',
         },
@@ -366,7 +515,7 @@ function createAreaChartOption(): EChartsOption {
         silent: true,
         style: {
           text: '在线设备',
-          fill: 'rgba(226, 239, 249, 0.74)',
+          fill: chartTextColor.value,
           fontSize: 12,
           align: 'center',
         },
@@ -391,7 +540,7 @@ function createAreaChartOption(): EChartsOption {
           show: false,
         },
         itemStyle: {
-          borderColor: '#071527',
+          borderColor: isLightTheme.value ? '#f4f7fb' : '#071527',
           borderWidth: 3,
         },
         emphasis: {
@@ -428,25 +577,397 @@ function applyCameraMode() {
   twinScene?.setCameraView(cameraMode.value);
 }
 
+function applyReplayDeviceSelection() {
+  resetReplayState()
+  if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
+    // twinScene?.setVisibleLivePoses(null);  // 显示所有设备
+    return;
+  }
+  else {
+    twinScene?.focusLivePose(selectedReplayDevice.value);
+    twinScene?.setVisibleLivePoses([selectedReplayDevice.value]);  // 只显示选中设备
+  }
+}
+
 function setCameraMode(mode: 'overview' | 'top' | 'side') {
   cameraMode.value = mode;
   applyCameraMode();
 }
 
-function clearTrails() {
-  twinScene?.clearAllTrails();
+function resetReplayState() {
+  replayPlaying.value = false;
+  replayPoints.value = [];
+  replayFrameTimes.value = [];
+  replayTracks.clear();
+  replayTrackIndexes.clear();
+  stopReplayTimer();
   replayProgress.value = 0;
+  replayFrameIndex.value = 0;
+  replayCurrentTime.value = 0;
+  twinScene?.setVisibleLivePoses(null);
+}
+
+function restoreLivePoseView() {
+  if (livePose.value) {
+    twinScene?.updateLivePose(livePose.value);
+  }
+}
+
+function clearTrails() {
+  resetReplayState();
+  replayHistories.clear();
+  twinScene?.clearAllTrails();
+  restoreLivePoseView();
+}
+
+function appendReplayHistory(deviceId: string, points: ReplayPoint[]) {
+  const history = replayHistories.get(deviceId) ?? [];
+  history.push(...points);
+  history.sort((left, right) => left.time - right.time);
+  replayHistories.set(deviceId, history.slice(-5000));
+}
+
+function getReplayRange(): { start: number; end: number } {
+  const start = Date.parse(replayStart.value);
+  const end = Date.parse(replayEnd.value);
+  return {
+    start: Number.isFinite(start) ? start : 0,
+    end: Number.isFinite(end) ? end : Date.now(),
+  };
+}
+
+function getReplayPoints(): ReplayPoint[] {
+  if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
+    const { start, end } = getReplayRange();
+    const allPoints = [...replayHistories.values()]
+      .flat()
+      .filter((point) => point.time >= start && point.time <= end)
+      .sort((left, right) => left.time - right.time);
+    if (allPoints.length > 1) {
+      return allPoints;
+    }
+
+    return [...replayHistories.values()].flat().sort((left, right) => left.time - right.time);
+  }
+
+  const history = replayHistories.get(selectedReplayDevice.value) ?? [];
+  const { start, end } = getReplayRange();
+  const rangedPoints = history.filter((point) => point.time >= start && point.time <= end);
+  return rangedPoints.length > 1 ? rangedPoints : history;
+}
+
+function getReplayDeviceIds(): string[] {
+  if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
+    return [selectedReplayDevice.value];
+  }
+
+  return [...new Set(replayPoints.value.map((point) => point.deviceId))];
+}
+
+function prepareReplayTracks() {
+  replayTracks.clear();
+  replayTrackIndexes.clear();
+  replayPoints.value.forEach((point) => {
+    const track = replayTracks.get(point.deviceId) ?? [];
+    track.push(point);
+    replayTracks.set(point.deviceId, track);
+  });
+  replayTracks.forEach((track) => {
+    track.sort((left, right) => left.time - right.time);
+  });
+}
+
+function stopReplayTimer() {
+  if (replayTimer) {
+    window.clearInterval(replayTimer);
+    replayTimer = 0;
+  }
+}
+
+function findReplayTrackIndexAtTime(points: ReplayPoint[], time: number): number {
+  let left = 0;
+  let right = points.length - 1;
+  let result = 0;
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    if (points[mid].time <= time) {
+      result = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+
+  return result;
+}
+
+function findReplayPointAtTime(points: ReplayPoint[], time: number): ReplayPoint {
+  return points[findReplayTrackIndexAtTime(points, time)] ?? points[0];
+}
+
+function interpolateReplayPoint(points: ReplayPoint[], time: number): ReplayPoint {
+  if (points.length === 0) {
+    return { deviceId: '', x: 0, y: 0, z: 0, time };
+  }
+
+  const leftIndex = findReplayTrackIndexAtTime(points, time);
+  const left = points[leftIndex] ?? points[0];
+  const right = points[leftIndex + 1];
+  if (!right || right.time <= left.time || time <= left.time) {
+    return left;
+  }
+
+  const ratio = Math.max(0, Math.min(1, (time - left.time) / (right.time - left.time)));
+  return {
+    deviceId: left.deviceId,
+    x: left.x + (right.x - left.x) * ratio,
+    y: left.y + (right.y - left.y) * ratio,
+    z: left.z + (right.z - left.z) * ratio,
+    theta: typeof left.theta === 'number' && typeof right.theta === 'number' ? left.theta + (right.theta - left.theta) * ratio : left.theta,
+    time,
+  };
+}
+
+function findReplayFrameIndexAtTime(time: number): number {
+  return findReplayTrackIndexAtTime(
+    replayFrameTimes.value.map((frameTime) => ({
+      deviceId: '',
+      x: 0,
+      y: 0,
+      z: 0,
+      time: frameTime,
+    })),
+    time,
+  );
+}
+
+function prepareReplayFrameTimes() {
+  if (replayPoints.value.length === 0) {
+    replayFrameTimes.value = [];
+    return;
+  }
+
+  if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
+    replayFrameTimes.value = replayPoints.value.map((point) => point.time);
+    return;
+  }
+
+  const start = replayPoints.value[0].time;
+  const end = replayPoints.value[replayPoints.value.length - 1].time;
+  if (start === end) {
+    replayFrameTimes.value = [start];
+    return;
+  }
+
+  const frameCount = Math.min(REPLAY_MAX_FRAMES, Math.max(2, Math.ceil((end - start) / 1000) + 1));
+  const step = (end - start) / (frameCount - 1);
+  replayFrameTimes.value = Array.from({ length: frameCount }, (_, index) => Math.round(start + step * index));
+}
+
+function getReplayPositionsAtTime(time: number): ReplayPoint[] {
+  const positions: ReplayPoint[] = [];
+  replayTracks.forEach((track) => {
+    if (track.length > 0) {
+      positions.push(findReplayPointAtTime(track, time));
+    }
+  });
+  return positions;
+}
+
+function getAreaName(point: ReplayPoint): string {
+  const offsetX = sceneStore.config.floor.origin[0] + sceneStore.config.floor.width / 2;
+  const offsetY = sceneStore.config.floor.origin[1] + sceneStore.config.floor.height / 2;
+  const floorPoint: [number, number] = [point.x + offsetX, point.y + offsetY];
+  const area = sceneStore.config.areas.find((item) => item.type === 'floor' && isPointInPolygon(floorPoint, item.points));
+  return area?.name ?? '其他区域';
+}
+
+function isPointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
+  let inside = false;
+  const [x, y] = point;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function getReplayClustersAtTime(time: number): Array<{ area: string; count: number }> {
+  const counts = new Map<string, number>();
+  getReplayPositionsAtTime(time).forEach((point) => {
+    const area = getAreaName(point);
+    counts.set(area, (counts.get(area) ?? 0) + 1);
+  });
+  return [...counts.entries()]
+    .filter(([, count]) => count >= AREA_CLUSTER_THRESHOLD)
+    .sort((left, right) => right[1] - left[1])
+    .map(([area, count]) => ({ area, count }));
+}
+
+function applyReplayFrame(index = currentReplayIndex.value) {
+  const time = replayFrameTimes.value[index];
+  if (!Number.isFinite(time)) {
+    return;
+  }
+
+  applyReplayTime(time);
+}
+
+function applyReplayTime(time: number) {
+  if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
+    replayTracks.forEach((devicePoints, deviceId) => {
+      const framePoint = interpolateReplayPoint(devicePoints, time);
+      if (framePoint) {
+        twinScene?.updateReplayPose(deviceId, framePoint, framePoint.theta ?? 0);
+      }
+    });
+    return;
+  }
+
+  const point = interpolateReplayPoint(replayPoints.value, time);
+  twinScene?.updateReplayPose(point.deviceId, point, point.theta ?? 0);
+}
+
+function setReplayIndex(index: number) {
+  if (replayFrameTimes.value.length <= 1) {
+    replayProgress.value = 0;
+    replayFrameIndex.value = 0;
+    replayCurrentTime.value = replayFrameTimes.value[0] ?? 0;
+    applyReplayFrame(0);
+    return;
+  }
+
+  const safeIndex = Math.max(0, Math.min(index, replayFrameTimes.value.length - 1));
+  replayFrameIndex.value = safeIndex;
+  setReplayTime(replayFrameTimes.value[safeIndex]);
+}
+
+function setReplayTime(time: number) {
+  if (replayFrameTimes.value.length <= 1) {
+    return;
+  }
+
+  const start = replayFrameTimes.value[0];
+  const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
+  const safeTime = Math.max(start, Math.min(time, end));
+  replayCurrentTime.value = safeTime;
+  replayFrameIndex.value = findReplayFrameIndexAtTime(safeTime);
+  replayProgress.value = Number((((safeTime - start) / (end - start)) * 100).toFixed(2));
+  applyReplayTime(safeTime);
+}
+
+function startReplayTimer() {
+  stopReplayTimer();
+  if (!replayPlaying.value || replayFrameTimes.value.length < 2) {
+    return;
+  }
+
+  const intervalMs = 100;
+  replayTimer = window.setInterval(() => {
+    const currentTime = replayCurrentTime.value || replayFrameTimes.value[0];
+    const nextTime = currentTime + intervalMs * replaySpeed.value * replayDirection.value;
+    const start = replayFrameTimes.value[0];
+    const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
+    if (nextTime >= end || nextTime <= start) {
+      replayPlaying.value = false;
+      stopReplayTimer();
+      setReplayTime(nextTime <= start ? start : end);
+      return;
+    }
+
+    setReplayTime(nextTime);
+  }, intervalMs);
 }
 
 function startReplay() {
   replayPanelOpen.value = true;
+  replayPoints.value = getReplayPoints();
+  const replayDeviceIds = getReplayDeviceIds();
+  prepareReplayTracks();
+  prepareReplayFrameTimes();
+  replayDirection.value = 1;
+  if (replayFrameTimes.value.length < 2) {
+    resetReplayState();
+    restoreLivePoseView();
+    return;
+  }
+
+  replayDeviceIds.forEach((deviceId) => {
+    const devicePoints = replayTracks.get(deviceId) ?? [];
+    twinScene?.setDevicePath(deviceId, devicePoints);
+  });
+  setReplayIndex(0);
+  if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
+    twinScene?.focusLivePose(selectedReplayDevice.value);
+    twinScene?.setVisibleLivePoses([selectedReplayDevice.value]);
+  }
   replayPlaying.value = true;
-  replayProgress.value = 42;
+  startReplayTimer();
 }
 
 function clearReplay() {
+  resetReplayState();
+  twinScene?.clearAllTrails();
+  restoreLivePoseView();
+}
+
+function exitReplayMode() {
+  clearReplay();
+  replayPanelOpen.value = false;
+}
+
+function toggleReplayMode() {
+  if (isReplayLoaded() || replayPanelOpen.value) {
+    exitReplayMode();
+    return;
+  }
+
+  startReplay();
+}
+
+function toggleReplayPlaying() {
+  if (replayFrameTimes.value.length < 2) {
+    startReplay();
+    return;
+  }
+
+  replayPlaying.value = !replayPlaying.value;
+  if (replayPlaying.value) {
+    startReplayTimer();
+  } else {
+    stopReplayTimer();
+  }
+}
+
+function stepReplay(direction: -1 | 1) {
+  if (replayFrameTimes.value.length < 2) {
+    startReplay();
+    return;
+  }
+
   replayPlaying.value = false;
-  clearTrails();
+  stopReplayTimer();
+  const currentTime = replayCurrentTime.value || replayFrameTimes.value[currentReplayIndex.value] || replayFrameTimes.value[0];
+  setReplayTime(currentTime + direction * REPLAY_SEEK_STEP_MS);
+}
+
+function seekReplay() {
+  replayPlaying.value = false;
+  stopReplayTimer();
+  if (replayFrameTimes.value.length > 1) {
+    const start = replayFrameTimes.value[0];
+    const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
+    setReplayTime(start + (end - start) * (replayProgress.value / 100));
+  }
+}
+
+function isReplayLoaded(): boolean {
+  return replayPoints.value.length > 0;
 }
 
 onMounted(() => {
@@ -460,20 +981,52 @@ onMounted(() => {
     return;
   }
 
-  twinScene = new TwinScene(sceneContainer.value, sceneStore.config, (point) => {
-    pickedPoint.value = point;
-  });
+  twinScene = new TwinScene(
+    sceneContainer.value,
+    sceneStore.config,
+    (point) => {
+      pickedPoint.value = point;
+    },
+    () => {
+      // Map selection is handled inside TwinScene; the replay device filter only changes from the select control.
+    },
+  );
   twinScene.init();
   twinScene.toggleWallTags(wallTagsVisible.value);
+  twinScene.toggleLivePoseLabels(livePoseLabelsVisible.value);
 
   mqttClient = new MqttPoseClient({
     url: resolveMqttWebSocketUrl(),
     onPose: (pose) => {
       livePose.value = pose;
-      twinScene?.updateLivePose(pose);
+      appendReplayHistory(pose.deviceId, [
+        {
+          deviceId: pose.deviceId,
+          x: pose.x,
+          y: pose.y,
+          z: pose.z,
+          theta: pose.theta,
+          time: resolveReplayPointTime(pose, pose.receivedAt ? Date.parse(pose.receivedAt) || Date.now() : Date.now()),
+        },
+      ]);
+      if (!isReplayLoaded()) {
+        twinScene?.updateLivePose(pose);
+      }
     },
     onPath: (deviceId, points) => {
-      twinScene?.setDevicePath(deviceId, points);
+      const endTime = Date.now();
+      const fallbackStartTime = endTime - Math.max(0, points.length - 1) * 1000;
+      appendReplayHistory(
+        deviceId,
+        points.map((point, index) => ({
+          deviceId,
+          ...point,
+          time: resolveReplayPointTime(point, fallbackStartTime + index * 1000),
+        })),
+      );
+      if (!isReplayLoaded()) {
+        twinScene?.setDevicePath(deviceId, points);
+      }
     },
     onDeviceDisconnect: (deviceId) => {
       twinScene?.clearDeviceLivePose(deviceId);
@@ -493,6 +1046,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.clearInterval(clockTimer);
+  stopReplayTimer();
   window.removeEventListener('resize', resizeAreaChart);
   areaChart?.dispose();
   areaChart = null;
@@ -505,6 +1059,13 @@ onBeforeUnmount(() => {
 watch(onlineDevices, () => {
   renderAreaChart();
 });
+
+watch(
+  () => props.themeMode,
+  () => {
+    renderAreaChart();
+  },
+);
 </script>
 
 <style scoped>
@@ -522,6 +1083,20 @@ watch(onlineDevices, () => {
   color: #e9f4ff;
 }
 
+.twin-screen--embedded {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.twin-screen--light {
+  background:
+    linear-gradient(180deg, rgba(246, 249, 253, 0.88), rgba(235, 240, 248, 0.98)),
+    radial-gradient(circle at 50% 28%, rgba(77, 128, 255, 0.13), transparent 34%),
+    #eef2f8;
+  color: #172033;
+}
+
 .topbar {
   position: relative;
   z-index: 5;
@@ -531,15 +1106,15 @@ watch(onlineDevices, () => {
   gap: 22px;
   height: 64px;
   padding: 0 26px;
-  border-bottom: 1px solid rgba(92, 151, 213, 0.2);
-  background: rgba(5, 18, 31, 0.86);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
 }
 
-.topbar__brand {
-  color: #fff;
-  font-size: 21px;
-  font-weight: 800;
+.twin-screen--light .topbar {
+  border-bottom-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.twin-screen--light .topbar__status strong {
+  color: #172033;
 }
 
 .topbar__status {
@@ -558,6 +1133,12 @@ watch(onlineDevices, () => {
 .topbar__mqtt {
   color: rgba(212, 230, 246, 0.72);
   font-size: 12px;
+}
+
+.twin-screen--light .topbar__status,
+.twin-screen--light .topbar__mqtt,
+.twin-screen--light .select-field {
+  color: rgba(52, 65, 89, 0.72);
 }
 
 .topbar__spacer {
@@ -607,6 +1188,14 @@ watch(onlineDevices, () => {
   outline: none;
 }
 
+.twin-screen--light .select-field select,
+.twin-screen--light .replay-form select,
+.twin-screen--light .replay-form input {
+  border-color: rgba(78, 101, 140, 0.18);
+  background: rgba(255, 255, 255, 0.86);
+  color: #172033;
+}
+
 .icon-button,
 .map-controls button,
 .tool-dock button,
@@ -624,6 +1213,15 @@ watch(onlineDevices, () => {
   width: 36px;
   height: 36px;
   border-radius: 6px;
+}
+
+.twin-screen--light .icon-button,
+.twin-screen--light .map-controls button,
+.twin-screen--light .tool-dock button,
+.twin-screen--light .player-controls button {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(34, 45, 66, 0.78);
 }
 
 .workspace {
@@ -651,6 +1249,11 @@ watch(onlineDevices, () => {
   line-height: 1.4;
 }
 
+.twin-screen--light .beian-footer {
+  border-top-color: rgba(78, 101, 140, 0.14);
+  background: rgba(255, 255, 255, 0.82);
+}
+
 .beian-footer__icon {
   width: 16px;
   height: 16px;
@@ -660,6 +1263,10 @@ watch(onlineDevices, () => {
 .beian-footer a {
   color: rgba(226, 239, 252, 0.88);
   text-decoration: none;
+}
+
+.twin-screen--light .beian-footer a {
+  color: rgba(52, 65, 89, 0.72);
 }
 
 .beian-footer a:hover {
@@ -685,12 +1292,23 @@ watch(onlineDevices, () => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 42px rgba(0, 0, 0, 0.22);
 }
 
+.twin-screen--light .glass-panel {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 16px 36px rgba(38, 52, 82, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
 .glass-panel h2 {
   margin: 0;
   padding: 14px 16px;
   border-bottom: 1px solid rgba(85, 145, 206, 0.18);
   color: #fff;
   font-size: 15px;
+}
+
+.twin-screen--light .glass-panel h2 {
+  border-bottom-color: rgba(78, 101, 140, 0.12);
+  color: #172033;
 }
 
 .metric-grid {
@@ -706,6 +1324,11 @@ watch(onlineDevices, () => {
   border: 1px solid rgba(82, 149, 218, 0.24);
   border-radius: 6px;
   background: rgba(4, 17, 33, 0.72);
+}
+
+.twin-screen--light .metric-grid div {
+  border-color: rgba(78, 101, 140, 0.12);
+  background: rgba(246, 249, 253, 0.78);
 }
 
 .metric-grid strong {
@@ -724,6 +1347,18 @@ watch(onlineDevices, () => {
   margin-top: 8px;
   color: rgba(218, 232, 244, 0.74);
   font-size: 13px;
+}
+
+.twin-screen--light .metric-grid span,
+.twin-screen--light .area-row,
+.twin-screen--light .event-item small,
+.twin-screen--light .event-item time,
+.twin-screen--light .timeline-item span,
+.twin-screen--light .player-card p,
+.twin-screen--light .replay-form label,
+.twin-screen--light .floating-popover label,
+.twin-screen--light .progress-time {
+  color: rgba(52, 65, 89, 0.68);
 }
 
 .area-card {
@@ -768,11 +1403,23 @@ watch(onlineDevices, () => {
   font-weight: 500;
 }
 
+.twin-screen--light .area-row strong,
+.twin-screen--light .event-item strong,
+.twin-screen--light .timeline-item strong,
+.twin-screen--light .timeline-item time,
+.twin-screen--light .progress-row {
+  color: #172033;
+}
+
 .panel-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid rgba(85, 145, 206, 0.18);
+}
+
+.twin-screen--light .panel-title-row {
+  border-bottom-color: rgba(78, 101, 140, 0.12);
 }
 
 .panel-title-row h2 {
@@ -870,6 +1517,14 @@ watch(onlineDevices, () => {
   font-size: 12px;
 }
 
+.twin-screen--light .pick-chip,
+.twin-screen--light .floating-popover {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.9);
+  color: rgba(52, 65, 89, 0.72);
+  box-shadow: 0 14px 32px rgba(38, 52, 82, 0.12);
+}
+
 .pick-chip strong {
   color: #8bdcff;
 }
@@ -896,6 +1551,10 @@ watch(onlineDevices, () => {
   border-radius: 6px;
 }
 
+.twin-screen--light .zoom-box {
+  border-color: rgba(78, 101, 140, 0.16);
+}
+
 .zoom-box button {
   border: 0;
   border-radius: 0;
@@ -906,11 +1565,19 @@ watch(onlineDevices, () => {
   left: 50%;
   bottom: 8px;
   display: grid;
-  grid-template-columns: repeat(6, 92px);
+  grid-template-columns: repeat(8, minmax(72px, 92px));
+  max-width: calc(100% - 32px);
+  overflow: hidden;
   transform: translateX(-50%);
   border: 1px solid rgba(80, 145, 205, 0.34);
   border-radius: 6px;
   background: rgba(5, 18, 33, 0.8);
+}
+
+.twin-screen--light .tool-dock {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 16px 36px rgba(38, 52, 82, 0.12);
 }
 
 .tool-dock button {
@@ -924,6 +1591,12 @@ watch(onlineDevices, () => {
   font-size: 12px;
 }
 
+.twin-screen--light .tool-dock button {
+  border-right-color: rgba(78, 101, 140, 0.12);
+  background: transparent;
+  color: rgba(34, 45, 66, 0.72);
+}
+
 .tool-dock button:last-child {
   border-right: 0;
 }
@@ -932,6 +1605,12 @@ watch(onlineDevices, () => {
 .tool-dock button:hover {
   color: #4ea3ff;
   background: rgba(47, 134, 255, 0.1);
+}
+
+.twin-screen--light .tool-dock button.active,
+.twin-screen--light .tool-dock button:hover {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .floating-popover {
@@ -998,6 +1677,19 @@ watch(onlineDevices, () => {
   background: rgba(124, 139, 156, 0.45);
 }
 
+.twin-screen--light .primary-button {
+  background: #2563eb;
+}
+
+.twin-screen--light .ghost-button {
+  background: rgba(78, 101, 140, 0.12);
+  color: #172033;
+}
+
+.twin-screen--light .timeline-item::before {
+  background: rgba(78, 101, 140, 0.24);
+}
+
 .player-card {
   flex: 1;
   min-height: 0;
@@ -1039,13 +1731,21 @@ watch(onlineDevices, () => {
   grid-template-columns: minmax(0, 1fr) 34px;
   align-items: center;
   gap: 8px;
-  margin: 12px 0 24px;
+  margin: 12px 0 6px;
   color: #fff;
   font-size: 12px;
 }
 
 .progress-row input {
   accent-color: #247cff;
+}
+
+.progress-time {
+  margin-bottom: 18px;
+  color: rgba(223, 236, 248, 0.74);
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .timeline {
@@ -1128,7 +1828,8 @@ watch(onlineDevices, () => {
   }
 
   .tool-dock {
-    grid-template-columns: repeat(3, 86px);
+    grid-template-columns: repeat(4, minmax(70px, 1fr));
+    width: calc(100% - 20px);
   }
 }
 </style>

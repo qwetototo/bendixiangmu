@@ -174,7 +174,7 @@ export class MqttPoseClient {
         y,
         z,
         theta,
-        time: typeof payload.time === 'number' ? payload.time : undefined,
+        time: this.normalizeTimestamp(payload.time ?? outer.receivedAt),
         receivedAt: outer.receivedAt,
       };
     } catch (error) {
@@ -212,18 +212,7 @@ export class MqttPoseClient {
         return null;
       }
 
-      const points: PathPoint[] = [];
-      for (let i = 1; i + 2 < values.length; i += 3) {
-        const rawX = values[i];
-        const rawY = values[i + 1];
-        const z = values[i + 2];
-        const { x, y } = this.transformCoordinates(rawX, rawY);
-        if (![rawX, rawY, x, y, z].every((value) => Number.isFinite(value))) {
-          continue;
-        }
-
-        points.push({ x, y, z });
-      }
+      const points = this.parsePathPoints(values.slice(1));
 
       if (points.length === 0) {
         return null;
@@ -257,6 +246,67 @@ export class MqttPoseClient {
       .map((item) => Number(item));
 
     return values.length > 0 && values.every((value) => Number.isFinite(value)) ? values : null;
+  }
+
+  private parsePathPoints(values: number[]): PathPoint[] {
+    const timedPoints = this.parseTimedPathPoints(values);
+    if (timedPoints.length > 0) {
+      return timedPoints;
+    }
+
+    const points: PathPoint[] = [];
+    for (let i = 0; i + 2 < values.length; i += 3) {
+      const point = this.createPathPoint(values[i], values[i + 1], values[i + 2]);
+      if (point) {
+        points.push(point);
+      }
+    }
+    return points;
+  }
+
+  private parseTimedPathPoints(values: number[]): PathPoint[] {
+    if (values.length < 4 || values.length % 4 !== 0) {
+      return [];
+    }
+
+    const xyzTimePoints = this.parseTimedPathPointsWithLayout(values, 'xyzTime');
+    if (xyzTimePoints.length > 0) {
+      return xyzTimePoints;
+    }
+
+    return this.parseTimedPathPointsWithLayout(values, 'timeXyz');
+  }
+
+  private parseTimedPathPointsWithLayout(values: number[], layout: 'xyzTime' | 'timeXyz'): PathPoint[] {
+    const points: PathPoint[] = [];
+    for (let i = 0; i + 3 < values.length; i += 4) {
+      const rawTime = layout === 'xyzTime' ? values[i + 3] : values[i];
+      const time = this.normalizeTimestamp(rawTime);
+      if (typeof time !== 'number') {
+        return [];
+      }
+
+      const rawX = layout === 'xyzTime' ? values[i] : values[i + 1];
+      const rawY = layout === 'xyzTime' ? values[i + 1] : values[i + 2];
+      const z = layout === 'xyzTime' ? values[i + 2] : values[i + 3];
+      const point = this.createPathPoint(rawX, rawY, z);
+      if (!point) {
+        return [];
+      }
+
+      points.push({ ...point, time });
+    }
+
+    return points;
+  }
+
+  private createPathPoint(rawX: number, rawY: number, z: number): PathPoint | null {
+    const { x, y } = this.transformCoordinates(rawX, rawY);
+    if (![rawX, rawY, x, y, z].every((value) => Number.isFinite(value))) {
+      return null;
+    }
+
+    return { x, y, z };
   }
 
   private parseDeviceDisconnect(rawData: string): string | null {
@@ -332,5 +382,41 @@ export class MqttPoseClient {
       x: MqttPoseClient.X_SCALE * x2 + MqttPoseClient.X_OFFSET,
       y: MqttPoseClient.Y_SCALE * -y2 + MqttPoseClient.Y_OFFSET,
     };
+  }
+
+  private normalizeTimestamp(value: unknown): number | undefined {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    if (typeof value === 'string') {
+      const parsedDate = Date.parse(value);
+      if (Number.isFinite(parsedDate)) {
+        return parsedDate;
+      }
+    }
+
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return undefined;
+    }
+
+    if (numericValue >= 1e17) {
+      return Math.round(numericValue / 1e6);
+    }
+
+    if (numericValue >= 1e14) {
+      return Math.round(numericValue / 1e3);
+    }
+
+    if (numericValue >= 1e12) {
+      return Math.round(numericValue);
+    }
+
+    if (numericValue >= 1e9) {
+      return Math.round(numericValue * 1000);
+    }
+
+    return undefined;
   }
 }
