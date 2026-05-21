@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_MQTT_WS_URL?: string;
+  readonly VITE_TRAJECTORY_API_URL?: string;
 }
 
 interface ImportMeta {
