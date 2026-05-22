@@ -1,50 +1,129 @@
 <template>
-  <section class="identity-page">
-    <aside class="side-panel">
-      <article v-for="item in summaryCards" :key="item.label" class="summary-card">
+  <section :class="['identity-page', `identity-page--${themeMode}`]">
+    <section class="identity-command">
+      <div class="command-copy">
+        <span class="eyebrow">人员设备中心</span>
+        <h2>人员-设备绑定</h2>
+        <div class="command-actions">
+          <button type="button">新增绑定</button>
+          <button class="secondary" type="button">批量导入</button>
+        </div>
+      </div>
+
+      <div class="command-side">
+        <div class="sync-card">
+          <span>最近同步</span>
+          <strong>10:45:18</strong>
+        </div>
+        
+      </div>
+    </section>
+
+    <section class="summary-grid">
+      <article v-for="item in summaryCards" :key="item.label" :class="['summary-card', item.tone]">
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
         <small>{{ item.note }}</small>
       </article>
-    </aside>
-
-    <section class="list-panel">
-      <div class="panel-toolbar">
-        <div class="search-box">搜索 {{ isDeviceView ? '设备编号、绑定人员' : '姓名、部门、角色' }}</div>
-        <button type="button">{{ isDeviceView ? '新增设备' : '新增用户' }}</button>
-      </div>
-
-      <div class="table-head">
-        <span>{{ isDeviceView ? '设备' : '人员' }}</span>
-        <span>归属信息</span>
-        <span>状态</span>
-        <span>操作</span>
-      </div>
-      <article v-for="row in managementRows" :key="row.name" class="data-row">
-        <div>
-          <strong>{{ row.name }}</strong>
-          <small>{{ row.sub }}</small>
-        </div>
-        <span>{{ row.meta }}</span>
-        <small :class="row.status">{{ row.statusText }}</small>
-        <button type="button">查看</button>
-      </article>
     </section>
 
-    <aside class="detail-panel">
-      <h3>{{ isDeviceView ? '设备详情' : '用户详情' }}</h3>
-      <div class="detail-main">
-        <strong>{{ featuredItem.name }}</strong>
-        <span>{{ featuredItem.meta }}</span>
-      </div>
-      <div class="detail-list">
-        <div v-for="item in detailItems" :key="item.label">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
+    <section class="identity-workspace">
+      <section class="binding-board">
+        <div class="board-header">
+          <div>
+            <h3>{{ panelTitle }}</h3>
+            <span>{{ panelSubtitle }}</span>
+          </div>
+          <div class="board-actions">
+            <button type="button">仅看异常</button>
+            <button type="button">导出</button>
+          </div>
         </div>
-      </div>
-      <button type="button">打开详情页</button>
-    </aside>
+
+        <div class="filter-strip">
+          <div class="search-box">搜索姓名、设备编号、部门或区域</div>
+          <div class="segment-tabs">
+            <button type="button" class="active">全部</button>
+            <button type="button">已绑定</button>
+            <button type="button">待处理</button>
+          </div>
+        </div>
+
+        <div class="binding-table">
+          <div class="table-head">
+            <span>人员信息</span>
+            <span>设备信息</span>
+            <span>权限区域</span>
+            <span>状态</span>
+            <span>操作</span>
+          </div>
+
+          <article v-for="row in visibleBindings" :key="row.personId" class="binding-row">
+            <div class="person-cell">
+              <span class="avatar">{{ row.personName.slice(0, 1) }}</span>
+              <div>
+                <strong>{{ row.personName }}</strong>
+                <small>{{ row.personId }} / {{ row.department }} / {{ row.role }}</small>
+              </div>
+            </div>
+
+            <div class="device-cell">
+              <strong>{{ row.deviceId || '待分配设备' }}</strong>
+              <small>{{ row.deviceType }} · {{ row.protocol }} · {{ row.firmware }}</small>
+              <div class="battery-track">
+                <span :style="{ width: row.battery === '-' ? '0%' : row.battery }"></span>
+              </div>
+            </div>
+
+            <div class="area-cell">
+              <strong>{{ row.area }}</strong>
+              <small>{{ row.permission }}</small>
+            </div>
+
+            <small :class="['status-pill', row.status]">{{ row.statusText }}</small>
+            <button type="button">{{ row.deviceId ? '换绑' : '绑定' }}</button>
+          </article>
+        </div>
+      </section>
+
+      <aside class="insight-panel">
+        <div class="selected-card">
+          <span class="eyebrow">当前选中</span>
+          <h3>{{ featuredBinding.personName }}</h3>
+          <p>{{ featuredBinding.personId }} / {{ featuredBinding.department }} / {{ featuredBinding.role }}</p>
+          <div class="link-line">
+            <span>人员</span>
+            <strong>{{ featuredBinding.deviceId || '未绑定' }}</strong>
+            <span>设备</span>
+          </div>
+        </div>
+
+        <div class="field-card">
+          <h4>人员表字段</h4>
+          <div v-for="item in personFields" :key="item.label">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+
+        <div class="field-card device-card">
+          <h4>设备表字段</h4>
+          <div v-for="item in deviceFields" :key="item.label">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+
+        <div class="rule-card">
+          <h4>绑定规则</h4>
+          <ul>
+            <li>人员编号只能出现在一条绑定关系中</li>
+            <li>设备换绑后自动释放旧库存</li>
+            <li>低电量设备进入异常筛选列表</li>
+          </ul>
+        </div>
+      </aside>
+    </section>
   </section>
 </template>
 
@@ -53,306 +132,725 @@ import { computed } from 'vue';
 
 const props = defineProps<{
   activeSubmenu: string;
+  themeMode: 'dark' | 'light';
 }>();
 
-const isDeviceView = computed(() => props.activeSubmenu === 'devices');
+type BindingStatus = 'online' | 'idle' | 'warn' | 'offline';
 
-const summaryCards = computed(() => {
-  if (isDeviceView.value) {
-    return [
-      { label: '设备总数', value: '156', note: '132 台在线' },
-      { label: '低电量', value: '9', note: '需本日处理' },
-      { label: '未绑定', value: '18', note: '库存可分配' },
-      { label: '离线设备', value: '15', note: '平均离线 42 分钟' },
-    ];
+interface BindingRow {
+  personId: string;
+  personName: string;
+  department: string;
+  role: string;
+  deviceId: string;
+  deviceType: string;
+  protocol: string;
+  battery: string;
+  firmware: string;
+  area: string;
+  permission: string;
+  status: BindingStatus;
+  statusText: string;
+}
+
+const bindings: BindingRow[] = [
+  {
+    personId: 'P-001',
+    personName: '张工',
+    department: '研发部',
+    role: '管理员',
+    deviceId: 'TAG-10086',
+    deviceType: '定位标签',
+    protocol: 'UWB',
+    battery: '86%',
+    firmware: 'v2.4.1',
+    area: '办公区 A',
+    permission: '全域通行',
+    status: 'online',
+    statusText: '在线',
+  },
+  {
+    personId: 'P-002',
+    personName: '李工',
+    department: '运维部',
+    role: '操作员',
+    deviceId: 'TAG-10015',
+    deviceType: '腕带',
+    protocol: 'UWB',
+    battery: '18%',
+    firmware: 'v2.3.8',
+    area: '设备间',
+    permission: '值班权限',
+    status: 'warn',
+    statusText: '低电量',
+  },
+  {
+    personId: 'P-003',
+    personName: '王工',
+    department: '安全部',
+    role: '审计员',
+    deviceId: 'TAG-10003',
+    deviceType: '定位标签',
+    protocol: 'BLE',
+    battery: '72%',
+    firmware: 'v2.4.0',
+    area: '实验区',
+    permission: '重点区域',
+    status: 'online',
+    statusText: '在线',
+  },
+  {
+    personId: 'P-004',
+    personName: '访客 A',
+    department: '临时访客',
+    role: '访客',
+    deviceId: 'TAG-10021',
+    deviceType: '定位标签',
+    protocol: 'UWB',
+    battery: '61%',
+    firmware: 'v2.4.1',
+    area: '会议区',
+    permission: '18:00 过期',
+    status: 'idle',
+    statusText: '临时',
+  },
+  {
+    personId: 'P-005',
+    personName: '赵工',
+    department: '生产部',
+    role: '普通用户',
+    deviceId: '',
+    deviceType: '待分配',
+    protocol: '-',
+    battery: '-',
+    firmware: '-',
+    area: '生产区',
+    permission: '待授权',
+    status: 'offline',
+    statusText: '未绑定',
+  },
+];
+
+const summaryCards = [
+  { label: '人员总数', value: '248', note: '统一入口维护', tone: 'blue' },
+  { label: '已绑定', value: '214', note: '86% 覆盖率', tone: 'green' },
+  { label: '待绑定', value: '34', note: '需分配设备', tone: 'amber' },
+  { label: '库存设备', value: '18', note: '可立即绑定', tone: 'violet' },
+];
+
+const panelTitle = computed(() => {
+  if (props.activeSubmenu === 'people') {
+    return '人员字段视图';
   }
 
-  return [
-    { label: '用户总数', value: '248', note: '今日活跃 112' },
-    { label: '访客', value: '21', note: '8 人即将过期' },
-    { label: '管理员', value: '12', note: '含 3 个审计账号' },
-    { label: '未绑定', value: '34', note: '待分配标签' },
-  ];
-});
-
-const managementRows = computed(() => {
-  if (isDeviceView.value) {
-    return [
-      { name: 'TAG-10086', sub: '定位标签 / UWB', meta: '绑定：张工 / 办公区 / 电量 86%', status: 'online', statusText: '在线' },
-      { name: 'TAG-10021', sub: '定位标签 / UWB', meta: '绑定：访客 A / 会议区 / 电量 61%', status: 'online', statusText: '在线' },
-      { name: 'TAG-10042', sub: '定位标签 / BLE', meta: '未绑定 / 库存 / 电量 42%', status: 'idle', statusText: '闲置' },
-      { name: 'TAG-10015', sub: '腕带 / UWB', meta: '绑定：李工 / 研发部 / 电量 18%', status: 'warn', statusText: '低电量' },
-      { name: 'ANCHOR-03', sub: '基站 / PoE', meta: '三楼东侧 / 固件 1.8.2', status: 'online', statusText: '在线' },
-    ];
+  if (props.activeSubmenu === 'devices') {
+    return '设备字段视图';
   }
 
-  return [
-    { name: '张工', sub: '研发部 / 管理员', meta: '已绑定 TAG-10086 / 常驻办公区', status: 'online', statusText: '在线' },
-    { name: '李工', sub: '运维部 / 操作员', meta: '已绑定 TAG-10015 / 值班中', status: 'warn', statusText: '低电量' },
-    { name: '王工', sub: '安全部 / 审计员', meta: '已绑定 TAG-10003 / 重点区域权限', status: 'online', statusText: '在线' },
-    { name: '访客 A', sub: '临时权限', meta: '已绑定 TAG-10021 / 今日 18:00 过期', status: 'idle', statusText: '临时' },
-    { name: '赵工', sub: '生产部 / 普通用户', meta: '未绑定标签 / 待分配', status: 'idle', statusText: '未绑定' },
-  ];
+  return '绑定关系台账';
 });
 
-const featuredItem = computed(() => managementRows.value[0]);
-
-const detailItems = computed(() => {
-  if (isDeviceView.value) {
-    return [
-      { label: '最近上报', value: '10:42:31' },
-      { label: '所属区域', value: '办公区 A' },
-      { label: '固件版本', value: 'v2.4.1' },
-      { label: '轨迹记录', value: '328 条' },
-    ];
+const panelSubtitle = computed(() => {
+  if (props.activeSubmenu === 'people') {
+    return '按人员维度检查身份、部门、角色和授权区域。';
   }
 
-  return [
-    { label: '当前位置', value: '办公区 A' },
-    { label: '今日轨迹', value: '46 条' },
-    { label: '授权区域', value: '4 个' },
-    { label: '最近登录', value: '09:18:06' },
-  ];
+  if (props.activeSubmenu === 'devices') {
+    return '按设备维度检查编号、协议、电量、固件和库存状态。';
+  }
+
+  return '把人员与设备合并成一张前端操作表，减少重复维护。';
 });
+
+const visibleBindings = computed(() => {
+  if (props.activeSubmenu === 'devices') {
+    return [...bindings].sort((left, right) => left.deviceId.localeCompare(right.deviceId));
+  }
+
+  return bindings;
+});
+
+const featuredBinding = computed(() => visibleBindings.value[0]);
+
+const personFields = computed(() => [
+  { label: '人员编号', value: featuredBinding.value.personId },
+  { label: '部门角色', value: `${featuredBinding.value.department} / ${featuredBinding.value.role}` },
+  { label: '授权范围', value: featuredBinding.value.permission },
+  { label: '常驻区域', value: featuredBinding.value.area },
+]);
+
+const deviceFields = computed(() => [
+  { label: '设备编号', value: featuredBinding.value.deviceId || '未绑定' },
+  { label: '类型协议', value: `${featuredBinding.value.deviceType} / ${featuredBinding.value.protocol}` },
+  { label: '电量', value: featuredBinding.value.battery },
+  { label: '固件版本', value: featuredBinding.value.firmware },
+]);
 </script>
 
 <style scoped>
 .identity-page {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 280px;
-  gap: 14px;
+  gap: 16px;
 }
 
-.side-panel,
-.list-panel,
-.detail-panel {
-  border: 1px solid rgba(118, 148, 212, 0.2);
+.identity-command,
+.summary-card,
+.binding-board,
+.insight-panel {
+  border: 1px solid rgba(118, 148, 212, 0.18);
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(25, 31, 45, 0.92), rgba(13, 17, 27, 0.88)),
-    rgba(13, 17, 27, 0.88);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 16px 34px rgba(0, 0, 0, 0.18);
+  background: rgba(14, 18, 29, 0.9);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.side-panel {
+.identity-command {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(29, 45, 68, 0.96), rgba(14, 18, 29, 0.94)),
+    rgba(14, 18, 29, 0.9);
+}
+
+.command-copy {
+  min-width: 0;
+}
+
+.eyebrow,
+.identity-command p,
+.sync-card span,
+.sync-card small,
+.summary-card span,
+.summary-card small,
+.board-header span,
+.search-box,
+.binding-row small,
+.area-cell small,
+.selected-card p,
+.field-card span,
+.rule-card li {
+  color: rgba(224, 235, 255, 0.64);
+  font-size: 13px;
+}
+
+.eyebrow {
+  color: #91b8ff;
+  font-weight: 800;
+}
+
+.identity-command h2,
+.sync-card strong,
+.summary-card strong,
+.board-header h3,
+.binding-row strong,
+.selected-card h3,
+.link-line strong,
+.field-card h4,
+.field-card strong,
+.rule-card h4 {
+  color: #fff;
+}
+
+.identity-command h2 {
+  margin: 6px 0 0;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.identity-command p {
+  max-width: 780px;
+  margin: 9px 0 0;
+  line-height: 1.75;
+}
+
+.command-side {
   display: grid;
+  justify-items: end;
+  gap: 12px;
+  min-width: 260px;
+}
+
+.sync-card {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid rgba(118, 148, 212, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 9, 16, 0.34);
+}
+
+.sync-card strong {
+  font-size: 20px;
+}
+
+.command-actions,
+.board-actions,
+.segment-tabs {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  align-content: start;
-  padding: 12px;
+}
+
+.command-actions button,
+.board-actions button,
+.segment-tabs button,
+.binding-row button {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(95, 137, 215, 0.36);
+  border-radius: 6px;
+  background: rgba(57, 95, 178, 0.28);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.command-actions button:hover,
+.board-actions button:hover,
+.segment-tabs button:hover,
+.binding-row button:hover {
+  border-color: rgba(134, 170, 255, 0.64);
+  background: rgba(70, 111, 205, 0.38);
+  transform: translateY(-1px);
+}
+
+.command-actions button.secondary,
+.board-actions button,
+.segment-tabs button {
+  background: rgba(6, 10, 18, 0.34);
+  color: rgba(226, 237, 255, 0.84);
+}
+
+.segment-tabs button.active {
+  border-color: rgba(100, 181, 246, 0.5);
+  background: rgba(46, 112, 210, 0.34);
+  color: #fff;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .summary-card {
   position: relative;
   display: grid;
-  gap: 7px;
-  padding: 14px;
-  border: 1px solid rgba(118, 148, 212, 0.16);
-  border-radius: 6px;
-  background: rgba(6, 10, 18, 0.42);
+  gap: 8px;
+  min-height: 118px;
+  padding: 16px;
   overflow: hidden;
 }
 
 .summary-card::before {
   content: '';
   position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 999px;
-  background: #5a8dff;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--accent);
 }
 
-.summary-card span,
-.summary-card small,
-.data-row span,
-.data-row div small,
-.detail-main span,
-.detail-list span {
-  color: rgba(224, 235, 255, 0.62);
-  font-size: 13px;
+.summary-card.blue {
+  --accent: #70a5ff;
+}
+
+.summary-card.green {
+  --accent: #46e39c;
+}
+
+.summary-card.amber {
+  --accent: #ffcf75;
+}
+
+.summary-card.violet {
+  --accent: #b7a4ff;
 }
 
 .summary-card strong {
-  color: #fff;
-  font-size: 26px;
+  font-size: 31px;
   line-height: 1;
 }
 
-.list-panel {
+.identity-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+}
+
+.binding-board {
   min-width: 0;
   overflow: hidden;
 }
 
-.panel-toolbar {
+.board-header,
+.filter-strip {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border-bottom: 1px solid rgba(118, 148, 212, 0.14);
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+.board-header {
+  border-bottom: 1px solid rgba(118, 148, 212, 0.12);
+}
+
+.board-header h3 {
+  margin: 0 0 5px;
+  font-size: 18px;
+}
+
+.filter-strip {
+  border-bottom: 1px solid rgba(118, 148, 212, 0.1);
+  background: rgba(5, 9, 16, 0.2);
 }
 
 .search-box {
   flex: 1;
+  min-width: 220px;
   height: 36px;
   display: flex;
   align-items: center;
   padding: 0 12px;
-  border: 1px solid rgba(100, 130, 190, 0.2);
+  border: 1px solid rgba(118, 148, 212, 0.16);
   border-radius: 6px;
-  background: rgba(5, 9, 16, 0.5);
-  color: rgba(224, 235, 255, 0.46);
-  font-size: 13px;
+  background: rgba(6, 10, 18, 0.36);
 }
 
-.panel-toolbar button,
-.data-row button,
-.detail-panel button {
-  height: 36px;
-  border: 1px solid rgba(94, 143, 255, 0.42);
-  border-radius: 6px;
-  background: rgba(49, 91, 194, 0.32);
-  color: #fff;
-  cursor: pointer;
-  font-weight: 700;
-  transition: background 160ms ease, border-color 160ms ease;
-}
-
-.panel-toolbar button:hover,
-.data-row button:hover,
-.detail-panel button:hover {
-  border-color: rgba(123, 162, 255, 0.7);
-  background: rgba(67, 107, 220, 0.44);
-}
-
-.panel-toolbar button {
-  padding: 0 14px;
+.binding-table {
+  min-width: 820px;
+  padding: 0 12px 12px;
 }
 
 .table-head,
-.data-row {
+.binding-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1.1fr) minmax(220px, 1.6fr) 82px 72px;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(210px, 1fr) minmax(150px, 0.8fr) 92px 76px;
   align-items: center;
   gap: 14px;
 }
 
 .table-head {
-  padding: 10px 16px;
+  padding: 12px 6px;
   color: rgba(224, 235, 255, 0.46);
   font-size: 12px;
-  font-weight: 700;
-  background: rgba(5, 9, 16, 0.34);
+  font-weight: 800;
 }
 
-.data-row {
-  min-height: 70px;
-  padding: 14px 16px;
-  border-top: 1px solid rgba(118, 148, 212, 0.1);
-  transition: background 160ms ease;
+.binding-row {
+  min-height: 82px;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(118, 148, 212, 0.12);
+  border-radius: 8px;
+  background: rgba(9, 14, 24, 0.5);
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
-.data-row:hover {
-  background: rgba(74, 111, 190, 0.12);
+.binding-row:hover {
+  border-color: rgba(115, 151, 235, 0.34);
+  background: rgba(28, 42, 68, 0.52);
+  transform: translateY(-1px);
 }
 
-.data-row strong {
+.person-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.avatar {
+  display: inline-flex;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(74, 119, 220, 0.38), rgba(39, 213, 125, 0.16));
+  color: #f5f9ff;
+  font-weight: 900;
+}
+
+.person-cell strong,
+.device-cell strong,
+.area-cell strong {
   display: block;
   margin-bottom: 5px;
-  color: #fff;
   font-size: 15px;
 }
 
-.data-row > small {
+.battery-track {
+  width: 108px;
+  height: 5px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(118, 148, 212, 0.16);
+  overflow: hidden;
+}
+
+.battery-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffcf75, #46e39c);
+}
+
+.status-pill {
   justify-self: start;
-  padding: 4px 9px;
+  padding: 5px 10px;
   border-radius: 999px;
   font-size: 12px;
+  font-weight: 800;
 }
 
-.data-row > small.online {
-  background: rgba(39, 213, 125, 0.14);
+.status-pill.online {
   color: #46e39c;
+  background: rgba(39, 213, 125, 0.14);
 }
 
-.data-row > small.idle {
-  background: rgba(113, 128, 160, 0.18);
+.status-pill.idle {
   color: #c4d0e4;
+  background: rgba(113, 128, 160, 0.18);
 }
 
-.data-row > small.warn {
-  background: rgba(255, 189, 91, 0.14);
+.status-pill.warn {
   color: #ffcf75;
+  background: rgba(255, 189, 91, 0.14);
 }
 
-.detail-panel {
+.status-pill.offline {
+  color: #ff9a9a;
+  background: rgba(255, 103, 103, 0.12);
+}
+
+.insight-panel {
   display: grid;
   align-content: start;
   gap: 14px;
-  padding: 18px;
-  background:
-    linear-gradient(180deg, rgba(34, 41, 61, 0.92), rgba(13, 17, 27, 0.9)),
-    rgba(13, 17, 27, 0.88);
+  padding: 16px;
 }
 
-.detail-panel h3 {
-  margin: 0;
-  color: #fff;
+.selected-card,
+.field-card,
+.rule-card {
+  border: 1px solid rgba(118, 148, 212, 0.14);
+  border-radius: 8px;
+  background: rgba(5, 9, 16, 0.3);
 }
 
-.detail-main {
+.selected-card {
   display: grid;
-  gap: 6px;
-  padding: 14px;
-  border: 1px solid rgba(118, 148, 212, 0.18);
+  gap: 9px;
+  padding: 16px;
+  background:
+    linear-gradient(180deg, rgba(39, 64, 102, 0.58), rgba(5, 9, 16, 0.34)),
+    rgba(5, 9, 16, 0.3);
+}
+
+.selected-card h3 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.selected-card p {
+  margin: 0;
+}
+
+.link-line {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 9px 10px;
   border-radius: 6px;
   background: rgba(6, 10, 18, 0.42);
+  color: rgba(224, 235, 255, 0.6);
+  font-size: 12px;
+  text-align: center;
 }
 
-.detail-main strong {
-  color: #fff;
-  font-size: 20px;
-}
-
-.detail-list {
+.field-card,
+.rule-card {
   display: grid;
   gap: 10px;
+  padding: 14px;
 }
 
-.detail-list div {
+.field-card h4,
+.rule-card h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.field-card div {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  min-height: 30px;
-  padding-bottom: 9px;
+  padding-bottom: 8px;
   border-bottom: 1px solid rgba(118, 148, 212, 0.1);
 }
 
-.detail-list div:last-child {
+.field-card div:last-child {
   padding-bottom: 0;
   border-bottom: 0;
 }
 
-.detail-list strong {
-  color: rgba(238, 245, 255, 0.9);
+.field-card strong {
   font-size: 13px;
   text-align: right;
 }
 
-@media (max-width: 1180px) {
-  .identity-page {
+.device-card {
+  border-color: rgba(74, 119, 220, 0.26);
+}
+
+.rule-card ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rule-card li {
+  position: relative;
+  padding-left: 14px;
+  line-height: 1.5;
+}
+
+.rule-card li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #70a5ff;
+}
+
+.identity-page--light .identity-command,
+.identity-page--light .summary-card,
+.identity-page--light .binding-board,
+.identity-page--light .insight-panel {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 36px rgba(38, 52, 82, 0.08);
+}
+
+.identity-page--light .identity-command {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 244, 252, 0.94));
+}
+
+.identity-page--light .identity-command h2,
+.identity-page--light .sync-card strong,
+.identity-page--light .summary-card strong,
+.identity-page--light .board-header h3,
+.identity-page--light .binding-row strong,
+.identity-page--light .selected-card h3,
+.identity-page--light .link-line strong,
+.identity-page--light .field-card h4,
+.identity-page--light .field-card strong,
+.identity-page--light .rule-card h4 {
+  color: #172033;
+}
+
+.identity-page--light .identity-command p,
+.identity-page--light .sync-card span,
+.identity-page--light .sync-card small,
+.identity-page--light .summary-card span,
+.identity-page--light .summary-card small,
+.identity-page--light .board-header span,
+.identity-page--light .search-box,
+.identity-page--light .binding-row small,
+.identity-page--light .area-cell small,
+.identity-page--light .selected-card p,
+.identity-page--light .field-card span,
+.identity-page--light .rule-card li {
+  color: rgba(52, 65, 89, 0.68);
+}
+
+.identity-page--light .sync-card,
+.identity-page--light .filter-strip,
+.identity-page--light .search-box,
+.identity-page--light .selected-card,
+.identity-page--light .field-card,
+.identity-page--light .rule-card,
+.identity-page--light .link-line {
+  border-color: rgba(78, 101, 140, 0.12);
+  background: rgba(246, 249, 253, 0.8);
+}
+
+.identity-page--light .table-head {
+  color: rgba(52, 65, 89, 0.58);
+}
+
+.identity-page--light .binding-row {
+  border-color: rgba(78, 101, 140, 0.12);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.identity-page--light .binding-row:hover {
+  background: rgba(62, 120, 255, 0.07);
+}
+
+.identity-page--light .field-card div {
+  border-color: rgba(78, 101, 140, 0.1);
+}
+
+.identity-page--light .avatar {
+  background: linear-gradient(135deg, rgba(62, 120, 255, 0.14), rgba(16, 185, 129, 0.12));
+  color: #1d4ed8;
+}
+
+.identity-page--light .command-actions button,
+.identity-page--light .board-actions button,
+.identity-page--light .segment-tabs button,
+.identity-page--light .binding-row button {
+  border-color: rgba(62, 120, 255, 0.32);
+  background: rgba(62, 120, 255, 0.1);
+  color: #1d4ed8;
+}
+
+.identity-page--light .segment-tabs button.active {
+  background: rgba(37, 99, 235, 0.14);
+}
+
+@media (max-width: 1240px) {
+  .identity-workspace {
     grid-template-columns: 1fr;
   }
 
-  .side-panel {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .binding-board {
+    overflow-x: auto;
   }
 }
 
-@media (max-width: 760px) {
-  .side-panel,
-  .table-head,
-  .data-row {
+@media (max-width: 980px) {
+  .identity-command,
+  .filter-strip,
+  .board-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .command-side {
+    justify-items: stretch;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .summary-grid {
     grid-template-columns: 1fr;
   }
 }

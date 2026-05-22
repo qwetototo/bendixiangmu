@@ -24,6 +24,10 @@ interface TrajectoryPointVO {
   serverTs?: string | number;
 }
 
+interface TrajectoryResponseVO {
+  data?: TrajectoryPointVO[];
+}
+
 const DEFAULT_TRAJECTORY_API_URL = '/api/trajectory/points';
 const SCENE_UNITS_PER_MM = 0.01;
 const RADIANS_PER_MRAD = 0.001;
@@ -64,7 +68,7 @@ export function diagnoseTimestamp(value: unknown): {
 
 export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<TrajectoryReplayPoint[]> {
   const endpoint = import.meta.env.VITE_TRAJECTORY_API_URL?.trim() || DEFAULT_TRAJECTORY_API_URL;
-  const response = await axios.get<TrajectoryPointVO[]>(endpoint, {
+  const response = await axios.get<TrajectoryPointVO[] | TrajectoryResponseVO>(endpoint, {
     params: {
       deviceId: query.deviceId || undefined,
       startTime: query.startTime,
@@ -72,7 +76,9 @@ export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<Tra
     },
   });
 
-  return response.data.data
+  const points = Array.isArray(response.data) ? response.data : response.data.data ?? [];
+
+  return points
     .map(normalizeTrajectoryPoint)
     .filter((point): point is TrajectoryReplayPoint => point !== null)
     .sort((left, right) => left.time - right.time);

@@ -44,7 +44,7 @@
     </header>
 
     <section class="admin-body">
-      <section v-if="activeSection === 'track'" class="track-page">
+      <section v-if="activeSection === 'track' && activeSubmenu !== 'archive'" class="track-page">
         <TwinScreen embedded :theme-mode="themeMode" />
       </section>
 
@@ -61,7 +61,8 @@
         </div>
 
         <HomeView v-if="activeSection === 'home'" @navigate="selectNav" />
-        <IdentityView v-else-if="activeSection === 'identity'" :active-submenu="activeSubmenu" />
+        <TrackArchiveView v-else-if="activeSection === 'track'" />
+        <IdentityView v-else-if="activeSection === 'identity'" :active-submenu="activeSubmenu" :theme-mode="themeMode" />
         <ConfigView v-else />
       </section>
     </section>
@@ -74,6 +75,7 @@ import { BellOutlined, BgColorsOutlined, LogoutOutlined, ReloadOutlined } from '
 import ConfigView from '@/views/admin/ConfigView.vue';
 import HomeView from '@/views/admin/HomeView.vue';
 import IdentityView from '@/views/admin/IdentityView.vue';
+import TrackArchiveView from '@/views/admin/TrackArchiveView.vue';
 import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
 import { findNavSection, getDefaultSubmenu, navSections, type SectionKey } from '@/services/navigation';
@@ -392,9 +394,11 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.home-page),
 .admin-shell--light :deep(.identity-page),
 .admin-shell--light :deep(.config-page),
+.admin-shell--light :deep(.archive-page),
 :deep(.home-page),
 :deep(.identity-page),
-:deep(.config-page) {
+:deep(.config-page),
+:deep(.archive-page) {
   width: min(1440px, 100%);
   margin-inline: auto;
 }
@@ -408,6 +412,12 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.side-panel),
 .admin-shell--light :deep(.list-panel),
 .admin-shell--light :deep(.detail-panel),
+.admin-shell--light :deep(.hero-panel),
+.admin-shell--light :deep(.binding-panel),
+.admin-shell--light :deep(.archive-hero),
+.admin-shell--light :deep(.stat-card),
+.admin-shell--light :deep(.job-panel),
+.admin-shell--light :deep(.query-panel),
 .admin-shell--light :deep(.setting-panel),
 .admin-shell--light :deep(.rule-panel),
 .admin-shell--light :deep(.integration-panel),
@@ -418,7 +428,9 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 }
 
 .admin-shell--light :deep(.intro-panel),
-.admin-shell--light :deep(.detail-panel) {
+.admin-shell--light :deep(.detail-panel),
+.admin-shell--light :deep(.hero-panel),
+.admin-shell--light :deep(.archive-hero) {
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 244, 252, 0.92));
 }
 
@@ -431,7 +443,19 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.summary-card strong),
 .admin-shell--light :deep(.data-row strong),
 .admin-shell--light :deep(.detail-panel h3),
+.admin-shell--light :deep(.hero-panel h2),
+.admin-shell--light :deep(.panel-toolbar h3),
+.admin-shell--light :deep(.field-group h4),
+.admin-shell--light :deep(.archive-hero h2),
+.admin-shell--light :deep(.job-panel h3),
+.admin-shell--light :deep(.query-panel h3),
 .admin-shell--light :deep(.detail-main strong),
+.admin-shell--light :deep(.person-cell strong),
+.admin-shell--light :deep(.device-cell strong),
+.admin-shell--light :deep(.profile-card strong),
+.admin-shell--light :deep(.field-group strong),
+.admin-shell--light :deep(.stat-card strong),
+.admin-shell--light :deep(.job-row strong),
 .admin-shell--light :deep(.setting-panel h3),
 .admin-shell--light :deep(.rule-panel h3),
 .admin-shell--light :deep(.integration-panel h3),
@@ -446,6 +470,10 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.intro-panel p),
 .admin-shell--light :deep(.info-card p),
 .admin-shell--light :deep(.setting-panel p),
+.admin-shell--light :deep(.hero-panel p),
+.admin-shell--light :deep(.archive-hero p),
+.admin-shell--light :deep(.hero-panel span),
+.admin-shell--light :deep(.panel-toolbar span),
 .admin-shell--light :deep(.metric-card span),
 .admin-shell--light :deep(.status-list span),
 .admin-shell--light :deep(.activity-list span),
@@ -456,6 +484,13 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.data-row div small),
 .admin-shell--light :deep(.detail-main span),
 .admin-shell--light :deep(.detail-list span),
+.admin-shell--light :deep(.profile-card span),
+.admin-shell--light :deep(.field-group span),
+.admin-shell--light :deep(.stat-card span),
+.admin-shell--light :deep(.stat-card small),
+.admin-shell--light :deep(.job-row span),
+.admin-shell--light :deep(.job-row small),
+.admin-shell--light :deep(.query-panel span),
 .admin-shell--light :deep(.rule-list span),
 .admin-shell--light :deep(.channel-list span),
 .admin-shell--light :deep(.audit-list span),
@@ -468,20 +503,26 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.status-list div),
 .admin-shell--light :deep(.summary-card),
 .admin-shell--light :deep(.detail-main),
+.admin-shell--light :deep(.profile-card),
+.admin-shell--light :deep(.field-group),
 .admin-shell--light :deep(.rule-list div),
 .admin-shell--light :deep(.channel-list div),
 .admin-shell--light :deep(.task-list label),
-.admin-shell--light :deep(.search-box) {
+.admin-shell--light :deep(.search-box),
+.admin-shell--light :deep(.query-panel input) {
   border-color: rgba(78, 101, 140, 0.12);
   background: rgba(246, 249, 253, 0.78);
 }
 
-.admin-shell--light :deep(.table-head) {
+.admin-shell--light :deep(.table-head),
+.admin-shell--light :deep(.job-head) {
   color: rgba(52, 65, 89, 0.62);
   background: rgba(235, 240, 248, 0.9);
 }
 
 .admin-shell--light :deep(.data-row),
+.admin-shell--light :deep(.job-row),
+.admin-shell--light :deep(.field-group div),
 .admin-shell--light :deep(.activity-list div),
 .admin-shell--light :deep(.detail-list div),
 .admin-shell--light :deep(.audit-list div) {
@@ -492,7 +533,13 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.panel-toolbar button),
 .admin-shell--light :deep(.data-row button),
 .admin-shell--light :deep(.detail-panel button),
-.admin-shell--light :deep(.panel-title button) {
+.admin-shell--light :deep(.panel-title button),
+.admin-shell--light :deep(.hero-actions button),
+.admin-shell--light :deep(.toolbar-actions button),
+.admin-shell--light :deep(.archive-hero button),
+.admin-shell--light :deep(.filter-row button),
+.admin-shell--light :deep(.job-row button),
+.admin-shell--light :deep(.query-panel button) {
   border-color: rgba(62, 120, 255, 0.32);
   background: rgba(62, 120, 255, 0.1);
   color: #1d4ed8;
@@ -503,6 +550,7 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 }
 
 .admin-shell--light :deep(.data-row:hover),
+.admin-shell--light :deep(.job-row:hover),
 .admin-shell--light :deep(.rule-list div:hover),
 .admin-shell--light :deep(.channel-list div:hover) {
   background: rgba(62, 120, 255, 0.08);
@@ -522,6 +570,7 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 }
 
 .admin-shell--light :deep(.data-row > small.online),
+.admin-shell--light :deep(.job-row > small.done),
 .admin-shell--light :deep(.activity-list small.info) {
   color: #047857;
   background: rgba(16, 185, 129, 0.12);
@@ -534,6 +583,7 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 }
 
 .admin-shell--light :deep(.data-row > small.warn),
+.admin-shell--light :deep(.job-row > small.warn),
 .admin-shell--light :deep(.activity-list small.warn),
 .admin-shell--light :deep(.rule-list small.warn) {
   color: #b45309;
@@ -544,6 +594,12 @@ function selectNav(sectionKey: SectionKey, submenuKey: string) {
 .admin-shell--light :deep(.rule-list small.alarm) {
   color: #b91c1c;
   background: rgba(239, 68, 68, 0.12);
+}
+
+.admin-shell--light :deep(.job-row > small.running),
+.admin-shell--light :deep(.data-row > small.offline) {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.1);
 }
 
 @keyframes dropdown {

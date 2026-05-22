@@ -46,11 +46,12 @@ export const navSections: NavSection[] = [
   },
   {
     key: 'identity',
-    label: '用户-设备中心',
+    label: '人员设备中心',
     icon: TeamOutlined,
     items: [
-      { key: 'users', label: '用户管理', description: '人员信息、权限角色与在线状态' },
-      { key: 'devices', label: '设备管理', description: '标签设备、绑定关系与运行状态' },
+      { key: 'bindings', label: '绑定管理', description: '一人一设备绑定关系与在线状态' },
+      { key: 'people', label: '人员字段', description: '数据库人员表字段与授权信息' },
+      { key: 'devices', label: '设备字段', description: '数据库设备表字段与运行参数' },
     ],
   },
   {
