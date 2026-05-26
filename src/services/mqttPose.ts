@@ -9,6 +9,18 @@ export interface MqttConnectionError {
   wasClean?: boolean;
 }
 
+const POSITION_X_SCALE = 14.5;
+const POSITION_X_OFFSET = -84.95;
+const POSITION_Y_SCALE = 14.5;
+const POSITION_Y_OFFSET = 79.67;
+
+export function transformProtocolCoordinates(x: number, y: number): { x: number; y: number } {
+  return {
+    x: POSITION_X_SCALE * x + POSITION_X_OFFSET,
+    y: POSITION_Y_SCALE * -y + POSITION_Y_OFFSET,
+  };
+}
+
 interface OuterMqttMessage {
   type?: string;
   deviceId?: string;
@@ -38,10 +50,6 @@ export class MqttPoseClient {
   private static readonly POSE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/pose$/;
   private static readonly PATH_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/path$/;
   private static readonly DEVICE_EVENT_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/(disconnect|disconnected|offline|status|state)$/;
-  private static readonly X_SCALE = 14.5;
-  private static readonly X_OFFSET = -84.95;
-  private static readonly Y_SCALE = 14.5;
-  private static readonly Y_OFFSET = 79.67;
   private readonly url: string;
   private readonly onPose: (pose: LivePose) => void;
   private readonly onPath?: (deviceId: string, points: PathPoint[]) => void;
@@ -378,10 +386,7 @@ export class MqttPoseClient {
   }
 
   private transformCoordinates(x2: number, y2: number): { x: number; y: number } {
-    return {
-      x: MqttPoseClient.X_SCALE * x2 + MqttPoseClient.X_OFFSET,
-      y: MqttPoseClient.Y_SCALE * -y2 + MqttPoseClient.Y_OFFSET,
-    };
+    return transformProtocolCoordinates(x2, y2);
   }
 
   private normalizeTimestamp(value: unknown): number | undefined {

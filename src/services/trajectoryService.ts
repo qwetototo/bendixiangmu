@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { PathPoint } from '@/three/TwinScene';
+import { transformProtocolCoordinates } from '@/services/mqttPose';
 
 export interface TrajectoryQuery {
   deviceId?: string;
@@ -29,8 +30,8 @@ interface TrajectoryResponseVO {
 }
 
 const DEFAULT_TRAJECTORY_API_URL = '/api/trajectory/points';
-const SCENE_UNITS_PER_MM = 0.01;
-const RADIANS_PER_MRAD = 0.001;
+const STORED_COORDINATE_SCALE = 1000;
+const STORED_THETA_SCALE = 1000;
 
 // 时间戳诊断函数（开发调试用）
 export function diagnoseTimestamp(value: unknown): {
@@ -86,15 +87,17 @@ export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<Tra
 
 function normalizeTrajectoryPoint(point: TrajectoryPointVO): TrajectoryReplayPoint | null {
   const deviceId = point.deviceId?.trim();
-  const x = normalizeCoordinate(point.x);
-  const y = normalizeCoordinate(point.y);
+  const rawX = normalizeStoredNumber(point.x, STORED_COORDINATE_SCALE);
+  const rawY = normalizeStoredNumber(point.y, STORED_COORDINATE_SCALE);
   const z = normalizeCoordinate(point.z ?? 0);
   const theta = normalizeTheta(point.theta ?? 0);
   const time = normalizeTimestamp(point.timestamp ?? point.time ?? point.serverTs);
 
-  if (!deviceId || ![x, y, z, theta, time].every((value) => Number.isFinite(value))) {
+  if (!deviceId || ![rawX, rawY, z, theta, time].every((value) => Number.isFinite(value))) {
     return null;
   }
+
+  const { x, y } = transformProtocolCoordinates(rawX, rawY);
 
   return {
     deviceId,
@@ -107,11 +110,15 @@ function normalizeTrajectoryPoint(point: TrajectoryPointVO): TrajectoryReplayPoi
 }
 
 function normalizeCoordinate(value: unknown): number {
-  return Number(value) * SCENE_UNITS_PER_MM;
+  return normalizeStoredNumber(value, STORED_COORDINATE_SCALE);
 }
 
 function normalizeTheta(value: unknown): number {
-  return Number(value) * RADIANS_PER_MRAD;
+  return normalizeStoredNumber(value, STORED_THETA_SCALE);
+}
+
+function normalizeStoredNumber(value: unknown, scale: number): number {
+  return Number(value) / scale;
 }
 
 function normalizeTimestamp(value: unknown): number {
