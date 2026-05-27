@@ -6,6 +6,7 @@ export interface TrajectoryQuery {
   deviceId?: string;
   startTime: number;
   endTime: number;
+  limit?: number;
 }
 
 export interface TrajectoryReplayPoint extends PathPoint {
@@ -74,6 +75,7 @@ export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<Tra
       deviceId: query.deviceId || undefined,
       startTime: query.startTime,
       endTime: query.endTime,
+      limit: query.limit,
     },
   });
 

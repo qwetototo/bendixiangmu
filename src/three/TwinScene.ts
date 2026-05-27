@@ -891,6 +891,13 @@ export class TwinScene {
     }
   }
 
+  hideReplayPose(deviceId: string): void {
+    const marker = this.livePoseMarkers.get(deviceId || 'unknown');
+    if (marker) {
+      marker.visible = false;
+    }
+  }
+
   private resolveOverlayUrl(overlayPath: string): string | null {
     const configuredPath = overlayPath.replace(/\\/g, '/').replace(/^\/+/, '');
     const directKey = `/src/assets/image/${configuredPath}`;

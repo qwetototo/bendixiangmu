@@ -146,6 +146,53 @@
           </button>
         </nav>
 
+        <div v-if="replayFrameTimes.length > 1" class="replay-progress-dock">
+          <div v-if="replayLoadStatus" class="replay-load-status" :class="{ buffering: replayBuffering }">
+            {{ replayLoadStatus }}
+          </div>
+          <div class="progress-row">
+            <input
+              v-model.number="replayProgress"
+              type="range"
+              min="0"
+              max="100"
+              step="0.1"
+              :disabled="replayProgressDisabled"
+              @input="seekReplay"
+            />
+            <span>{{ replaySpeed }}x</span>
+          </div>
+          <div class="progress-time">{{ replayTimeText }}</div>
+          <div class="player-controls">
+            <button
+              type="button"
+              title="长按后退1秒"
+              @pointerdown.prevent="startReplayNudge(-1)"
+              @pointerup="stopReplayNudge"
+              @pointerleave="stopReplayNudge"
+              @pointercancel="stopReplayNudge"
+              @contextmenu.prevent
+            >
+              <StepBackwardOutlined />
+            </button>
+            <button type="button" class="play-button" title="播放/暂停" @click="toggleReplayPlaying">
+              <PauseCircleOutlined v-if="replayPlaying" />
+              <PlayCircleOutlined v-else />
+            </button>
+            <button
+              type="button"
+              title="长按前进1秒"
+              @pointerdown.prevent="startReplayNudge(1)"
+              @pointerup="stopReplayNudge"
+              @pointerleave="stopReplayNudge"
+              @pointercancel="stopReplayNudge"
+              @contextmenu.prevent
+            >
+              <StepForwardOutlined />
+            </button>
+          </div>
+        </div>
+
         <div v-if="filterOpen" class="floating-popover filter-popover">
           <label v-for="device in deviceOptions" :key="device">
             <input v-model="selectedDevices" type="checkbox" :value="device" />
@@ -184,23 +231,6 @@
 
         <section class="glass-panel player-card">
           <p>轨迹时长：{{ replayDuration }}</p>
-          <div class="player-controls">
-            <button type="button" title="后退15秒" @click="stepReplay(-1)">
-              <StepBackwardOutlined />
-            </button>
-            <button type="button" class="play-button" title="播放/暂停" @click="toggleReplayPlaying">
-              <PauseCircleOutlined v-if="replayPlaying" />
-              <PlayCircleOutlined v-else />
-            </button>
-            <button type="button" title="前进15秒" @click="stepReplay(1)">
-              <StepForwardOutlined />
-            </button>
-          </div>
-          <div class="progress-row">
-            <input v-model.number="replayProgress" type="range" min="0" max="100" step="0.1" @input="seekReplay" />
-            <span>{{ replaySpeed }}x</span>
-          </div>
-          <div class="progress-time">{{ replayTimeText }}</div>
           <div class="timeline">
             <article v-for="item in timeline" :key="item.time" class="timeline-item">
               <i :class="{ green: item.type === 'start' || item.type === 'current' }" />
@@ -310,8 +340,14 @@ interface ReplayPoint extends PathPoint {
 
 const ALL_REPLAY_DEVICES = '__all__';
 const REPLAY_MAX_FRAMES = 600;
+const REPLAY_PAGE_LIMIT = 10_000;
+const REPLAY_BUFFER_AHEAD_MS = 30 * 1000;
+const REPLAY_DATA_GAP_MS = 30 * 1000;
+const REPLAY_SCAN_INITIAL_MS = 10 * 60 * 1000;
+const REPLAY_SCAN_MAX_MS = 2 * 60 * 60 * 1000;
 const AREA_CLUSTER_THRESHOLD = 3;
-const REPLAY_SEEK_STEP_MS = 15_000;
+const REPLAY_NUDGE_STEP_MS = 1000;
+const REPLAY_NUDGE_INTERVAL_MS = 160;
 const DAY_SECONDS = 24 * 60 * 60;
 const TIME_RANGE_STEP_SECONDS = 60;
 
@@ -337,6 +373,8 @@ const replayCurrentTime = ref(0);
 const replayDirection = ref<1 | -1>(1);
 const replaySpeed = ref(1.0);
 const replayLoading = ref(false);
+const replayBackgroundLoading = ref(false);
+const replayBuffering = ref(false);
 const replayError = ref('');
 const selectedReplayDevice = ref(ALL_REPLAY_DEVICES);
 const selectedDevices = ref(['TAG-10086', 'TAG-10001', 'TAG-10004']);
@@ -346,6 +384,10 @@ const draftReplayTimeRange = ref<[number, number]>([0, DAY_SECONDS]);
 const replayRangePickerOpen = ref(false);
 const replayPoints = ref<ReplayPoint[]>([]);
 const replayFrameTimes = ref<number[]>([]);
+const replayRangeStart = ref(0);
+const replayRangeEnd = ref(0);
+const replayLoadedUntil = ref(0);
+const replayLoadComplete = ref(false);
 const measureEnabled = ref(false);
 
 let twinScene: TwinScene | null = null;
@@ -353,6 +395,11 @@ let mqttClient: MqttPoseClient | null = null;
 let areaChart: ECharts | null = null;
 let clockTimer = 0;
 let replayTimer = 0;
+let replayNudgeTimer = 0;
+let replayLoadToken = 0;
+let replayLoadCursor = 0;
+let replayScanWindowMs = REPLAY_SCAN_INITIAL_MS;
+let replayResumeAfterBuffer = false;
 const replayHistories = new Map<string, ReplayPoint[]>();
 const replayTracks = new Map<string, ReplayPoint[]>();
 const replayTrackIndexes = new Map<string, number>();
@@ -367,6 +414,7 @@ const areaStats = [
   { name: '走廊', count: 1, percent: 8.3, color: '#8a62ff' },
   { name: '其他区域', count: 0, percent: 0, color: '#d455ff' },
 ];
+
 const events = [
   { title: '重点区域入侵', device: 'TAG-10086', time: '10:29:45', level: 'danger', icon: '!' },
   { title: '人员 SOS 求救', device: 'TAG-10021', time: '10:28:12', level: 'info', icon: 'SOS' },
@@ -403,12 +451,20 @@ const replayTimeText = computed(() => {
   }
 
   const current = replayCurrentTime.value || replayFrameTimes.value[0];
-  const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
+  const end = replayRangeEnd.value || replayFrameTimes.value[replayFrameTimes.value.length - 1];
   return `${formatClock(new Date(current))} / ${formatClock(new Date(end))}`;
 });
 
 const replayRangeText = computed(() => formatTimeRange(replayTimeRange.value));
 const draftReplayRangeText = computed(() => formatTimeRange(draftReplayTimeRange.value));
+const replayLoadStatus = computed(() => {
+  if (replayBuffering.value) {
+    return '正在加载后续轨迹，请稍候';
+  }
+
+  return '';
+});
+const replayProgressDisabled = computed(() => replayBuffering.value || replayFrameTimes.value.length < 2);
 const rangeSliderStyle = computed(() => {
   const [start, end] = draftReplayTimeRange.value;
   return {
@@ -530,7 +586,8 @@ function resolveReplayPointTime(point: PathPoint | LivePose, fallbackTime: numbe
 function resolveMqttWebSocketUrl(): string {
   const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
   // return configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
-    return configuredUrl || 'ws://localhost:8080';
+  return configuredUrl || 'ws://test.deepfusionrobotics.cn:8080';
+  // return configuredUrl || 'ws://localhost:8080';
 }
 
 function createAreaChartOption(): EChartsOption {
@@ -698,9 +755,20 @@ function setCameraMode(mode: 'overview' | 'top' | 'side') {
 }
 
 function resetReplayState() {
+  replayLoadToken += 1;
   replayPlaying.value = false;
+  replayLoading.value = false;
+  replayBackgroundLoading.value = false;
+  replayBuffering.value = false;
   replayPoints.value = [];
   replayFrameTimes.value = [];
+  replayRangeStart.value = 0;
+  replayRangeEnd.value = 0;
+  replayLoadedUntil.value = 0;
+  replayLoadComplete.value = false;
+  replayLoadCursor = 0;
+  replayScanWindowMs = REPLAY_SCAN_INITIAL_MS;
+  replayResumeAfterBuffer = false;
   replayTracks.clear();
   replayTrackIndexes.clear();
   stopReplayTimer();
@@ -739,13 +807,114 @@ function getReplayRange(): { start: number; end: number } {
   };
 }
 
-async function getReplayPoints(): Promise<ReplayPoint[]> {
-  const { start, end } = getReplayRange();
+async function getReplayChunk(start: number, end: number): Promise<ReplayPoint[]> {
   return fetchTrajectoryPoints({
     deviceId: selectedReplayDevice.value === ALL_REPLAY_DEVICES ? undefined : selectedReplayDevice.value,
     startTime: start,
     endTime: end,
+    limit: REPLAY_PAGE_LIMIT,
   });
+}
+
+function mergeReplayPoints(existingPoints: ReplayPoint[], incomingPoints: ReplayPoint[]): ReplayPoint[] {
+  const pointMap = new Map<string, ReplayPoint>();
+
+  [...existingPoints, ...incomingPoints].forEach((point) => {
+    pointMap.set(`${point.deviceId}:${point.time}:${point.x}:${point.y}:${point.z}`, point);
+  });
+
+  return [...pointMap.values()].sort((left, right) => left.time - right.time);
+}
+
+function refreshReplayDataAfterLoad() {
+  prepareReplayTracks();
+  prepareReplayFrameTimes();
+  getReplayDeviceIds().forEach((deviceId) => {
+    twinScene?.setDevicePath(deviceId, replayTracks.get(deviceId) ?? []);
+  });
+}
+
+async function loadNextReplayChunk(token: number): Promise<ReplayPoint[]> {
+  if (replayLoadComplete.value || replayLoadCursor >= replayRangeEnd.value) {
+    return [];
+  }
+
+  const chunkStart = replayLoadCursor;
+  const chunkEnd = Math.min(chunkStart + replayScanWindowMs, replayRangeEnd.value);
+  const points = await getReplayChunk(chunkStart, chunkEnd);
+
+  if (token !== replayLoadToken) {
+    return [];
+  }
+
+  if (points.length === 0) {
+    replayLoadedUntil.value = chunkEnd;
+    replayLoadCursor = chunkEnd;
+    replayLoadComplete.value = chunkEnd >= replayRangeEnd.value;
+    replayScanWindowMs = Math.min(replayScanWindowMs * 2, REPLAY_SCAN_MAX_MS);
+    if (replayPoints.value.length > 0) {
+      refreshReplayDataAfterLoad();
+    }
+    return [];
+  }
+
+  const lastPointTime = points[points.length - 1].time;
+  if (points.length > 0) {
+    replayPoints.value = mergeReplayPoints(replayPoints.value, points);
+  }
+
+  const pageFilled = points.length >= REPLAY_PAGE_LIMIT && lastPointTime < chunkEnd;
+  replayLoadComplete.value = !pageFilled && chunkEnd >= replayRangeEnd.value;
+  replayLoadCursor = pageFilled ? Math.min(lastPointTime + 1, replayRangeEnd.value) : chunkEnd;
+  replayLoadedUntil.value = pageFilled ? lastPointTime : chunkEnd;
+  replayScanWindowMs = REPLAY_SCAN_INITIAL_MS;
+
+  if (replayPoints.value.length > 0) {
+    refreshReplayDataAfterLoad();
+  }
+
+  return points;
+}
+
+async function loadInitialReplayChunks(token: number): Promise<void> {
+  while (token === replayLoadToken && !replayLoadComplete.value && replayPoints.value.length < 2) {
+    await loadNextReplayChunk(token);
+  }
+}
+
+function resumeReplayAfterBufferIfReady() {
+  if (!replayBuffering.value || !replayResumeAfterBuffer) {
+    return;
+  }
+
+  const currentTime = replayCurrentTime.value || replayFrameTimes.value[0] || replayRangeStart.value;
+  if (currentTime + REPLAY_BUFFER_AHEAD_MS >= replayLoadedUntil.value && replayLoadedUntil.value < replayRangeEnd.value) {
+    return;
+  }
+
+  replayBuffering.value = false;
+  replayResumeAfterBuffer = false;
+  replayPlaying.value = true;
+  startReplayTimer();
+}
+
+async function loadRemainingReplayChunks(token: number): Promise<void> {
+  replayBackgroundLoading.value = true;
+  try {
+    while (token === replayLoadToken && !replayLoadComplete.value) {
+      await loadNextReplayChunk(token);
+      resumeReplayAfterBufferIfReady();
+    }
+  } catch (error) {
+    if (token === replayLoadToken) {
+      replayError.value = error instanceof Error ? error.message : '后续轨迹数据加载失败';
+    }
+  } finally {
+    if (token === replayLoadToken) {
+      replayBackgroundLoading.value = false;
+      resumeReplayAfterBufferIfReady();
+    }
+  }
 }
 
 function getReplayDeviceIds(): string[] {
@@ -773,6 +942,13 @@ function stopReplayTimer() {
   if (replayTimer) {
     window.clearInterval(replayTimer);
     replayTimer = 0;
+  }
+}
+
+function stopReplayNudge() {
+  if (replayNudgeTimer) {
+    window.clearInterval(replayNudgeTimer);
+    replayNudgeTimer = 0;
   }
 }
 
@@ -831,16 +1007,20 @@ function findReplayPointAtTime(points: ReplayPoint[], time: number): ReplayPoint
   return points[findReplayTrackIndexAtTime(points, time)] ?? points[0];
 }
 
-function interpolateReplayPoint(points: ReplayPoint[], time: number): ReplayPoint {
+function interpolateReplayPoint(points: ReplayPoint[], time: number): ReplayPoint | null {
   if (points.length === 0) {
-    return { deviceId: '', x: 0, y: 0, z: 0, time };
+    return null;
   }
 
   const leftIndex = findReplayTrackIndexAtTime(points, time);
   const left = points[leftIndex] ?? points[0];
   const right = points[leftIndex + 1];
   if (!right || right.time <= left.time || time <= left.time) {
-    return left;
+    return time - left.time > REPLAY_DATA_GAP_MS ? null : left;
+  }
+
+  if (right.time - left.time > REPLAY_DATA_GAP_MS && time - left.time > REPLAY_DATA_GAP_MS) {
+    return null;
   }
 
   const ratio = Math.max(0, Math.min(1, (time - left.time) / (right.time - left.time)));
@@ -873,13 +1053,16 @@ function prepareReplayFrameTimes() {
     return;
   }
 
+  const loadedEnd = replayLoadComplete.value ? replayRangeEnd.value : replayLoadedUntil.value;
   if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
-    replayFrameTimes.value = replayPoints.value.map((point) => point.time);
+    replayFrameTimes.value = [...new Set([...replayPoints.value.map((point) => point.time), loadedEnd])]
+      .filter((time) => Number.isFinite(time))
+      .sort((left, right) => left - right);
     return;
   }
 
   const start = replayPoints.value[0].time;
-  const end = replayPoints.value[replayPoints.value.length - 1].time;
+  const end = Math.max(replayPoints.value[replayPoints.value.length - 1].time, loadedEnd);
   if (start === end) {
     replayFrameTimes.value = [start];
     return;
@@ -901,7 +1084,10 @@ function getReplayPositionsAtTime(time: number): ReplayPoint[] {
   const positions: ReplayPoint[] = [];
   replayTracks.forEach((track) => {
     if (track.length > 0) {
-      positions.push(findReplayPointAtTime(track, time));
+      const point = interpolateReplayPoint(track, time);
+      if (point) {
+        positions.push(point);
+      }
     }
   });
   return positions;
@@ -956,13 +1142,19 @@ function applyReplayTime(time: number) {
       const framePoint = interpolateReplayPoint(devicePoints, time);
       if (framePoint) {
         twinScene?.updateReplayPose(deviceId, framePoint, framePoint.theta ?? 0);
+      } else {
+        twinScene?.hideReplayPose(deviceId);
       }
     });
     return;
   }
 
   const point = interpolateReplayPoint(replayPoints.value, time);
-  twinScene?.updateReplayPose(point.deviceId, point, point.theta ?? 0);
+  if (point) {
+    twinScene?.updateReplayPose(point.deviceId, point, point.theta ?? 0);
+  } else if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
+    twinScene?.hideReplayPose(selectedReplayDevice.value);
+  }
 }
 
 function setReplayIndex(index: number) {
@@ -979,6 +1171,12 @@ function setReplayIndex(index: number) {
   setReplayTime(replayFrameTimes.value[safeIndex]);
 }
 
+function getReplayProgressRange(): { start: number; end: number } {
+  const start = replayPoints.value[0]?.time ?? replayRangeStart.value;
+  const end = replayRangeEnd.value || replayFrameTimes.value[replayFrameTimes.value.length - 1] || start;
+  return { start, end };
+}
+
 function setReplayTime(time: number) {
   if (replayFrameTimes.value.length <= 1) {
     return;
@@ -989,7 +1187,10 @@ function setReplayTime(time: number) {
   const safeTime = Math.max(start, Math.min(time, end));
   replayCurrentTime.value = safeTime;
   replayFrameIndex.value = findReplayFrameIndexAtTime(safeTime);
-  replayProgress.value = Number((((safeTime - start) / (end - start)) * 100).toFixed(2));
+  const progressRange = getReplayProgressRange();
+  replayProgress.value = progressRange.end > progressRange.start
+    ? Number((((safeTime - progressRange.start) / (progressRange.end - progressRange.start)) * 100).toFixed(2))
+    : 0;
   applyReplayTime(safeTime);
 }
 
@@ -1001,7 +1202,6 @@ function startReplayTimer() {
 
   const intervalMs = 50; // 减小定时器间隔提高精度
   let lastUpdateTime = Date.now();
-  let lastReplayTime = replayCurrentTime.value || replayFrameTimes.value[0];
 
   replayTimer = window.setInterval(() => {
     const now = Date.now();
@@ -1009,11 +1209,20 @@ function startReplayTimer() {
     lastUpdateTime = now;
 
     // 基于实际经过的时间计算下一帧时间（更精确）
-    const nextTime = lastReplayTime + actualElapsedMs * replaySpeed.value * replayDirection.value;
-    lastReplayTime = nextTime;
+    const currentReplayTime = replayCurrentTime.value || replayFrameTimes.value[0];
+    const nextTime = currentReplayTime + actualElapsedMs * replaySpeed.value * replayDirection.value;
 
     const start = replayFrameTimes.value[0];
     const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
+    if (nextTime >= replayLoadedUntil.value && replayLoadedUntil.value < replayRangeEnd.value) {
+      replayPlaying.value = false;
+      replayBuffering.value = true;
+      replayResumeAfterBuffer = true;
+      stopReplayTimer();
+      setReplayTime(replayLoadedUntil.value);
+      return;
+    }
+
     if (nextTime >= end || nextTime <= start) {
       replayPlaying.value = false;
       stopReplayTimer();
@@ -1026,29 +1235,45 @@ function startReplayTimer() {
 }
 
 async function startReplay() {
+  const token = replayLoadToken + 1;
+  replayLoadToken = token;
   replayPanelOpen.value = true;
   replayLoading.value = true;
+  replayBackgroundLoading.value = false;
+  replayBuffering.value = false;
   replayError.value = '';
   stopReplayTimer();
   replayPlaying.value = false;
+  replayResumeAfterBuffer = false;
   replayPoints.value = [];
   replayFrameTimes.value = [];
+  const replayRange = getReplayRange();
+  replayRangeStart.value = replayRange.start;
+  replayRangeEnd.value = replayRange.end;
+  replayLoadedUntil.value = replayRange.start;
+  replayLoadComplete.value = false;
+  replayLoadCursor = replayRange.start;
+  replayScanWindowMs = REPLAY_SCAN_INITIAL_MS;
   replayTracks.clear();
   replayTrackIndexes.clear();
   try {
-    replayPoints.value = await getReplayPoints();
+    await loadInitialReplayChunks(token);
   } catch (error) {
     replayError.value = error instanceof Error ? error.message : '轨迹数据加载失败';
     resetReplayState();
     restoreLivePoseView();
     return;
   } finally {
-    replayLoading.value = false;
+    if (token === replayLoadToken) {
+      replayLoading.value = false;
+    }
+  }
+  if (token !== replayLoadToken) {
+    return;
   }
   twinScene?.clearAllTrails();
   const replayDeviceIds = getReplayDeviceIds();
-  prepareReplayTracks();
-  prepareReplayFrameTimes();
+  refreshReplayDataAfterLoad();
   replayDirection.value = 1;
   if (replayFrameTimes.value.length < 2) {
     replayError.value = '当前时间段没有可回放的轨迹数据';
@@ -1068,6 +1293,7 @@ async function startReplay() {
   }
   replayPlaying.value = true;
   startReplayTimer();
+  void loadRemainingReplayChunks(token);
 }
 
 function clearReplay() {
@@ -1104,25 +1330,54 @@ function toggleReplayPlaying() {
   }
 }
 
-function stepReplay(direction: -1 | 1) {
+function nudgeReplay(direction: -1 | 1) {
   if (replayFrameTimes.value.length < 2) {
     startReplay();
     return;
   }
 
-  replayPlaying.value = false;
-  stopReplayTimer();
   const currentTime = replayCurrentTime.value || replayFrameTimes.value[currentReplayIndex.value] || replayFrameTimes.value[0];
-  setReplayTime(currentTime + direction * REPLAY_SEEK_STEP_MS);
+  const targetTime = currentTime + direction * REPLAY_NUDGE_STEP_MS;
+  if (!replayLoadComplete.value && targetTime > replayLoadedUntil.value) {
+    replayBuffering.value = true;
+    replayResumeAfterBuffer = replayPlaying.value;
+    setReplayTime(replayLoadedUntil.value);
+    return;
+  }
+
+  replayBuffering.value = false;
+  replayResumeAfterBuffer = false;
+  setReplayTime(targetTime);
+}
+
+function startReplayNudge(direction: -1 | 1) {
+  if (replayProgressDisabled.value) {
+    return;
+  }
+
+  stopReplayNudge();
+  nudgeReplay(direction);
+  replayNudgeTimer = window.setInterval(() => {
+    nudgeReplay(direction);
+  }, REPLAY_NUDGE_INTERVAL_MS);
 }
 
 function seekReplay() {
   replayPlaying.value = false;
   stopReplayTimer();
   if (replayFrameTimes.value.length > 1) {
-    const start = replayFrameTimes.value[0];
-    const end = replayFrameTimes.value[replayFrameTimes.value.length - 1];
-    setReplayTime(start + (end - start) * (replayProgress.value / 100));
+    const { start, end } = getReplayProgressRange();
+    const targetTime = start + (end - start) * (replayProgress.value / 100);
+    if (!replayLoadComplete.value && targetTime > replayLoadedUntil.value) {
+      replayBuffering.value = true;
+      replayResumeAfterBuffer = true;
+      setReplayTime(replayLoadedUntil.value);
+      return;
+    }
+
+    replayBuffering.value = false;
+    replayResumeAfterBuffer = false;
+    setReplayTime(targetTime);
   }
 }
 
@@ -1207,6 +1462,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.clearInterval(clockTimer);
   stopReplayTimer();
+  stopReplayNudge();
   window.removeEventListener('resize', resizeAreaChart);
   areaChart?.dispose();
   areaChart = null;
@@ -1775,6 +2031,26 @@ watch(
   background: rgba(37, 99, 235, 0.08);
 }
 
+.replay-progress-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  z-index: 4;
+  width: min(780px, calc(100% - 64px));
+  transform: translateX(-50%);
+  padding: 10px 14px 12px;
+  border: 1px solid rgba(80, 145, 205, 0.3);
+  border-radius: 6px;
+  background: rgba(5, 18, 33, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.twin-screen--light .replay-progress-dock {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 16px 36px rgba(38, 52, 82, 0.12);
+}
+
 .floating-popover {
   position: absolute;
   left: 50%;
@@ -2078,31 +2354,39 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  gap: 20px;
+  margin-top: 8px;
 }
 
 .player-controls button {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border: 0;
   background: transparent;
+  color: rgba(230, 243, 255, 0.88);
   font-size: 18px;
+  touch-action: none;
+  user-select: none;
 }
 
 .player-controls .play-button {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   border: 1px solid rgba(171, 210, 248, 0.5);
   border-radius: 50%;
-  font-size: 28px;
+  font-size: 26px;
+}
+
+.twin-screen--light .player-controls button {
+  color: rgba(23, 32, 51, 0.78);
 }
 
 .progress-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 42px;
   align-items: center;
-  gap: 8px;
-  margin: 12px 0 6px;
+  gap: 12px;
+  margin: 0 0 6px;
   color: #fff;
   font-size: 12px;
 }
@@ -2111,12 +2395,55 @@ watch(
   accent-color: #247cff;
 }
 
+.progress-row input:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.twin-screen--light .progress-row {
+  color: #172033;
+}
+
 .progress-time {
-  margin-bottom: 18px;
+  margin-bottom: 0;
   color: rgba(223, 236, 248, 0.74);
   font-size: 12px;
   text-align: center;
   white-space: nowrap;
+}
+
+.twin-screen--light .progress-time {
+  color: rgba(52, 65, 89, 0.66);
+}
+
+.replay-load-status {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(90, 156, 232, 0.28);
+  border-radius: 6px;
+  background: rgba(36, 124, 255, 0.12);
+  color: rgba(224, 240, 255, 0.86);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.replay-load-status.buffering {
+  border-color: rgba(255, 194, 51, 0.46);
+  background: rgba(255, 194, 51, 0.14);
+  color: rgba(255, 237, 181, 0.94);
+}
+
+.twin-screen--light .replay-load-status {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.08);
+  color: rgba(23, 32, 51, 0.72);
+}
+
+.twin-screen--light .replay-load-status.buffering {
+  border-color: rgba(180, 121, 16, 0.28);
+  background: rgba(245, 158, 11, 0.1);
+  color: #7c4a03;
 }
 
 .timeline {
