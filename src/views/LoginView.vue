@@ -5,7 +5,7 @@
         <span>deepfusion</span>
         <strong>人员轨迹数字孪生平台</strong>
       </div>
-      <form class="login-form" @submit.prevent="$emit('login')">
+      <form class="login-form" @submit.prevent="$emit('login', { remember: loginForm.remember })">
         <label>
           <span>账号</span>
           <input v-model="loginForm.account" autocomplete="username" placeholder="admin@deepfusion" />
@@ -45,7 +45,7 @@
 import { reactive } from 'vue';
 
 defineEmits<{
-  login: [];
+  login: [{ remember: boolean }];
 }>();
 
 const loginForm = reactive({

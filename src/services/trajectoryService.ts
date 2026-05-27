@@ -34,40 +34,6 @@ const DEFAULT_TRAJECTORY_API_URL = '/api/trajectory/points';
 const STORED_COORDINATE_SCALE = 1000;
 const STORED_THETA_SCALE = 1000;
 
-// 时间戳诊断函数（开发调试用）
-export function diagnoseTimestamp(value: unknown): {
-  originalValue: unknown;
-  normalizedMs: number;
-  readableDate: string;
-  detectedFormat: string;
-} {
-  const normalized = normalizeTimestamp(value);
-  const YEAR_2000_MS = 946684800000;
-  const YEAR_2100_MS = 4102444800000;
-
-  let detectedFormat = 'unknown';
-  const numericValue = Number(value);
-
-  if (!Number.isFinite(numericValue)) {
-    detectedFormat = 'invalid';
-  } else if (numericValue >= YEAR_2000_MS && numericValue <= YEAR_2100_MS) {
-    detectedFormat = 'milliseconds';
-  } else if (numericValue >= 1e14 && numericValue < 1e16) {
-    detectedFormat = 'microseconds';
-  } else if (numericValue >= 1e17) {
-    detectedFormat = 'nanoseconds';
-  } else if (numericValue >= 1e9 && numericValue < YEAR_2000_MS) {
-    detectedFormat = 'seconds';
-  }
-
-  return {
-    originalValue: value,
-    normalizedMs: normalized,
-    readableDate: Number.isFinite(normalized) ? new Date(normalized).toISOString() : 'Invalid',
-    detectedFormat,
-  };
-}
-
 export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<TrajectoryReplayPoint[]> {
   const endpoint = import.meta.env.VITE_TRAJECTORY_API_URL?.trim() || DEFAULT_TRAJECTORY_API_URL;
   const response = await axios.get<TrajectoryPointVO[] | TrajectoryResponseVO>(endpoint, {

@@ -1,5 +1,5 @@
 <template>
-  <LoginView v-if="!isAuthed" @login="isAuthed = true" />
+  <LoginView v-if="!isAuthed" @login="handleLogin" />
 
   <main v-else :class="['admin-shell', `admin-shell--${themeMode}`]">
     <header class="admin-topbar" @mouseleave="closeMenu">
@@ -26,7 +26,7 @@
         <button type="button" title="通知">
           <BellOutlined />
         </button>
-        <button type="button" title="退出登录" @click="isAuthed = false">
+        <button type="button" title="退出登录" @click="handleLogout">
           <LogoutOutlined />
         </button>
       </div>
@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, type ComponentPublicInstance } from 'vue';
+import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue';
 import { BellOutlined, BgColorsOutlined, LogoutOutlined, ReloadOutlined } from '@ant-design/icons-vue';
 import ConfigView from '@/views/admin/ConfigView.vue';
 import HomeView from '@/views/admin/HomeView.vue';
@@ -80,10 +80,33 @@ import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
 import { findNavSection, getDefaultSubmenu, navSections, type SectionKey } from '@/services/navigation';
 
-const isAuthed = ref(false);
-const activeSection = ref<SectionKey>('home');
+const AUTH_STORAGE_KEY = 'twintrack.authenticated';
+const NAV_STORAGE_KEY = 'twintrack.activeNav';
+
+interface StoredNavState {
+  section?: SectionKey;
+  submenu?: string;
+}
+
+function getStoredNavState(): StoredNavState {
+  try {
+    const rawValue = localStorage.getItem(NAV_STORAGE_KEY);
+    if (!rawValue) {
+      return {};
+    }
+
+    const parsed = JSON.parse(rawValue) as StoredNavState;
+    return findNavSection(parsed.section as SectionKey) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+const isAuthed = ref(localStorage.getItem(AUTH_STORAGE_KEY) === 'true');
+const storedNavState = getStoredNavState();
+const activeSection = ref<SectionKey>(storedNavState.section && findNavSection(storedNavState.section) ? storedNavState.section : 'home');
 const openedSection = ref<SectionKey | null>(null);
-const activeSubmenu = ref(getDefaultSubmenu('home'));
+const activeSubmenu = ref(storedNavState.submenu || getDefaultSubmenu(activeSection.value));
 const themeMode = ref<'dark' | 'light'>('dark');
 const navButtonRefs = new Map<SectionKey, HTMLElement>();
 const submenuLeft = ref(0);
@@ -139,11 +162,34 @@ function toggleTheme() {
   themeMode.value = themeMode.value === 'dark' ? 'light' : 'dark';
 }
 
+function handleLogin(payload: { remember: boolean }) {
+  isAuthed.value = true;
+  if (payload.remember) {
+    localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+  } else {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  }
+}
+
+function handleLogout() {
+  isAuthed.value = false;
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  localStorage.removeItem(NAV_STORAGE_KEY);
+}
+
 function selectNav(sectionKey: SectionKey, submenuKey: string) {
   activeSection.value = sectionKey;
   activeSubmenu.value = submenuKey || getDefaultSubmenu(sectionKey);
   openedSection.value = null;
 }
+
+watch(
+  [activeSection, activeSubmenu],
+  ([section, submenu]) => {
+    localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify({ section, submenu }));
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>

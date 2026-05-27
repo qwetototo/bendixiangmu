@@ -324,7 +324,8 @@ import type { ECharts, EChartsOption } from 'echarts';
 import footerGaIcon from '@/assets/image/footer_ga-1.png';
 import { useSceneStore } from '@/stores/scene';
 import { MqttPoseClient, type MqttConnectionError, type MqttConnectionStatus } from '@/services/mqttPose';
-import { fetchTrajectoryPoints, diagnoseTimestamp } from '@/services/trajectoryService';
+import { fetchTrajectoryPoints } from '@/services/trajectoryService';
+import { getAllAlertMessage, type AlertEvent } from '@/services/alert';
 import { TwinScene, type LivePose, type PathPoint, type PickPointResult } from '@/three/TwinScene';
 
 const props = defineProps<{
@@ -415,13 +416,7 @@ const areaStats = [
   { name: '其他区域', count: 0, percent: 0, color: '#d455ff' },
 ];
 
-const events = [
-  { title: '重点区域入侵', device: 'TAG-10086', time: '10:29:45', level: 'danger', icon: '!' },
-  { title: '人员 SOS 求救', device: 'TAG-10021', time: '10:28:12', level: 'info', icon: 'SOS' },
-  { title: '人员跌倒', device: 'TAG-10015', time: '10:25:18', level: 'purple', icon: '人' },
-  { title: '设备低电量', device: 'TAG-10032', time: '10:20:33', level: 'warn', icon: '电' },
-  { title: '越界告警', device: 'TAG-10042', time: '10:15:27', level: 'alarm', icon: '!' },
-];
+const events = ref<AlertEvent[]>([]);
 const onlineDevices = computed(() => (livePose.value ? 12 : 11));
 const isLightTheme = computed(() => props.themeMode === 'light');
 const chartTextColor = computed(() => (isLightTheme.value ? 'rgba(52, 65, 89, 0.72)' : 'rgba(226, 239, 249, 0.74)'));
@@ -952,39 +947,6 @@ function stopReplayNudge() {
   }
 }
 
-// 调试函数：诊断回放时间问题
-function diagnoseReplayTimings() {
-  if (replayPoints.value.length === 0) {
-    console.warn('[Replay Diagnosis] No replay points loaded');
-    return;
-  }
-
-  const first = replayPoints.value[0];
-  const last = replayPoints.value[replayPoints.value.length - 1];
-  const durationMs = last.time - first.time;
-  const durationSec = durationMs / 1000;
-
-  console.group('[Replay Diagnosis]');
-  console.log('Total points:', replayPoints.value.length);
-  console.log('Start time:', new Date(first.time).toISOString(), `(${first.time})`);
-  console.log('End time:', new Date(last.time).toISOString(), `(${last.time})`);
-  console.log('Duration:', `${durationSec.toFixed(1)}s (${durationMs}ms)`);
-  console.log('Frame count:', replayFrameTimes.value.length);
-  
-  if (replayFrameTimes.value.length > 1) {
-    const avgFrameInterval = (replayFrameTimes.value[replayFrameTimes.value.length - 1] - replayFrameTimes.value[0]) / (replayFrameTimes.value.length - 1);
-    console.log('Avg frame interval:', `${avgFrameInterval.toFixed(0)}ms`);
-  }
-
-  console.log('Replay speed:', replaySpeed.value);
-  console.log('Current replay time:', new Date(replayCurrentTime.value).toISOString(), `(${replayCurrentTime.value})`);
-  
-  // 诊断第一个和最后一个点的时间戳格式
-  console.log('First point timestamp diagnosis:', diagnoseTimestamp(first.time));
-  console.log('Last point timestamp diagnosis:', diagnoseTimestamp(last.time));
-  console.groupEnd();
-}
-
 function findReplayTrackIndexAtTime(points: ReplayPoint[], time: number): number {
   let left = 0;
   let right = points.length - 1;
@@ -1385,7 +1347,18 @@ function isReplayLoaded(): boolean {
   return replayPoints.value.length > 0;
 }
 
+async function loadAlertEvents() {
+  try {
+    events.value = await getAllAlertMessage();
+  } catch (error) {
+    console.warn('Failed to load alert events', error);
+    events.value = [];
+  }
+}
+
 onMounted(() => {
+  void loadAlertEvents();
+
   clockTimer = window.setInterval(() => {
     currentTime.value = formatClock(new Date());
   }, 1000);
@@ -1695,11 +1668,19 @@ watch(
 .right-rail {
   position: relative;
   z-index: 3;
-  display: flex;
-  flex-direction: column;
   gap: 10px;
   min-width: 0;
   min-height: 0;
+}
+
+.left-rail {
+  display: grid;
+  grid-template-rows: auto minmax(220px, 0.95fr) minmax(220px, 1.05fr);
+}
+
+.right-rail {
+  display: flex;
+  flex-direction: column;
 }
 
 .glass-panel {
@@ -1780,24 +1761,29 @@ watch(
 }
 
 .area-card {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 
 .donut-wrap {
+  flex: 0 0 auto;
   display: flex;
   justify-content: center;
-  padding: 24px 0 12px;
+  padding: 16px 0 10px;
 }
 
 .area-chart {
-  width: 156px;
-  height: 156px;
+  width: 136px;
+  height: 136px;
 }
 
 .area-list {
   display: grid;
+  flex: 1 1 auto;
   gap: 9px;
+  min-height: 0;
+  overflow: auto;
   padding: 0 18px 18px;
 }
 
@@ -1854,9 +1840,67 @@ watch(
 
 .event-list {
   display: grid;
+  align-content: start;
   gap: 12px;
+  min-height: 0;
   overflow: auto;
   padding: 12px 16px 16px;
+}
+
+.event-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.area-list,
+.event-list,
+.player-card {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(126, 164, 206, 0.22) transparent;
+}
+
+.area-list::-webkit-scrollbar,
+.event-list::-webkit-scrollbar,
+.player-card::-webkit-scrollbar {
+  width: 6px;
+}
+
+.area-list::-webkit-scrollbar-track,
+.event-list::-webkit-scrollbar-track,
+.player-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.area-list::-webkit-scrollbar-thumb,
+.event-list::-webkit-scrollbar-thumb,
+.player-card::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(126, 164, 206, 0.18);
+}
+
+.area-list:hover::-webkit-scrollbar-thumb,
+.event-list:hover::-webkit-scrollbar-thumb,
+.player-card:hover::-webkit-scrollbar-thumb {
+  background: rgba(126, 164, 206, 0.32);
+}
+
+.twin-screen--light .area-list,
+.twin-screen--light .event-list,
+.twin-screen--light .player-card {
+  scrollbar-color: rgba(78, 101, 140, 0.2) transparent;
+}
+
+.twin-screen--light .area-list::-webkit-scrollbar-thumb,
+.twin-screen--light .event-list::-webkit-scrollbar-thumb,
+.twin-screen--light .player-card::-webkit-scrollbar-thumb {
+  background: rgba(78, 101, 140, 0.16);
+}
+
+.twin-screen--light .area-list:hover::-webkit-scrollbar-thumb,
+.twin-screen--light .event-list:hover::-webkit-scrollbar-thumb,
+.twin-screen--light .player-card:hover::-webkit-scrollbar-thumb {
+  background: rgba(78, 101, 140, 0.28);
 }
 
 .event-item {
