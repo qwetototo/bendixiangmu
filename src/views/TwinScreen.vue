@@ -580,8 +580,8 @@ function resolveReplayPointTime(point: PathPoint | LivePose, fallbackTime: numbe
 
 function resolveMqttWebSocketUrl(): string {
   const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
-  // return configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
-  return configuredUrl || 'ws://test.deepfusionrobotics.cn:8080';
+  return configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
+  // return configuredUrl || 'ws://test.deepfusionrobotics.cn:8080';
   // return configuredUrl || 'ws://localhost:8080';
 }
 
@@ -2078,21 +2078,22 @@ watch(
 .replay-progress-dock {
   position: absolute;
   left: 50%;
-  bottom: 96px;
+  bottom: 76px;
   z-index: 4;
-  width: min(780px, calc(100% - 64px));
+  width: clamp(460px, 52vw, 620px);
+  max-width: calc(100% - 32px);
   transform: translateX(-50%);
-  padding: 10px 14px 12px;
-  border: 1px solid rgba(80, 145, 205, 0.3);
+  padding: 8px 12px 10px;
+  border: 1px solid rgba(80, 145, 205, 0.22);
   border-radius: 6px;
-  background: rgba(5, 18, 33, 0.78);
-  backdrop-filter: blur(10px);
+  background: rgba(5, 18, 33, 0.56);
+  backdrop-filter: blur(8px);
 }
 
 .twin-screen--light .replay-progress-dock {
-  border-color: rgba(78, 101, 140, 0.16);
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: 0 16px 36px rgba(38, 52, 82, 0.12);
+  border-color: rgba(78, 101, 140, 0.12);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 10px 24px rgba(38, 52, 82, 0.08);
 }
 
 .floating-popover {
@@ -2398,27 +2399,27 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  margin-top: 8px;
+  gap: 12px;
+  margin-top: 5px;
 }
 
 .player-controls button {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border: 0;
   background: transparent;
   color: rgba(230, 243, 255, 0.88);
-  font-size: 18px;
+  font-size: 16px;
   touch-action: none;
   user-select: none;
 }
 
 .player-controls .play-button {
-  width: 42px;
-  height: 42px;
-  border: 1px solid rgba(171, 210, 248, 0.5);
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(171, 210, 248, 0.42);
   border-radius: 50%;
-  font-size: 26px;
+  font-size: 22px;
 }
 
 .twin-screen--light .player-controls button {
@@ -2427,16 +2428,31 @@ watch(
 
 .progress-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   align-items: center;
-  gap: 12px;
-  margin: 0 0 6px;
+  gap: 10px;
+  margin: 0 0 4px;
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .progress-row input {
+  height: 14px;
   accent-color: #247cff;
+}
+
+.progress-row input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+}
+
+.progress-row input::-webkit-slider-thumb {
+  margin-top: -5px;
+}
+
+.progress-row input::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
 }
 
 .progress-row input:disabled {
@@ -2451,7 +2467,7 @@ watch(
 .progress-time {
   margin-bottom: 0;
   color: rgba(223, 236, 248, 0.74);
-  font-size: 12px;
+  font-size: 11px;
   text-align: center;
   white-space: nowrap;
 }
@@ -2461,14 +2477,14 @@ watch(
 }
 
 .replay-load-status {
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border: 1px solid rgba(90, 156, 232, 0.28);
+  margin: 0 0 6px;
+  padding: 5px 8px;
+  border: 1px solid rgba(90, 156, 232, 0.22);
   border-radius: 6px;
-  background: rgba(36, 124, 255, 0.12);
-  color: rgba(224, 240, 255, 0.86);
-  font-size: 12px;
-  line-height: 1.4;
+  background: rgba(36, 124, 255, 0.09);
+  color: rgba(224, 240, 255, 0.78);
+  font-size: 11px;
+  line-height: 1.3;
   text-align: center;
 }
 
@@ -2572,6 +2588,11 @@ watch(
   .tool-dock {
     grid-template-columns: repeat(4, minmax(70px, 1fr));
     width: calc(100% - 20px);
+  }
+
+  .replay-progress-dock {
+    bottom: 70px;
+    width: calc(100% - 24px);
   }
 }
 </style>
