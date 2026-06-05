@@ -801,6 +801,13 @@ function resetReplayState() {
   twinScene?.setVisibleLivePoses(null);
 }
 
+function clearReplayScene(deviceIds = getReplayDeviceIds()) {
+  twinScene?.clearAllTrails();
+  deviceIds.forEach((deviceId) => {
+    twinScene?.hideReplayPose(deviceId);
+  });
+}
+
 function restoreLivePoseView() {
   if (livePose.value) {
     twinScene?.updateLivePose(livePose.value);
@@ -808,9 +815,10 @@ function restoreLivePoseView() {
 }
 
 function clearTrails() {
+  const previousReplayDeviceIds = getReplayDeviceIds();
   resetReplayState();
   replayHistories.clear();
-  twinScene?.clearAllTrails();
+  clearReplayScene(previousReplayDeviceIds);
   restoreLivePoseView();
 }
 
@@ -1226,6 +1234,7 @@ function startReplayTimer() {
 
 async function startReplay(options: { autoPlay?: boolean } = {}) {
   const autoPlay = options.autoPlay ?? true;
+  const previousReplayDeviceIds = getReplayDeviceIds();
   const token = replayLoadToken + 1;
   replayLoadToken = token;
   replayPanelOpen.value = true;
@@ -1237,6 +1246,7 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   stopReplayTimer();
   replayPlaying.value = false;
   replayResumeAfterBuffer = false;
+  clearReplayScene(previousReplayDeviceIds);
   replayPoints.value = [];
   replayFrameTimes.value = [];
   const replayRange = getReplayRange();
@@ -1263,14 +1273,18 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   if (token !== replayLoadToken) {
     return;
   }
-  twinScene?.clearAllTrails();
   const replayDeviceIds = getReplayDeviceIds();
   refreshReplayDataAfterLoad();
   replayDirection.value = 1;
   if (replayFrameTimes.value.length < 2) {
     replayError.value = '当前时间段没有可回放的轨迹数据';
-    resetReplayState();
-    restoreLivePoseView();
+    replayPoints.value = [];
+    replayFrameTimes.value = [];
+    replayTracks.clear();
+    replayTrackIndexes.clear();
+    replayProgress.value = 0;
+    replayFrameIndex.value = 0;
+    replayCurrentTime.value = 0;
     return;
   }
 
@@ -1291,8 +1305,9 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
 }
 
 function clearReplay() {
+  const previousReplayDeviceIds = getReplayDeviceIds();
   resetReplayState();
-  twinScene?.clearAllTrails();
+  clearReplayScene(previousReplayDeviceIds);
   restoreLivePoseView();
 }
 
