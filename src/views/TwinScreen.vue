@@ -62,7 +62,7 @@
         <section class="glass-panel event-card">
           <div class="panel-title-row">
             <h2>事件中心</h2>
-            <button type="button">全部事件</button>
+            <button type="button" @click="$emit('show-events')">全部事件</button>
           </div>
           <div class="event-list">
             <article v-for="event in events" :key="event.title" class="event-item">
@@ -212,7 +212,7 @@
           </label>
           <label>
             <span>回放日期</span>
-            <input v-model="replayDate" type="date" />
+            <input v-model="replayDate" type="date" @change="searchReplayForSelectedTime" />
           </label>
           <label>
             <span>时间区间</span>
@@ -221,7 +221,7 @@
             </button>
           </label>
           <div class="replay-actions">
-            <button type="button" class="primary-button" :disabled="replayLoading" @click="startReplay">
+            <button type="button" class="primary-button" :disabled="replayLoading" @click="startReplay()">
               {{ replayLoading ? '加载中' : '开始回放' }}
             </button>
             <button type="button" class="ghost-button" @click="exitReplayMode">返回实时</button>
@@ -333,6 +333,10 @@ const props = defineProps<{
   themeMode?: 'dark' | 'light';
 }>();
 
+defineEmits<{
+  'show-events': [];
+}>();
+
 interface ReplayPoint extends PathPoint {
   deviceId: string;
   time: number;
@@ -377,6 +381,7 @@ const replayLoading = ref(false);
 const replayBackgroundLoading = ref(false);
 const replayBuffering = ref(false);
 const replayError = ref('');
+const replaySearchAttempted = ref(false);
 const selectedReplayDevice = ref(ALL_REPLAY_DEVICES);
 const selectedDevices = ref(['TAG-10086', 'TAG-10001', 'TAG-10004']);
 const replayDate = ref(formatDateOnly(new Date()));
@@ -452,6 +457,7 @@ const replayTimeText = computed(() => {
 
 const replayRangeText = computed(() => formatTimeRange(replayTimeRange.value));
 const draftReplayRangeText = computed(() => formatTimeRange(draftReplayTimeRange.value));
+const replayQueryText = computed(() => `${replayDate.value} ${replayRangeText.value}`);
 const replayLoadStatus = computed(() => {
   if (replayBuffering.value) {
     return '正在加载后续轨迹，请稍候';
@@ -478,7 +484,19 @@ const clockRangeStyle = computed(() => {
 });
 
 const timeline = computed(() => {
+  if (replayLoading.value) {
+    return [{ id: 'searching', time: '--:--:--', title: '正在搜索轨迹', place: `${getReplayDeviceName()} · ${replayQueryText.value}`, type: 'current' }];
+  }
+
+  if (replayError.value) {
+    return [{ id: 'error', time: '--:--:--', title: replayError.value, place: `${getReplayDeviceName()} · ${replayQueryText.value}`, type: 'point' }];
+  }
+
   if (replayPoints.value.length === 0) {
+    if (replaySearchAttempted.value) {
+      return [{ id: 'empty-search', time: '--:--:--', title: '未搜索到轨迹', place: `${getReplayDeviceName()} · ${replayQueryText.value}`, type: 'point' }];
+    }
+
     return [{ id: '0', time: '--:--:--', title: '暂无轨迹', place: getReplayDeviceName(), type: 'point' }];
   }
 
@@ -580,7 +598,12 @@ function resolveReplayPointTime(point: PathPoint | LivePose, fallbackTime: numbe
 
 function resolveMqttWebSocketUrl(): string {
   const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
-  return configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
+  const resolvedUrl = configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
+  console.log('[TwinScreen MQTT] resolve websocket url', {
+    configuredUrl,
+    resolvedUrl,
+  });
+  return resolvedUrl;
   // return configuredUrl || 'ws://test.deepfusionrobotics.cn:8080';
   // return configuredUrl || 'ws://localhost:8080';
 }
@@ -725,7 +748,12 @@ function cancelReplayRangePicker() {
 function confirmReplayRangePicker() {
   replayTimeRange.value = [...draftReplayTimeRange.value];
   replayRangePickerOpen.value = false;
-  resetReplayState();
+  searchReplayForSelectedTime();
+}
+
+function searchReplayForSelectedTime() {
+  replaySearchAttempted.value = true;
+  void startReplay({ autoPlay: false });
 }
 
 function setDraftReplayRange(start: number, end: number) {
@@ -1196,7 +1224,8 @@ function startReplayTimer() {
   }, intervalMs);
 }
 
-async function startReplay() {
+async function startReplay(options: { autoPlay?: boolean } = {}) {
+  const autoPlay = options.autoPlay ?? true;
   const token = replayLoadToken + 1;
   replayLoadToken = token;
   replayPanelOpen.value = true;
@@ -1204,6 +1233,7 @@ async function startReplay() {
   replayBackgroundLoading.value = false;
   replayBuffering.value = false;
   replayError.value = '';
+  replaySearchAttempted.value = true;
   stopReplayTimer();
   replayPlaying.value = false;
   replayResumeAfterBuffer = false;
@@ -1253,8 +1283,10 @@ async function startReplay() {
     twinScene?.focusLivePose(selectedReplayDevice.value);
     twinScene?.setVisibleLivePoses([selectedReplayDevice.value]);
   }
-  replayPlaying.value = true;
-  startReplayTimer();
+  if (autoPlay) {
+    replayPlaying.value = true;
+    startReplayTimer();
+  }
   void loadRemainingReplayChunks(token);
 }
 
@@ -1357,6 +1389,11 @@ async function loadAlertEvents() {
 }
 
 onMounted(() => {
+  console.log('[TwinScreen MQTT] mounted', {
+    hasSceneContainer: Boolean(sceneContainer.value),
+    embedded: props.embedded,
+    themeMode: props.themeMode,
+  });
   void loadAlertEvents();
 
   clockTimer = window.setInterval(() => {
@@ -1366,6 +1403,7 @@ onMounted(() => {
   window.addEventListener('resize', resizeAreaChart);
 
   if (!sceneContainer.value) {
+    console.warn('[TwinScreen MQTT] mqtt client not created because scene container is missing');
     return;
   }
 
@@ -1383,9 +1421,20 @@ onMounted(() => {
   twinScene.toggleWallTags(wallTagsVisible.value);
   twinScene.toggleLivePoseLabels(livePoseLabelsVisible.value);
 
+  const mqttUrl = resolveMqttWebSocketUrl();
+  console.log('[TwinScreen MQTT] creating mqtt client', { mqttUrl });
   mqttClient = new MqttPoseClient({
-    url: resolveMqttWebSocketUrl(),
+    url: mqttUrl,
     onPose: (pose) => {
+      console.log('[TwinScreen MQTT] onPose callback', {
+        deviceId: pose.deviceId,
+        x: pose.x,
+        y: pose.y,
+        z: pose.z,
+        theta: pose.theta,
+        time: pose.time,
+        receivedAt: pose.receivedAt,
+      });
       livePose.value = pose;
       appendReplayHistory(pose.deviceId, [
         {
@@ -1402,6 +1451,12 @@ onMounted(() => {
       }
     },
     onPath: (deviceId, points) => {
+      console.log('[TwinScreen MQTT] onPath callback', {
+        deviceId,
+        pointCount: points.length,
+        firstPoint: points[0],
+        lastPoint: points[points.length - 1],
+      });
       const endTime = Date.now();
       const fallbackStartTime = endTime - Math.max(0, points.length - 1) * 1000;
       appendReplayHistory(
@@ -1417,22 +1472,27 @@ onMounted(() => {
       }
     },
     onDeviceDisconnect: (deviceId) => {
+      console.log('[TwinScreen MQTT] onDeviceDisconnect callback', { deviceId });
       twinScene?.clearDeviceLivePose(deviceId);
       if (livePose.value?.deviceId === deviceId) {
         livePose.value = null;
       }
     },
     onStatusChange: (status) => {
+      console.log('[TwinScreen MQTT] status changed', { status });
       mqttStatus.value = status;
     },
     onError: (error) => {
+      console.error('[TwinScreen MQTT] error callback', error);
       mqttError.value = error;
     },
   });
+  console.log('[TwinScreen MQTT] connecting mqtt client', { mqttUrl });
   mqttClient.connect();
 });
 
 onBeforeUnmount(() => {
+  console.log('[TwinScreen MQTT] before unmount: disconnect mqtt client');
   window.clearInterval(clockTimer);
   stopReplayTimer();
   stopReplayNudge();

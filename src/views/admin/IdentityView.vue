@@ -35,17 +35,23 @@
             <span>{{ panelSubtitle }}</span>
           </div>
           <div class="board-actions">
-            <button type="button">仅看异常</button>
+            <button type="button" :class="{ active: abnormalOnly }" @click="abnormalOnly = !abnormalOnly">仅看异常</button>
             <button type="button">导出</button>
           </div>
         </div>
 
         <div class="filter-strip">
-          <div class="search-box">搜索姓名、设备编号、部门或区域</div>
+          <input v-model="keyword" class="search-box" placeholder="搜索姓名、设备编号、部门或区域" />
           <div class="segment-tabs">
-            <button type="button" class="active">全部</button>
-            <button type="button">已绑定</button>
-            <button type="button">待处理</button>
+            <button
+              v-for="tab in bindingTabs"
+              :key="tab.key"
+              type="button"
+              :class="{ active: activeFilter === tab.key }"
+              @click="activeFilter = tab.key"
+            >
+              {{ tab.label }}
+            </button>
           </div>
         </div>
 
@@ -58,7 +64,12 @@
             <span>操作</span>
           </div>
 
-          <article v-for="row in visibleBindings" :key="row.personId" class="binding-row">
+          <article
+            v-for="row in visibleBindings"
+            :key="row.personId"
+            :class="['binding-row', { active: selectedBindingId === row.personId }]"
+            @click="selectBinding(row.personId)"
+          >
             <div class="person-cell">
               <span class="avatar">{{ row.personName.slice(0, 1) }}</span>
               <div>
@@ -81,8 +92,10 @@
             </div>
 
             <small :class="['status-pill', row.status]">{{ row.statusText }}</small>
-            <button type="button">{{ row.deviceId ? '换绑' : '绑定' }}</button>
+            <button type="button" @click.stop="toggleBinding(row.personId)">{{ row.deviceId ? '换绑' : '绑定' }}</button>
           </article>
+
+          <div v-if="visibleBindings.length === 0" class="empty-state">暂无匹配的绑定关系</div>
         </div>
       </section>
 
@@ -128,14 +141,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
 const props = defineProps<{
-  activeSubmenu: string;
   themeMode: 'dark' | 'light';
 }>();
 
 type BindingStatus = 'online' | 'idle' | 'warn' | 'offline';
+type BindingFilter = 'all' | 'bound' | 'pending';
 
 interface BindingRow {
   personId: string;
@@ -153,7 +166,7 @@ interface BindingRow {
   statusText: string;
 }
 
-const bindings: BindingRow[] = [
+const bindings = reactive<BindingRow[]>([
   {
     personId: 'P-001',
     personName: '张工',
@@ -229,7 +242,18 @@ const bindings: BindingRow[] = [
     status: 'offline',
     statusText: '未绑定',
   },
+]);
+
+const bindingTabs: { key: BindingFilter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'bound', label: '已绑定' },
+  { key: 'pending', label: '待处理' },
 ];
+
+const keyword = ref('');
+const activeFilter = ref<BindingFilter>('all');
+const abnormalOnly = ref(false);
+const selectedBindingId = ref(bindings[0]?.personId ?? '');
 
 const summaryCards = [
   { label: '人员总数', value: '248', note: '统一入口维护', tone: 'blue' },
@@ -239,38 +263,60 @@ const summaryCards = [
 ];
 
 const panelTitle = computed(() => {
-  if (props.activeSubmenu === 'people') {
-    return '人员字段视图';
-  }
-
-  if (props.activeSubmenu === 'devices') {
-    return '设备字段视图';
-  }
-
   return '绑定关系台账';
 });
 
 const panelSubtitle = computed(() => {
-  if (props.activeSubmenu === 'people') {
-    return '按人员维度检查身份、部门、角色和授权区域。';
-  }
-
-  if (props.activeSubmenu === 'devices') {
-    return '按设备维度检查编号、协议、电量、固件和库存状态。';
-  }
-
   return '把人员与设备合并成一张前端操作表，减少重复维护。';
 });
 
 const visibleBindings = computed(() => {
-  if (props.activeSubmenu === 'devices') {
-    return [...bindings].sort((left, right) => left.deviceId.localeCompare(right.deviceId));
-  }
-
-  return bindings;
+  const normalizedKeyword = keyword.value.trim().toLowerCase();
+  return bindings.filter((row) => {
+    const keywordMatched = !normalizedKeyword
+      || `${row.personId} ${row.personName} ${row.department} ${row.role} ${row.deviceId} ${row.area}`.toLowerCase().includes(normalizedKeyword);
+    const tabMatched = activeFilter.value === 'all'
+      || (activeFilter.value === 'bound' && Boolean(row.deviceId))
+      || (activeFilter.value === 'pending' && !row.deviceId);
+    const abnormalMatched = !abnormalOnly.value || row.status === 'warn' || row.status === 'offline';
+    return keywordMatched && tabMatched && abnormalMatched;
+  });
 });
 
-const featuredBinding = computed(() => visibleBindings.value[0]);
+const featuredBinding = computed(() => {
+  return visibleBindings.value.find((row) => row.personId === selectedBindingId.value) ?? visibleBindings.value[0] ?? bindings[0];
+});
+
+function selectBinding(personId: string) {
+  selectedBindingId.value = personId;
+}
+
+function toggleBinding(personId: string) {
+  const row = bindings.find((item) => item.personId === personId);
+  if (!row) {
+    return;
+  }
+
+  selectedBindingId.value = personId;
+  if (row.deviceId) {
+    row.deviceId = '';
+    row.deviceType = '待分配';
+    row.protocol = '-';
+    row.battery = '-';
+    row.firmware = '-';
+    row.status = 'offline';
+    row.statusText = '未绑定';
+    return;
+  }
+
+  row.deviceId = `TAG-${Math.floor(10000 + Math.random() * 89999)}`;
+  row.deviceType = '定位标签';
+  row.protocol = 'UWB';
+  row.battery = '100%';
+  row.firmware = 'v2.4.1';
+  row.status = 'online';
+  row.statusText = '在线';
+}
 
 const personFields = computed(() => [
   { label: '人员编号', value: featuredBinding.value.personId },
@@ -430,6 +476,12 @@ const deviceFields = computed(() => [
   color: #fff;
 }
 
+.board-actions button.active {
+  border-color: rgba(100, 181, 246, 0.5);
+  background: rgba(46, 112, 210, 0.34);
+  color: #fff;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -518,6 +570,11 @@ const deviceFields = computed(() => [
   border: 1px solid rgba(118, 148, 212, 0.16);
   border-radius: 6px;
   background: rgba(6, 10, 18, 0.36);
+  color: rgba(224, 235, 255, 0.84);
+}
+
+.search-box::placeholder {
+  color: rgba(224, 235, 255, 0.46);
 }
 
 .binding-table {
@@ -554,6 +611,18 @@ const deviceFields = computed(() => [
   border-color: rgba(115, 151, 235, 0.34);
   background: rgba(28, 42, 68, 0.52);
   transform: translateY(-1px);
+}
+
+.binding-row.active {
+  border-color: rgba(100, 181, 246, 0.62);
+  background: rgba(46, 112, 210, 0.2);
+}
+
+.empty-state {
+  padding: 28px 12px 34px;
+  color: rgba(224, 235, 255, 0.56);
+  font-size: 13px;
+  text-align: center;
 }
 
 .person-cell {
@@ -800,6 +869,15 @@ const deviceFields = computed(() => [
   background: rgba(62, 120, 255, 0.07);
 }
 
+.identity-page--light .binding-row.active {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.identity-page--light .empty-state {
+  color: rgba(52, 65, 89, 0.56);
+}
+
 .identity-page--light .field-card div {
   border-color: rgba(78, 101, 140, 0.1);
 }
@@ -819,6 +897,18 @@ const deviceFields = computed(() => [
 }
 
 .identity-page--light .segment-tabs button.active {
+  background: rgba(37, 99, 235, 0.14);
+}
+
+.identity-page--light .search-box {
+  color: #172033;
+}
+
+.identity-page--light .search-box::placeholder {
+  color: rgba(52, 65, 89, 0.44);
+}
+
+.identity-page--light .board-actions button.active {
   background: rgba(37, 99, 235, 0.14);
 }
 

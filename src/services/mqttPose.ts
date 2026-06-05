@@ -50,6 +50,7 @@ export class MqttPoseClient {
   private static readonly POSE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/pose$/;
   private static readonly PATH_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/path$/;
   private static readonly DEVICE_EVENT_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/(disconnect|disconnected|offline|status|state)$/;
+  private static readonly DEBUG = true;
   private readonly url: string;
   private readonly onPose: (pose: LivePose) => void;
   private readonly onPath?: (deviceId: string, points: PathPoint[]) => void;
@@ -68,41 +69,91 @@ export class MqttPoseClient {
     this.onDeviceDisconnect = options.onDeviceDisconnect;
     this.onStatusChange = options.onStatusChange;
     this.onError = options.onError;
+    this.debug('client created', { url: this.url });
   }
 
   connect(): void {
+    this.debug('connect called', {
+      url: this.url,
+      hasExistingSocket: Boolean(this.socket),
+      existingReadyState: this.socket?.readyState,
+    });
     this.manuallyClosed = false;
     this.clearReconnectTimer();
     this.onStatusChange?.('connecting');
 
+    if (typeof WebSocket === 'undefined') {
+      this.warn('connect aborted: WebSocket is not available in this runtime', { url: this.url });
+      this.onStatusChange?.('error');
+      return;
+    }
+
     const socket = new WebSocket(this.url);
     this.socket = socket;
+    this.debug('websocket instance created', {
+      url: this.url,
+      readyState: socket.readyState,
+      protocol: socket.protocol,
+    });
 
     socket.addEventListener('open', () => {
+      this.debug('connected', {
+        url: this.url,
+        readyState: socket.readyState,
+        protocol: socket.protocol,
+        extensions: socket.extensions,
+      });
       this.onStatusChange?.('connected');
     });
 
     socket.addEventListener('message', (event) => {
+      this.debug('raw message received', {
+        dataType: typeof event.data,
+        dataConstructor: event.data?.constructor?.name,
+        readyState: socket.readyState,
+        rawData: event.data,
+      });
+
       const pose = this.parsePose(event.data);
       if (pose) {
+        this.debug('pose parsed', pose);
         this.onPose(pose);
         return;
       }
 
       const path = this.parsePath(event.data);
       if (path) {
+        this.debug('path flushed', {
+          deviceId: path.deviceId,
+          pointCount: path.points.length,
+          points: path.points,
+        });
         this.onPath?.(path.deviceId, path.points);
         return;
       }
 
       const disconnectedDeviceId = this.parseDeviceDisconnect(event.data);
       if (disconnectedDeviceId) {
+        this.debug('device disconnect parsed', { deviceId: disconnectedDeviceId });
         this.pathSegments.delete(disconnectedDeviceId);
         this.onDeviceDisconnect?.(disconnectedDeviceId);
+        return;
       }
+
+      this.warn('message ignored: did not match pose, path, or disconnect parsers', {
+        rawData: event.data,
+      });
     });
 
     socket.addEventListener('close', (event) => {
+      this.warn('close event received', {
+        url: this.url,
+        manuallyClosed: this.manuallyClosed,
+        readyState: socket.readyState,
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
       this.socket = null;
       if (this.manuallyClosed) {
         this.onStatusChange?.('disconnected');
@@ -126,6 +177,11 @@ export class MqttPoseClient {
     });
 
     socket.addEventListener('error', () => {
+      this.warn('error event received', {
+        url: this.url,
+        readyState: socket.readyState,
+        protocol: socket.protocol,
+      });
       console.error('MQTT WebSocket handshake failed', {
         url: this.url,
         readyState: socket.readyState,
@@ -138,6 +194,11 @@ export class MqttPoseClient {
   }
 
   disconnect(): void {
+    this.debug('disconnect called', {
+      url: this.url,
+      hasSocket: Boolean(this.socket),
+      readyState: this.socket?.readyState,
+    });
     this.manuallyClosed = true;
     this.clearReconnectTimer();
     this.socket?.close();
@@ -152,16 +213,44 @@ export class MqttPoseClient {
     }
   }
 
+  private debug(message: string, details?: unknown): void {
+    if (!MqttPoseClient.DEBUG) {
+      return;
+    }
+
+    console.log(`[MqttPoseClient] ${message}`, details ?? '');
+  }
+
+  private warn(message: string, details?: unknown): void {
+    if (!MqttPoseClient.DEBUG) {
+      return;
+    }
+
+    console.warn(`[MqttPoseClient] ${message}`, details ?? '');
+  }
+
   private parsePose(rawData: string): LivePose | null {
     try {
-      console.log('Received MQTT message', { rawData });
       const outer = JSON.parse(rawData) as OuterMqttMessage;
+      this.debug('outer message parsed for pose', {
+        type: outer.type,
+        deviceId: outer.deviceId,
+        topic: outer.topic,
+        receivedAt: outer.receivedAt,
+        payload: outer.payload,
+      });
+
       if (outer.type !== 'mqtt' || !outer.payload) {
+        this.debug('pose skipped: not mqtt or missing payload', {
+          type: outer.type,
+          hasPayload: Boolean(outer.payload),
+        });
         return null;
       }
 
       const topicMatch = outer.topic?.match(MqttPoseClient.POSE_TOPIC_PATTERN);
       if (!topicMatch) {
+        this.debug('pose skipped: topic did not match pose pattern', { topic: outer.topic });
         return null;
       }
 
@@ -171,8 +260,22 @@ export class MqttPoseClient {
       const z = Number(payload.z ?? 0);
       const theta = Number(payload.theta ?? 0);
       const { x, y } = this.transformCoordinates(rawX, rawY);
+      this.debug('pose payload parsed', {
+        topicDeviceId: topicMatch[1],
+        payload,
+        raw: { x: rawX, y: rawY, z, theta },
+        transformed: { x, y, z, theta },
+      });
 
       if (![rawX, rawY, x, y, z, theta].every((value) => Number.isFinite(value))) {
+        this.debug('pose skipped: invalid numeric value', {
+          rawX,
+          rawY,
+          x,
+          y,
+          z,
+          theta,
+        });
         return null;
       }
 
@@ -194,12 +297,25 @@ export class MqttPoseClient {
   private parsePath(rawData: string): { deviceId: string; points: PathPoint[] } | null {
     try {
       const outer = JSON.parse(rawData) as OuterMqttMessage;
+      this.debug('outer message parsed for path', {
+        type: outer.type,
+        deviceId: outer.deviceId,
+        topic: outer.topic,
+        receivedAt: outer.receivedAt,
+        payload: outer.payload,
+      });
+
       if (outer.type !== 'mqtt' || !outer.payload) {
+        this.debug('path skipped: not mqtt or missing payload', {
+          type: outer.type,
+          hasPayload: Boolean(outer.payload),
+        });
         return null;
       }
 
       const topicMatch = outer.topic?.match(MqttPoseClient.PATH_TOPIC_PATTERN);
       if (!topicMatch) {
+        this.debug('path skipped: topic did not match path pattern', { topic: outer.topic });
         return null;
       }
 
@@ -207,28 +323,55 @@ export class MqttPoseClient {
       const normalizedPayload = outer.payload.trim();
       if (normalizedPayload === 'end') {
         const points = this.flushPathSegments(deviceId);
+        this.debug('path end received', {
+          deviceId,
+          flushedPointCount: points.length,
+          points,
+        });
         return points.length > 0 ? { deviceId, points } : null;
       }
 
       const values = this.parsePathPayloadValues(normalizedPayload);
+      this.debug('path payload values parsed', {
+        deviceId,
+        rawPayload: normalizedPayload,
+        values,
+        valueCount: values?.length ?? 0,
+      });
+
       if (!values || values.length < 4) {
+        this.debug('path skipped: payload has too few numeric values', { deviceId, values });
         return null;
       }
 
       const index = values[0];
       if (!Number.isInteger(index)) {
+        this.debug('path skipped: segment index is not an integer', { deviceId, index });
         return null;
       }
 
       const points = this.parsePathPoints(values.slice(1));
+      this.debug('path points parsed', {
+        deviceId,
+        index,
+        pointCount: points.length,
+        points,
+      });
 
       if (points.length === 0) {
+        this.debug('path skipped: no valid points parsed', { deviceId, index, values });
         return null;
       }
 
       const segments = this.pathSegments.get(deviceId) ?? new Map<number, PathPoint[]>();
       segments.set(index, points);
       this.pathSegments.set(deviceId, segments);
+      this.debug('path segment cached', {
+        deviceId,
+        index,
+        segmentCount: segments.size,
+        cachedIndexes: [...segments.keys()].sort((left, right) => left - right),
+      });
       return null;
     } catch (error) {
       console.error('Failed to parse MQTT path message', error);

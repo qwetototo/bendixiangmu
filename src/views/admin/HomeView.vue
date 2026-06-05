@@ -16,7 +16,7 @@
         </div>
         <div class="quick-actions">
           <button type="button" @click="$emit('navigate', 'track', 'live')">进入实时轨迹</button>
-          <button type="button" @click="$emit('navigate', 'track', 'replay')">查看轨迹回放</button>
+          <button type="button" @click="$emit('navigate', 'track', 'events')">查看事件中心</button>
         </div>
       </article>
 
@@ -41,19 +41,32 @@
       <article class="activity-panel">
         <h3>实时事件</h3>
         <div class="activity-list">
-          <div v-for="event in events" :key="event.time">
+          <div
+            v-for="event in events"
+            :key="event.time"
+            :class="{ active: selectedEventTime === event.time }"
+            @click="selectedEventTime = event.time"
+          >
             <time>{{ event.time }}</time>
             <span>{{ event.content }}</span>
             <small :class="event.level">{{ event.levelText }}</small>
           </div>
         </div>
+        <div class="activity-detail">
+          <span>当前事件</span>
+          <strong>{{ selectedEvent.content }}</strong>
+        </div>
       </article>
 
       <article class="task-panel">
         <h3>待处理事项</h3>
+        <div class="task-progress">
+          <span>{{ completedTaskCount }} / {{ tasks.length }} 已完成</span>
+          <div><i :style="{ width: `${taskProgress}%` }"></i></div>
+        </div>
         <div class="task-list">
           <label v-for="task in tasks" :key="task">
-            <input type="checkbox" />
+            <input v-model="completedTasks" :value="task" type="checkbox" />
             <span>{{ task }}</span>
           </label>
         </div>
@@ -63,6 +76,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { guideItems, type SectionKey } from '@/services/navigation';
 
 defineEmits<{
@@ -91,6 +105,16 @@ const events = [
 ];
 
 const tasks = ['核对 3 个未绑定标签', '复查办公区电子围栏规则', '导出今日重点人员轨迹', '确认 MQTT 备用通道配置'];
+
+const selectedEventTime = ref(events[0]?.time ?? '');
+const completedTasks = ref<string[]>([]);
+
+const selectedEvent = computed(() => {
+  return events.find((event) => event.time === selectedEventTime.value) ?? events[0];
+});
+
+const completedTaskCount = computed(() => completedTasks.value.length);
+const taskProgress = computed(() => Math.round((completedTaskCount.value / tasks.length) * 100));
 </script>
 
 <style scoped>
@@ -288,6 +312,16 @@ const tasks = ['核对 3 个未绑定标签', '复查办公区电子围栏规则
   border-bottom: 1px solid rgba(118, 148, 212, 0.1);
   color: rgba(230, 240, 255, 0.78);
   font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.activity-list div.active,
+.activity-list div:hover {
+  margin-inline: -8px;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: rgba(74, 111, 190, 0.12);
 }
 
 .activity-list div:last-child {
@@ -335,6 +369,42 @@ const tasks = ['核对 3 个未绑定标签', '复查办公区电子围栏规则
 
 .task-list input {
   accent-color: #698dff;
+}
+
+.activity-detail,
+.task-progress {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(118, 148, 212, 0.14);
+  border-radius: 6px;
+  background: rgba(57, 95, 178, 0.12);
+}
+
+.activity-detail span,
+.task-progress span {
+  color: rgba(224, 235, 255, 0.62);
+  font-size: 12px;
+}
+
+.activity-detail strong {
+  color: #fff;
+  font-size: 13px;
+}
+
+.task-progress div {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(118, 148, 212, 0.16);
+  overflow: hidden;
+}
+
+.task-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4d8dff, #46e39c);
 }
 
 @media (max-width: 1180px) {

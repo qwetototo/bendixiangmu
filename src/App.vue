@@ -30,7 +30,7 @@
           <LogoutOutlined />
         </button>
       </div>
-      <section v-if="openedSection" class="submenu-panel" :style="submenuStyle">
+      <section v-if="openedSection && activeSubmenus.length > 1" class="submenu-panel" :style="submenuStyle">
         <button
           v-for="item in activeSubmenus"
           :key="item.key"
@@ -44,8 +44,8 @@
     </header>
 
     <section class="admin-body">
-      <section v-if="activeSection === 'track' && activeSubmenu !== 'archive'" class="track-page">
-        <TwinScreen embedded :theme-mode="themeMode" />
+      <section v-if="activePageKey === 'track.live'" class="track-page">
+        <TwinScreen embedded :theme-mode="themeMode" @show-events="selectNav('track', 'events')" />
       </section>
 
       <section v-else class="content-page">
@@ -60,9 +60,10 @@
           </button>
         </div>
 
-        <HomeView v-if="activeSection === 'home'" @navigate="selectNav" />
-        <TrackArchiveView v-else-if="activeSection === 'track'" />
-        <IdentityView v-else-if="activeSection === 'identity'" :active-submenu="activeSubmenu" :theme-mode="themeMode" />
+        <HomeView v-if="activePageKey === 'home.overview'" @navigate="selectNav" />
+        <EventCenterView v-else-if="activePageKey === 'track.events'" :theme-mode="themeMode" />
+        <IdentityView v-else-if="activePageKey === 'identity.people-devices'" :theme-mode="themeMode" />
+        <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :theme-mode="themeMode" />
         <ConfigView v-else />
       </section>
     </section>
@@ -70,12 +71,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { BellOutlined, BgColorsOutlined, LogoutOutlined, ReloadOutlined } from '@ant-design/icons-vue';
+import BeaconDeviceView from '@/views/admin/BeaconDeviceView.vue';
 import ConfigView from '@/views/admin/ConfigView.vue';
+import EventCenterView from '@/views/admin/EventCenterView.vue';
 import HomeView from '@/views/admin/HomeView.vue';
 import IdentityView from '@/views/admin/IdentityView.vue';
-import TrackArchiveView from '@/views/admin/TrackArchiveView.vue';
 import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
 import { findNavSection, getDefaultSubmenu, navSections, type SectionKey } from '@/services/navigation';
@@ -88,6 +90,31 @@ interface StoredNavState {
   submenu?: string;
 }
 
+const routeAliases = new Map<string, StoredNavState>([
+  ['/', { section: 'home', submenu: 'overview' }],
+  ['/home', { section: 'home', submenu: 'overview' }],
+  ['/home/overview', { section: 'home', submenu: 'overview' }],
+  ['/track', { section: 'track', submenu: 'live' }],
+  ['/track/live', { section: 'track', submenu: 'live' }],
+  ['/track/events', { section: 'track', submenu: 'events' }],
+  ['/identity', { section: 'identity', submenu: 'people-devices' }],
+  ['/identity/people-devices', { section: 'identity', submenu: 'people-devices' }],
+  ['/identity/beacons', { section: 'identity', submenu: 'beacons' }],
+  ['/config', { section: 'config', submenu: 'scene' }],
+  ['/config/scene', { section: 'config', submenu: 'scene' }],
+]);
+
+function isValidNavState(state: StoredNavState): state is Required<StoredNavState> {
+  const section = state.section ? findNavSection(state.section) : undefined;
+  return Boolean(section?.items.some((item) => item.key === state.submenu));
+}
+
+function getRouteNavState(): StoredNavState {
+  const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  const routeState = routeAliases.get(normalizedPath);
+  return routeState && isValidNavState(routeState) ? routeState : {};
+}
+
 function getStoredNavState(): StoredNavState {
   try {
     const rawValue = localStorage.getItem(NAV_STORAGE_KEY);
@@ -96,18 +123,18 @@ function getStoredNavState(): StoredNavState {
     }
 
     const parsed = JSON.parse(rawValue) as StoredNavState;
-    return findNavSection(parsed.section as SectionKey) ? parsed : {};
+    return isValidNavState(parsed) ? parsed : {};
   } catch {
     return {};
   }
 }
 
 const isAuthed = ref(localStorage.getItem(AUTH_STORAGE_KEY) === 'true');
-const storedNavState = getStoredNavState();
+const storedNavState = getRouteNavState().section ? getRouteNavState() : getStoredNavState();
 const activeSection = ref<SectionKey>(storedNavState.section && findNavSection(storedNavState.section) ? storedNavState.section : 'home');
 const openedSection = ref<SectionKey | null>(null);
 const activeSubmenu = ref(storedNavState.submenu || getDefaultSubmenu(activeSection.value));
-const themeMode = ref<'dark' | 'light'>('dark');
+const themeMode = ref<'dark' | 'light'>('light');
 const navButtonRefs = new Map<SectionKey, HTMLElement>();
 const submenuLeft = ref(0);
 const submenuWidth = ref(0);
@@ -125,6 +152,8 @@ const currentPageTitle = computed(() => {
   return section?.items.find((item) => item.key === activeSubmenu.value)?.label ?? section?.label ?? '';
 });
 
+const activePageKey = computed(() => `${activeSection.value}.${activeSubmenu.value}`);
+
 const submenuStyle = computed(() => ({
   left: `${submenuLeft.value}px`,
   width: `${submenuWidth.value}px`,
@@ -139,6 +168,12 @@ function setNavButtonRef(sectionKey: SectionKey, element: Element | ComponentPub
 }
 
 function openMenu(sectionKey: SectionKey) {
+  const section = findNavSection(sectionKey);
+  if (!section || section.items.length < 2) {
+    openedSection.value = null;
+    return;
+  }
+
   openedSection.value = sectionKey;
   nextTick(() => updateSubmenuPosition(sectionKey));
 }
@@ -177,10 +212,40 @@ function handleLogout() {
   localStorage.removeItem(NAV_STORAGE_KEY);
 }
 
-function selectNav(sectionKey: SectionKey, submenuKey: string) {
+function getPathForNav(sectionKey: SectionKey, submenuKey: string) {
+  if (sectionKey === 'home') {
+    return '/home/overview';
+  }
+
+  if (sectionKey === 'config') {
+    return '/config/scene';
+  }
+
+  return `/${sectionKey}/${submenuKey}`;
+}
+
+function selectNav(sectionKey: SectionKey, submenuKey: string, replace = false) {
+  const nextSubmenu = submenuKey || getDefaultSubmenu(sectionKey);
+  if (!isValidNavState({ section: sectionKey, submenu: nextSubmenu })) {
+    return;
+  }
+
   activeSection.value = sectionKey;
-  activeSubmenu.value = submenuKey || getDefaultSubmenu(sectionKey);
+  activeSubmenu.value = nextSubmenu;
   openedSection.value = null;
+
+  const nextPath = getPathForNav(sectionKey, nextSubmenu);
+  if (window.location.pathname !== nextPath) {
+    const historyMethod = replace ? 'replaceState' : 'pushState';
+    window.history[historyMethod]({}, '', nextPath);
+  }
+}
+
+function syncNavFromRoute() {
+  const routeState = getRouteNavState();
+  if (routeState.section && routeState.submenu) {
+    selectNav(routeState.section, routeState.submenu, true);
+  }
 }
 
 watch(
@@ -190,6 +255,15 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  syncNavFromRoute();
+  window.addEventListener('popstate', syncNavFromRoute);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', syncNavFromRoute);
+});
 </script>
 
 <style scoped>
@@ -441,10 +515,14 @@ watch(
 .admin-shell--light :deep(.identity-page),
 .admin-shell--light :deep(.config-page),
 .admin-shell--light :deep(.archive-page),
+.admin-shell--light :deep(.event-page),
+.admin-shell--light :deep(.beacon-page),
 :deep(.home-page),
 :deep(.identity-page),
 :deep(.config-page),
-:deep(.archive-page) {
+:deep(.archive-page),
+:deep(.event-page),
+:deep(.beacon-page) {
   width: min(1440px, 100%);
   margin-inline: auto;
 }
@@ -495,6 +573,8 @@ watch(
 .admin-shell--light :deep(.archive-hero h2),
 .admin-shell--light :deep(.job-panel h3),
 .admin-shell--light :deep(.query-panel h3),
+.admin-shell--light :deep(.activity-detail strong),
+.admin-shell--light :deep(.selected-channel strong),
 .admin-shell--light :deep(.detail-main strong),
 .admin-shell--light :deep(.person-cell strong),
 .admin-shell--light :deep(.device-cell strong),
@@ -509,7 +589,11 @@ watch(
 .admin-shell--light :deep(.rule-list strong),
 .admin-shell--light :deep(.channel-list strong),
 .admin-shell--light :deep(.status-list strong),
-.admin-shell--light :deep(.detail-list strong) {
+.admin-shell--light :deep(.detail-list strong),
+.admin-shell--light :deep(.event-table strong),
+.admin-shell--light :deep(.event-card-grid strong),
+.admin-shell--light :deep(.beacon-table strong),
+.admin-shell--light :deep(.beacon-detail strong) {
   color: #172033;
 }
 
@@ -542,7 +626,17 @@ watch(
 .admin-shell--light :deep(.audit-list span),
 .admin-shell--light :deep(.channel-list small),
 .admin-shell--light :deep(.audit-list time),
-.admin-shell--light :deep(.activity-list time) {
+.admin-shell--light :deep(.activity-list time),
+.admin-shell--light :deep(.event-table span),
+.admin-shell--light :deep(.event-table small),
+.admin-shell--light :deep(.event-filter label),
+.admin-shell--light :deep(.beacon-table span),
+.admin-shell--light :deep(.beacon-table small),
+.admin-shell--light :deep(.beacon-detail span),
+.admin-shell--light :deep(.activity-detail span),
+.admin-shell--light :deep(.task-progress span),
+.admin-shell--light :deep(.selected-channel span),
+.admin-shell--light :deep(.selected-channel small) {
   color: rgba(52, 65, 89, 0.68);
 }
 
@@ -555,13 +649,25 @@ watch(
 .admin-shell--light :deep(.channel-list div),
 .admin-shell--light :deep(.task-list label),
 .admin-shell--light :deep(.search-box),
-.admin-shell--light :deep(.query-panel input) {
+.admin-shell--light :deep(.query-panel input),
+.admin-shell--light :deep(.event-filter input),
+.admin-shell--light :deep(.event-filter select),
+.admin-shell--light :deep(.beacon-filter input),
+.admin-shell--light :deep(.beacon-filter select),
+.admin-shell--light :deep(.event-table article),
+.admin-shell--light :deep(.beacon-table article),
+.admin-shell--light :deep(.beacon-detail),
+.admin-shell--light :deep(.activity-detail),
+.admin-shell--light :deep(.task-progress),
+.admin-shell--light :deep(.selected-channel) {
   border-color: rgba(78, 101, 140, 0.12);
   background: rgba(246, 249, 253, 0.78);
 }
 
 .admin-shell--light :deep(.table-head),
-.admin-shell--light :deep(.job-head) {
+.admin-shell--light :deep(.job-head),
+.admin-shell--light :deep(.event-table-head),
+.admin-shell--light :deep(.beacon-table-head) {
   color: rgba(52, 65, 89, 0.62);
   background: rgba(235, 240, 248, 0.9);
 }
@@ -598,7 +704,12 @@ watch(
 .admin-shell--light :deep(.data-row:hover),
 .admin-shell--light :deep(.job-row:hover),
 .admin-shell--light :deep(.rule-list div:hover),
-.admin-shell--light :deep(.channel-list div:hover) {
+.admin-shell--light :deep(.rule-list div.active),
+.admin-shell--light :deep(.channel-list div:hover),
+.admin-shell--light :deep(.channel-list div.active),
+.admin-shell--light :deep(.activity-list div:hover),
+.admin-shell--light :deep(.activity-list div.active),
+.admin-shell--light :deep(.setting-panel.active) {
   background: rgba(62, 120, 255, 0.08);
 }
 
