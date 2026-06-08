@@ -709,8 +709,20 @@ export class TwinScene {
     }
   }
 
+  clearAllDevicePoses(): void {
+    [...this.livePoseMarkers.keys()].forEach((deviceId) => {
+      this.clearDeviceLivePose(deviceId);
+    });
+    this.clearAllTrails();
+    this.clearLivePoseSelection();
+  }
+
   private addFloorOverlay(): void {
     if (!this.scene) {
+      return;
+    }
+
+    if (!this.config.overlay.path.trim()) {
       return;
     }
 
@@ -899,6 +911,10 @@ export class TwinScene {
   }
 
   private resolveOverlayUrl(overlayPath: string): string | null {
+    if (/^(data:|blob:|https?:\/\/)/i.test(overlayPath)) {
+      return overlayPath;
+    }
+
     const configuredPath = overlayPath.replace(/\\/g, '/').replace(/^\/+/, '');
     const directKey = `/src/assets/image/${configuredPath}`;
 
@@ -1037,6 +1053,10 @@ export class TwinScene {
   }
 
   private resolveModelUrl(modelPath: string): string | null {
+    if (/^(data:|blob:|https?:\/\/)/i.test(modelPath)) {
+      return modelPath;
+    }
+
     const configuredPath = modelPath.replace(/\\/g, '/').replace(/^\/+/, '');
     const directKey = `/src/assets/model/${configuredPath}`;
 
@@ -1045,7 +1065,11 @@ export class TwinScene {
     }
 
     const fallbackEntry = Object.entries(modelModules).find(([key]) => key.endsWith(`/${configuredPath}`));
-    return fallbackEntry?.[1] ?? null;
+    if (fallbackEntry) {
+      return fallbackEntry[1];
+    }
+
+    return import.meta.env.DEV ? directKey : null;
   }
 
   private applyModelConfig(model: THREE.Object3D, modelConfig: ModelConfig): void {

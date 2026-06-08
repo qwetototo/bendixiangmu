@@ -64,7 +64,7 @@
         <EventCenterView v-else-if="activePageKey === 'track.events'" :theme-mode="themeMode" />
         <IdentityView v-else-if="activePageKey === 'identity.people-devices'" :theme-mode="themeMode" />
         <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :theme-mode="themeMode" />
-        <ConfigView v-else />
+        <ConfigView v-else :page-key="activeSubmenu" />
       </section>
     </section>
   </main>
@@ -102,6 +102,7 @@ const routeAliases = new Map<string, StoredNavState>([
   ['/identity/beacons', { section: 'identity', submenu: 'beacons' }],
   ['/config', { section: 'config', submenu: 'scene' }],
   ['/config/scene', { section: 'config', submenu: 'scene' }],
+  ['/config/map-editor', { section: 'config', submenu: 'map-editor' }],
 ]);
 
 function isValidNavState(state: StoredNavState): state is Required<StoredNavState> {
@@ -218,7 +219,7 @@ function getPathForNav(sectionKey: SectionKey, submenuKey: string) {
   }
 
   if (sectionKey === 'config') {
-    return '/config/scene';
+    return `/config/${submenuKey}`;
   }
 
   return `/${sectionKey}/${submenuKey}`;
@@ -514,12 +515,14 @@ onUnmounted(() => {
 .admin-shell--light :deep(.home-page),
 .admin-shell--light :deep(.identity-page),
 .admin-shell--light :deep(.config-page),
+.admin-shell--light :deep(.map-editor-page),
 .admin-shell--light :deep(.archive-page),
 .admin-shell--light :deep(.event-page),
 .admin-shell--light :deep(.beacon-page),
 :deep(.home-page),
 :deep(.identity-page),
 :deep(.config-page),
+:deep(.map-editor-page),
 :deep(.archive-page),
 :deep(.event-page),
 :deep(.beacon-page) {

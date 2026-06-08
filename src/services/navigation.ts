@@ -57,6 +57,7 @@ export const navSections: NavSection[] = [
     icon: SettingOutlined,
     items: [
       { key: 'scene', label: '场景配置', description: '区域、围栏、楼层与模型配置' },
+      { key: 'map-editor', label: '地图编辑', description: '导入地图、编辑模型并切换轨迹中心地图' },
     ],
   },
 ];

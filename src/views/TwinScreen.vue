@@ -362,7 +362,7 @@ const areaChartContainer = ref<HTMLDivElement | null>(null);
 const pickedPoint = ref<PickPointResult | null>(null);
 const wallTagsVisible = ref(false);
 const livePoseLabelsVisible = ref(true);
-const trailsVisible = ref(false);
+const trailsVisible = ref(true);
 const livePose = ref<LivePose | null>(null);
 const mqttStatus = ref<MqttConnectionStatus>('connecting');
 const mqttError = ref<MqttConnectionError | null>(null);
@@ -409,6 +409,7 @@ let replayResumeAfterBuffer = false;
 const replayHistories = new Map<string, ReplayPoint[]>();
 const replayTracks = new Map<string, ReplayPoint[]>();
 const replayTrackIndexes = new Map<string, number>();
+const latestLivePoses = new Map<string, LivePose>();
 
 const deviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10005'];
 const replayDeviceOptions = [{ label: '全部', value: ALL_REPLAY_DEVICES }, ...deviceOptions.map((device) => ({ label: device, value: device }))];
@@ -809,9 +810,9 @@ function clearReplayScene(deviceIds = getReplayDeviceIds()) {
 }
 
 function restoreLivePoseView() {
-  if (livePose.value) {
-    twinScene?.updateLivePose(livePose.value);
-  }
+  latestLivePoses.forEach((pose) => {
+    twinScene?.updateLivePose(pose);
+  });
 }
 
 function clearTrails() {
@@ -819,7 +820,9 @@ function clearTrails() {
   resetReplayState();
   replayHistories.clear();
   clearReplayScene(previousReplayDeviceIds);
-  restoreLivePoseView();
+  if (!replayPanelOpen.value) {
+    restoreLivePoseView();
+  }
 }
 
 function appendReplayHistory(deviceId: string, points: ReplayPoint[]) {
@@ -1234,7 +1237,6 @@ function startReplayTimer() {
 
 async function startReplay(options: { autoPlay?: boolean } = {}) {
   const autoPlay = options.autoPlay ?? true;
-  const previousReplayDeviceIds = getReplayDeviceIds();
   const token = replayLoadToken + 1;
   replayLoadToken = token;
   replayPanelOpen.value = true;
@@ -1246,7 +1248,7 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   stopReplayTimer();
   replayPlaying.value = false;
   replayResumeAfterBuffer = false;
-  clearReplayScene(previousReplayDeviceIds);
+  twinScene?.clearAllDevicePoses();
   replayPoints.value = [];
   replayFrameTimes.value = [];
   const replayRange = getReplayRange();
@@ -1263,7 +1265,6 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   } catch (error) {
     replayError.value = error instanceof Error ? error.message : '轨迹数据加载失败';
     resetReplayState();
-    restoreLivePoseView();
     return;
   } finally {
     if (token === replayLoadToken) {
@@ -1305,9 +1306,8 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
 }
 
 function clearReplay() {
-  const previousReplayDeviceIds = getReplayDeviceIds();
+  twinScene?.clearAllDevicePoses();
   resetReplayState();
-  clearReplayScene(previousReplayDeviceIds);
   restoreLivePoseView();
 }
 
@@ -1451,6 +1451,7 @@ onMounted(() => {
         receivedAt: pose.receivedAt,
       });
       livePose.value = pose;
+      latestLivePoses.set(pose.deviceId, pose);
       appendReplayHistory(pose.deviceId, [
         {
           deviceId: pose.deviceId,
@@ -1461,7 +1462,7 @@ onMounted(() => {
           time: resolveReplayPointTime(pose, pose.receivedAt ? Date.parse(pose.receivedAt) || Date.now() : Date.now()),
         },
       ]);
-      if (!isReplayLoaded()) {
+      if (!replayPanelOpen.value) {
         twinScene?.updateLivePose(pose);
       }
     },
@@ -1482,13 +1483,16 @@ onMounted(() => {
           time: resolveReplayPointTime(point, fallbackStartTime + index * 1000),
         })),
       );
-      if (!isReplayLoaded()) {
+      if (!replayPanelOpen.value) {
         twinScene?.setDevicePath(deviceId, points);
       }
     },
     onDeviceDisconnect: (deviceId) => {
       console.log('[TwinScreen MQTT] onDeviceDisconnect callback', { deviceId });
-      twinScene?.clearDeviceLivePose(deviceId);
+      latestLivePoses.delete(deviceId);
+      if (!replayPanelOpen.value) {
+        twinScene?.clearDeviceLivePose(deviceId);
+      }
       if (livePose.value?.deviceId === deviceId) {
         livePose.value = null;
       }
