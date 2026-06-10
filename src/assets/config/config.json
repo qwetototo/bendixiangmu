@@ -1153,6 +1153,96 @@
     }
   ],
   "devices": [],
+  "fences": [
+    {
+      "id": "fence_office_b",
+      "name": "办公区B",
+      "minX": 265,
+      "maxX": 370,
+      "minY": 415,
+      "maxY": 590,
+      "height": 3,
+      "color": "#2ed878",
+      "groupId": "office_b"
+    },
+    {
+      "id": "fence_office_c",
+      "name": "办公区C",
+      "minX": 265,
+      "maxX": 370,
+      "minY": 260,
+      "maxY": 340,
+      "height": 3,
+      "color": "#ffc233",
+      "groupId": "office_c"
+    },
+    {
+      "id": "fence_office_g",
+      "name": "办公区G",
+      "minX": 265,
+      "maxX": 370,
+      "minY": 335,
+      "maxY": 390,
+      "height": 3,
+      "color": "#13c2c2",
+      "groupId": "office_g"
+    },
+    {
+      "id": "fence_office_h",
+      "name": "办公区H",
+      "minX": 395,
+      "maxX": 730,
+      "minY": 515,
+      "maxY": 590,
+      "height": 3,
+      "color": "#eb2f96",
+      "groupId": "office_h"
+    },
+    {
+      "id": "fence_office_p",
+      "name": "办公区P",
+      "minX": 780,
+      "maxX": 890,
+      "minY": 515,
+      "maxY": 590,
+      "height": 3,
+      "color": "#f5222d",
+      "groupId": "office_p"
+    },
+    {
+      "id": "fence_office_q",
+      "name": "办公区Q",
+      "minX": 785,
+      "maxX": 890,
+      "minY": 335,
+      "maxY": 495,
+      "height": 3,
+      "color": "#2f54eb",
+      "groupId": "office_q"
+    },
+    {
+      "id": "fence_office_s",
+      "name": "办公区S",
+      "minX": 780,
+      "maxX": 995,
+      "minY": 258,
+      "maxY": 312,
+      "height": 3,
+      "color": "#722ed1",
+      "groupId": "office_s"
+    },
+    {
+      "id": "fence_office_t",
+      "name": "办公区T",
+      "minX": 572,
+      "maxX": 760,
+      "minY": 257,
+      "maxY": 300,
+      "height": 3,
+      "color": "#52c41a",
+      "groupId": "office_t"
+    }
+  ],
   "overlay": {
     "path": "image.png",
     "scale": 1.7,

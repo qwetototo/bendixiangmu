@@ -29,29 +29,25 @@
       </button>
     </header>
 
-    <section class="workspace">
+    <section :class="['workspace', workspaceClass]">
       <aside class="left-rail">
-        <section class="glass-panel online-card">
-          <h2>在线统计</h2>
-          <div class="metric-grid">
-            <div>
+        <section class="glass-panel dashboard-card">
+          <h2>实时概览</h2>
+          <div class="dashboard-stats-row">
+            <div class="stat-pill">
               <strong>{{ onlineDevices }}</strong>
               <span>在线设备</span>
             </div>
-            <div>
-              <strong class="metric-grid__blue">{{ totalDevices }}</strong>
+            <div class="stat-pill stat-pill--blue">
+              <strong>{{ totalDevices }}</strong>
               <span>设备总数</span>
             </div>
           </div>
-        </section>
-
-        <section class="glass-panel area-card">
-          <h2>区域统计</h2>
           <div class="donut-wrap">
             <div ref="areaChartContainer" class="area-chart" />
           </div>
           <div class="area-list">
-            <div v-for="item in areaStats" :key="item.name" class="area-row">
+            <div v-for="item in sortedAreaStats" :key="item.name" class="area-row">
               <i :style="{ backgroundColor: item.color }" />
               <span>{{ item.name }}</span>
               <strong>{{ item.count }} ({{ item.percent }}%)</strong>
@@ -79,127 +75,127 @@
 
       <section class="scene-shell">
         <div ref="sceneContainer" class="scene-canvas" />
-
-        <div v-if="pickedPoint" class="pick-chip">
-          <span>场景坐标</span>
-          <strong>X {{ pickedPoint.scene.x }} / Z {{ pickedPoint.scene.z }}</strong>
-        </div>
-
-        <div class="map-controls">
-          <button type="button" title="指南针" @click="twinScene?.setCameraView('overview')">
-            <CompassOutlined />
-          </button>
-          <button type="button" title="2D俯视" @click="setCameraMode('top')">2D</button>
-          <button type="button" title="楼层图层">
-            <BlockOutlined />
-          </button>
-          <div class="zoom-box">
-            <button type="button" title="放大" @click="twinScene?.zoom(1)">
-              <PlusOutlined />
-            </button>
-            <button type="button" title="缩小" @click="twinScene?.zoom(-1)">
-              <MinusOutlined />
-            </button>
-          </div>
-        </div>
-
-        <nav class="tool-dock">
-          <button type="button" :class="{ active: filterOpen }" @click="filterOpen = !filterOpen">
-            <FilterOutlined />
-            <span>设备筛选</span>
-          </button>
-          <button type="button" :class="{ active: isReplayLoaded() }" @click="toggleReplayMode">
-            <AimOutlined />
-            <span>轨迹回放</span>
-          </button>
-          <button type="button" @click="viewMode = 'thermal'">
-            <HeatMapOutlined />
-            <span>热力图</span>
-          </button>
-          <button type="button" @click="wallTagsVisible = !wallTagsVisible; twinScene?.toggleWallTags(wallTagsVisible)">
-            <BorderOuterOutlined />
-            <span>电子围栏</span>
-          </button>
-          <button
-            type="button"
-            :class="{ active: livePoseLabelsVisible }"
-            @click="livePoseLabelsVisible = !livePoseLabelsVisible; twinScene?.toggleLivePoseLabels(livePoseLabelsVisible)"
-          >
-            <TagsOutlined />
-            <span>定位标签</span>
-          </button>
-          <button
-            type="button"
-            :class="{ active: trailsVisible }"
-            @click="trailsVisible = !trailsVisible; twinScene?.setTrailsVisible(trailsVisible)"
-          >
-            <DeploymentUnitOutlined />
-            <span>轨迹显示</span>
-          </button>
-          <button type="button" @click="measureEnabled = !measureEnabled">
-            <ColumnWidthOutlined />
-            <span>测距工具</span>
-          </button>
-          <button type="button" @click="clearTrails">
-            <ClearOutlined />
-            <span>清除轨迹</span>
-          </button>
-        </nav>
-
-        <div v-if="replayFrameTimes.length > 1" class="replay-progress-dock">
-          <div v-if="replayLoadStatus" class="replay-load-status" :class="{ buffering: replayBuffering }">
-            {{ replayLoadStatus }}
-          </div>
-          <div class="progress-row">
-            <input
-              v-model.number="replayProgress"
-              type="range"
-              min="0"
-              max="100"
-              step="0.1"
-              :disabled="replayProgressDisabled"
-              @input="seekReplay"
-            />
-            <span>{{ replaySpeed }}x</span>
-          </div>
-          <div class="progress-time">{{ replayTimeText }}</div>
-          <div class="player-controls">
-            <button
-              type="button"
-              title="长按后退1秒"
-              @pointerdown.prevent="startReplayNudge(-1)"
-              @pointerup="stopReplayNudge"
-              @pointerleave="stopReplayNudge"
-              @pointercancel="stopReplayNudge"
-              @contextmenu.prevent
-            >
-              <StepBackwardOutlined />
-            </button>
-            <button type="button" class="play-button" title="播放/暂停" @click="toggleReplayPlaying">
-              <PauseCircleOutlined v-if="replayPlaying" />
-              <PlayCircleOutlined v-else />
-            </button>
-            <button
-              type="button"
-              title="长按前进1秒"
-              @pointerdown.prevent="startReplayNudge(1)"
-              @pointerup="stopReplayNudge"
-              @pointerleave="stopReplayNudge"
-              @pointercancel="stopReplayNudge"
-              @contextmenu.prevent
-            >
-              <StepForwardOutlined />
-            </button>
-          </div>
-        </div>
-
-        <div v-if="filterOpen" class="floating-popover filter-popover">
-          <label v-for="device in deviceOptions" :key="device">
-            <input v-model="selectedDevices" type="checkbox" :value="device" />
-            <span>{{ device }}</span>
-          </label>
-        </div>
       </section>
+
+      <div v-if="pickedPoint" class="pick-chip">
+        <span>场景坐标</span>
+        <strong>X {{ pickedPoint.scene.x }} / Z {{ pickedPoint.scene.z }}</strong>
+      </div>
+
+      <div class="map-controls">
+        <button type="button" title="指南针" @click="twinScene?.setCameraView('overview')">
+          <CompassOutlined />
+        </button>
+        <button type="button" title="2D俯视" @click="setCameraMode('top')">2D</button>
+        <button type="button" title="楼层图层">
+          <BlockOutlined />
+        </button>
+        <div class="zoom-box">
+          <button type="button" title="放大" @click="twinScene?.zoom(1)">
+            <PlusOutlined />
+          </button>
+          <button type="button" title="缩小" @click="twinScene?.zoom(-1)">
+            <MinusOutlined />
+          </button>
+        </div>
+      </div>
+
+      <nav class="tool-dock">
+        <button type="button" :class="{ active: filterOpen }" @click="filterOpen = !filterOpen">
+          <FilterOutlined />
+          <span>设备筛选</span>
+        </button>
+        <button type="button" :class="{ active: isReplayLoaded() }" @click="toggleReplayMode">
+          <AimOutlined />
+          <span>轨迹回放</span>
+        </button>
+        <button type="button" @click="viewMode = 'thermal'">
+          <HeatMapOutlined />
+          <span>热力图</span>
+        </button>
+        <button type="button" :class="{ active: fencesVisible }" @click="fencesVisible = !fencesVisible; twinScene?.toggleFences(fencesVisible)">
+          <BorderOuterOutlined />
+          <span>电子围栏</span>
+        </button>
+        <button
+          type="button"
+          :class="{ active: livePoseLabelsVisible }"
+          @click="livePoseLabelsVisible = !livePoseLabelsVisible; twinScene?.toggleLivePoseLabels(livePoseLabelsVisible)"
+        >
+          <TagsOutlined />
+          <span>定位标签</span>
+        </button>
+        <button
+          type="button"
+          :class="{ active: trailsVisible }"
+          @click="trailsVisible = !trailsVisible; twinScene?.setTrailsVisible(trailsVisible)"
+        >
+          <DeploymentUnitOutlined />
+          <span>轨迹显示</span>
+        </button>
+        <button type="button" @click="measureEnabled = !measureEnabled">
+          <ColumnWidthOutlined />
+          <span>测距工具</span>
+        </button>
+        <button type="button" @click="clearTrails">
+          <ClearOutlined />
+          <span>清除轨迹</span>
+        </button>
+      </nav>
+
+      <div v-if="replayFrameTimes.length > 1" class="replay-progress-dock">
+        <div v-if="replayLoadStatus" class="replay-load-status" :class="{ buffering: replayBuffering }">
+          {{ replayLoadStatus }}
+        </div>
+        <div class="progress-row">
+          <input
+            v-model.number="replayProgress"
+            type="range"
+            min="0"
+            max="100"
+            step="0.1"
+            :disabled="replayProgressDisabled"
+            @input="seekReplay"
+          />
+          <span>{{ replaySpeed }}x</span>
+        </div>
+        <div class="progress-time">{{ replayTimeText }}</div>
+        <div class="player-controls">
+          <button
+            type="button"
+            title="长按后退1秒"
+            @pointerdown.prevent="startReplayNudge(-1)"
+            @pointerup="stopReplayNudge"
+            @pointerleave="stopReplayNudge"
+            @pointercancel="stopReplayNudge"
+            @contextmenu.prevent
+          >
+            <StepBackwardOutlined />
+          </button>
+          <button type="button" class="play-button" title="播放/暂停" @click="toggleReplayPlaying">
+            <PauseCircleOutlined v-if="replayPlaying" />
+            <PlayCircleOutlined v-else />
+          </button>
+          <button
+            type="button"
+            title="长按前进1秒"
+            @pointerdown.prevent="startReplayNudge(1)"
+            @pointerup="stopReplayNudge"
+            @pointerleave="stopReplayNudge"
+            @pointercancel="stopReplayNudge"
+            @contextmenu.prevent
+          >
+            <StepForwardOutlined />
+          </button>
+        </div>
+      </div>
+
+      <div v-if="filterOpen" class="floating-popover filter-popover">
+        <label v-for="device in deviceOptions" :key="device">
+          <input v-model="selectedDevices" type="checkbox" :value="device" />
+          <span>{{ device }}</span>
+        </label>
+      </div>
 
       <aside v-if="replayPanelOpen" class="right-rail">
         <section class="glass-panel replay-form">
@@ -360,7 +356,7 @@ const sceneStore = useSceneStore();
 const sceneContainer = ref<HTMLDivElement | null>(null);
 const areaChartContainer = ref<HTMLDivElement | null>(null);
 const pickedPoint = ref<PickPointResult | null>(null);
-const wallTagsVisible = ref(false);
+const fencesVisible = ref(false);
 const livePoseLabelsVisible = ref(true);
 const trailsVisible = ref(true);
 const livePose = ref<LivePose | null>(null);
@@ -410,24 +406,31 @@ const replayHistories = new Map<string, ReplayPoint[]>();
 const replayTracks = new Map<string, ReplayPoint[]>();
 const replayTrackIndexes = new Map<string, number>();
 const latestLivePoses = new Map<string, LivePose>();
+const onlineDeviceCount = ref(0);
+const replayOnlineCount = ref(0);
 
 const deviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10005'];
 const replayDeviceOptions = [{ label: '全部', value: ALL_REPLAY_DEVICES }, ...deviceOptions.map((device) => ({ label: device, value: device }))];
-const totalDevices = 156;
-const areaStats = [
-  { name: '办公区', count: 8, percent: 66.7, color: '#247cff' },
-  { name: '会议室', count: 2, percent: 16.7, color: '#2ed878' },
-  { name: '休息区', count: 1, percent: 8.3, color: '#ffc233' },
-  { name: '走廊', count: 1, percent: 8.3, color: '#8a62ff' },
-  { name: '其他区域', count: 0, percent: 0, color: '#d455ff' },
-];
+const totalDevices = 30; // 设备总数，可从数据库动态更新
+
+// 动态计算的区域统计
+const areaStats = ref<Array<{ name: string; count: number; percent: number; color: string }>>([]);
 
 const events = ref<AlertEvent[]>([]);
-const onlineDevices = computed(() => (livePose.value ? 12 : 11));
+const displayOnlineCount = computed(() =>
+  replayPanelOpen.value && replayPoints.value.length > 0
+    ? replayOnlineCount.value
+    : onlineDeviceCount.value,
+);
+const onlineDevices = computed(() => displayOnlineCount.value);
 const isLightTheme = computed(() => props.themeMode === 'light');
 const chartTextColor = computed(() => (isLightTheme.value ? 'rgba(52, 65, 89, 0.72)' : 'rgba(226, 239, 249, 0.74)'));
-const chartTooltipBackground = computed(() => (isLightTheme.value ? 'rgba(255, 255, 255, 0.96)' : 'rgba(5, 18, 33, 0.94)'));
-const chartTooltipBorderColor = computed(() => (isLightTheme.value ? 'rgba(78, 101, 140, 0.18)' : 'rgba(105, 167, 232, 0.36)'));
+const workspaceClass = computed(() => ({
+  'workspace--replay-open': replayPanelOpen.value,
+}));
+const sortedAreaStats = computed(() =>
+  [...areaStats.value].sort((a, b) => b.count - a.count),
+);
 const replayDuration = computed(() => {
   if (replayFrameTimes.value.length < 2) {
     return '暂无轨迹';
@@ -610,61 +613,63 @@ function resolveMqttWebSocketUrl(): string {
 }
 
 function createAreaChartOption(): EChartsOption {
+  const hasData = areaStats.value.some((item) => item.count > 0);
+
   return {
-    color: areaStats.map((item) => item.color),
+    color: areaStats.value.map((item) => item.color),
     tooltip: {
       trigger: 'item',
       confine: true,
-      backgroundColor: chartTooltipBackground.value,
-      borderColor: chartTooltipBorderColor.value,
-      textStyle: {
-        color: chartTextColor.value,
-        fontSize: 12,
-      },
-      formatter: (params) => {
-        const item = (Array.isArray(params) ? params[0] : params) as {
+      backgroundColor: isLightTheme.value ? 'rgba(255, 255, 255, 0.96)' : 'rgba(5, 18, 33, 0.94)',
+      borderColor: isLightTheme.value ? 'rgba(78, 101, 140, 0.18)' : 'rgba(105, 167, 232, 0.36)',
+      textStyle: { color: chartTextColor.value, fontSize: 12 },
+      formatter: (params: unknown) => {
+        const p = (Array.isArray(params) ? params[0] : params) as {
           name?: string;
-          value?: number | string;
+          value?: number;
           percent?: number;
         };
-        return `${item.name ?? ''}<br/>在线设备：${item.value ?? 0}<br/>占比：${item.percent ?? 0}%`;
+        return `${p.name ?? ''}<br/>设备数量：${p.value ?? 0}<br/>占比：${p.percent ?? 0}%`;
       },
     },
     graphic: [
       {
         type: 'text',
         left: 'center',
-        top: '38%',
+        top: '34%',
         silent: true,
         style: {
-          text: '区域分布',
+          text: hasData ? '区域分布' : '暂无数据',
           fill: chartTextColor.value,
-          fontSize: 12,
+          fontSize: 14,
+          fontWeight: 500,
           align: 'center',
         },
       },
       {
         type: 'text',
         left: 'center',
-        top: '49%',
+        top: '46%',
         silent: true,
         style: {
           text: `${onlineDevices.value}`,
-          fill: '#2e87ff',
-          fontSize: 25,
-          fontWeight: 800,
+          fill: hasData ? '#2e87ff' : '#888888',
+          fontSize: 44,
+          fontWeight: 900,
           align: 'center',
+          textShadowColor: hasData ? 'rgba(46, 135, 255, 0.4)' : 'transparent',
+          textShadowBlur: 16,
         },
       },
       {
         type: 'text',
         left: 'center',
-        top: '64%',
+        top: '62%',
         silent: true,
         style: {
           text: '在线设备',
           fill: chartTextColor.value,
-          fontSize: 12,
+          fontSize: 13,
           align: 'center',
         },
       },
@@ -673,36 +678,29 @@ function createAreaChartOption(): EChartsOption {
       {
         name: '区域统计',
         type: 'pie',
-        radius: ['64%', '86%'],
+        radius: ['55%', '80%'],
         center: ['50%', '50%'],
-        avoidLabelOverlap: true,
-        minAngle: 4,
-        padAngle: 2,
-        animationType: 'scale',
-        animationEasing: 'elasticOut',
-        animationDelay: (index: number) => index * 90,
-        label: {
-          show: false,
-        },
-        labelLine: {
-          show: false,
-        },
+        avoidLabelOverlap: false,
+        minAngle: 0,
+        padAngle: 0,
         itemStyle: {
           borderColor: isLightTheme.value ? '#f4f7fb' : '#071527',
-          borderWidth: 3,
+          borderWidth: 1,
         },
+        label: { show: false },
+        labelLine: { show: false },
         emphasis: {
-          scale: true,
-          scaleSize: 8,
-          itemStyle: {
-            shadowBlur: 18,
-            shadowColor: 'rgba(47, 134, 255, 0.42)',
-          },
+          disabled: true,
         },
-        data: areaStats.map((item) => ({
-          name: item.name,
-          value: item.count,
-        })),
+        animationDuration: 600,
+        animationDurationUpdate: 150,
+        animationEasingUpdate: 'linear',
+        data: hasData
+          ? areaStats.value.map((item) => ({
+              name: item.name,
+              value: item.count,
+            }))
+          : [{ name: '', value: 1, itemStyle: { color: 'rgba(255,255,255,0.06)' } }],
       },
     ],
   };
@@ -714,7 +712,7 @@ function renderAreaChart() {
   }
 
   areaChart ??= echarts.init(areaChartContainer.value, undefined, { renderer: 'canvas' });
-  areaChart.setOption(createAreaChartOption());
+  areaChart.setOption(createAreaChartOption(), { notMerge: false });
 }
 
 function resizeAreaChart() {
@@ -799,6 +797,7 @@ function resetReplayState() {
   replayProgress.value = 0;
   replayFrameIndex.value = 0;
   replayCurrentTime.value = 0;
+  replayOnlineCount.value = 0;
   twinScene?.setVisibleLivePoses(null);
 }
 
@@ -813,6 +812,8 @@ function restoreLivePoseView() {
   latestLivePoses.forEach((pose) => {
     twinScene?.updateLivePose(pose);
   });
+  // 恢复实时数据的区域统计
+  updateAreaStats();
 }
 
 function clearTrails() {
@@ -1116,6 +1117,140 @@ function isPointInPolygon(point: [number, number], polygon: [number, number][]):
   return inside;
 }
 
+/**
+ * 检查点是否在矩形框内
+ */
+function isPointInRectangle(x: number, y: number, minX: number, maxX: number, minY: number, maxY: number): boolean {
+  return x >= minX && x <= maxX && y >= minY && y <= maxY;
+}
+
+/**
+ * 获取点所在的围栏/区域
+ */
+function getFenceForPoint(point: { x: number; y: number }): { id: string; name: string; color: string } | null {
+  // 将定位点坐标转换为地图配置坐标系
+  const offsetX = sceneStore.config.floor.origin[0] + sceneStore.config.floor.width / 2;
+  const offsetY = sceneStore.config.floor.origin[1] + sceneStore.config.floor.height / 2;
+  const mapX = point.x + offsetX;
+  const mapY = point.y + offsetY;
+  
+  for (const fence of sceneStore.config.fences) {
+    if (isPointInRectangle(mapX, mapY, fence.minX, fence.maxX, fence.minY, fence.maxY)) {
+      return {
+        id: fence.id,
+        name: fence.name,
+        color: fence.color,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * 计算并更新区域统计
+ */
+function updateAreaStats(): void {
+  const fenceCounts = new Map<string, { name: string; color: string; count: number }>();
+
+  // 初始化所有围栏
+  sceneStore.config.fences.forEach((fence) => {
+    fenceCounts.set(fence.id, {
+      name: fence.name,
+      color: fence.color,
+      count: 0,
+    });
+  });
+
+  let otherCount = 0;
+
+  // 统计每个围栏内的设备数
+  latestLivePoses.forEach((pose) => {
+    const fence = getFenceForPoint(pose);
+    if (fence) {
+      const stat = fenceCounts.get(fence.id);
+      if (stat) {
+        stat.count += 1;
+      }
+    } else {
+      otherCount += 1;
+    }
+  });
+
+  // 计算百分比并转换为数组（保留所有区域，包括计数为0的，保证饼图动画平滑）
+  const totalOnline = onlineDevices.value || 1;
+  const result: Array<{ name: string; count: number; percent: number; color: string }> = [
+    ...fenceCounts.entries(),
+  ].map(([, stat]) => ({
+    name: stat.name,
+    count: stat.count,
+    percent: Number(((stat.count / totalOnline) * 100).toFixed(1)),
+    color: stat.color,
+  }));
+
+  // 始终添加"其他"分类（未知区域），保证饼图始终完整
+  result.push({
+    name: '其他',
+    count: otherCount,
+    percent: Number(((otherCount / totalOnline) * 100).toFixed(1)),
+    color: '#a0a0a0',
+  });
+
+  areaStats.value = result.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * 更新回放时的区域统计
+ */
+function updateReplayAreaStats(time: number): void {
+  const fenceCounts = new Map<string, { name: string; color: string; count: number }>();
+
+  // 初始化所有围栏
+  sceneStore.config.fences.forEach((fence) => {
+    fenceCounts.set(fence.id, {
+      name: fence.name,
+      color: fence.color,
+      count: 0,
+    });
+  });
+
+  // 获取当前时间的所有定位点
+  const positions = getReplayPositionsAtTime(time);
+  let otherCount = 0;
+
+  positions.forEach((point) => {
+    const fence = getFenceForPoint(point);
+    if (fence) {
+      const stat = fenceCounts.get(fence.id);
+      if (stat) {
+        stat.count += 1;
+      }
+    } else {
+      otherCount += 1;
+    }
+  });
+
+  // 计算百分比并转换为数组（保留所有区域，包括计数为0的，保证饼图动画平滑）
+  const totalOnline = Math.max(positions.length, 1);
+  const result: Array<{ name: string; count: number; percent: number; color: string }> = [
+    ...fenceCounts.entries(),
+  ].map(([, stat]) => ({
+    name: stat.name,
+    count: stat.count,
+    percent: Number(((stat.count / totalOnline) * 100).toFixed(1)),
+    color: stat.color,
+  }));
+
+  // 始终添加"其他"分类（未知区域），保证饼图始终完整
+  result.push({
+    name: '其他',
+    count: otherCount,
+    percent: Number(((otherCount / totalOnline) * 100).toFixed(1)),
+    color: '#a0a0a0',
+  });
+
+  areaStats.value = result.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function getReplayClustersAtTime(time: number): Array<{ area: string; count: number }> {
   const counts = new Map<string, number>();
   getReplayPositionsAtTime(time).forEach((point) => {
@@ -1139,22 +1274,29 @@ function applyReplayFrame(index = currentReplayIndex.value) {
 
 function applyReplayTime(time: number) {
   if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
+    let visibleCount = 0;
     replayTracks.forEach((devicePoints, deviceId) => {
       const framePoint = interpolateReplayPoint(devicePoints, time);
       if (framePoint) {
         twinScene?.updateReplayPose(deviceId, framePoint, framePoint.theta ?? 0);
+        visibleCount += 1;
       } else {
         twinScene?.hideReplayPose(deviceId);
       }
     });
+    replayOnlineCount.value = visibleCount;
+    // 更新回放时的区域统计
+    updateReplayAreaStats(time);
     return;
   }
 
   const point = interpolateReplayPoint(replayPoints.value, time);
   if (point) {
     twinScene?.updateReplayPose(point.deviceId, point, point.theta ?? 0);
+    replayOnlineCount.value = 1;
   } else if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
     twinScene?.hideReplayPose(selectedReplayDevice.value);
+    replayOnlineCount.value = 0;
   }
 }
 
@@ -1411,6 +1553,9 @@ onMounted(() => {
   });
   void loadAlertEvents();
 
+  // 初始化区域统计
+  updateAreaStats();
+
   clockTimer = window.setInterval(() => {
     currentTime.value = formatClock(new Date());
   }, 1000);
@@ -1433,7 +1578,7 @@ onMounted(() => {
     },
   );
   twinScene.init();
-  twinScene.toggleWallTags(wallTagsVisible.value);
+  twinScene.toggleFences(fencesVisible.value);
   twinScene.toggleLivePoseLabels(livePoseLabelsVisible.value);
 
   const mqttUrl = resolveMqttWebSocketUrl();
@@ -1452,6 +1597,8 @@ onMounted(() => {
       });
       livePose.value = pose;
       latestLivePoses.set(pose.deviceId, pose);
+      onlineDeviceCount.value = latestLivePoses.size;
+      updateAreaStats(); // 更新区域统计
       appendReplayHistory(pose.deviceId, [
         {
           deviceId: pose.deviceId,
@@ -1490,6 +1637,8 @@ onMounted(() => {
     onDeviceDisconnect: (deviceId) => {
       console.log('[TwinScreen MQTT] onDeviceDisconnect callback', { deviceId });
       latestLivePoses.delete(deviceId);
+      onlineDeviceCount.value = latestLivePoses.size;
+      updateAreaStats(); // 更新区域统计
       if (!replayPanelOpen.value) {
         twinScene?.clearDeviceLivePose(deviceId);
       }
@@ -1527,6 +1676,10 @@ onBeforeUnmount(() => {
 watch(onlineDevices, () => {
   renderAreaChart();
 });
+
+watch(areaStats, () => {
+  renderAreaChart();
+}, { deep: true });
 
 watch(
   () => props.themeMode,
@@ -1698,11 +1851,15 @@ watch(
   position: relative;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 292px;
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 18px;
   min-height: 0;
   overflow: hidden;
   padding: 14px 20px;
+}
+
+.workspace--replay-open {
+  grid-template-columns: 320px minmax(0, 1fr) 292px;
 }
 
 .beian-footer {
@@ -1754,7 +1911,7 @@ watch(
 
 .left-rail {
   display: grid;
-  grid-template-rows: auto minmax(220px, 0.95fr) minmax(220px, 1.05fr);
+  grid-template-rows: auto 1fr;
 }
 
 .right-rail {
@@ -1789,45 +1946,70 @@ watch(
   color: #172033;
 }
 
-.metric-grid {
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dashboard-stats-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px 14px 18px;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px 16px;
 }
 
-.metric-grid div {
-  min-height: 78px;
-  padding: 12px 14px;
-  border: 1px solid rgba(82, 149, 218, 0.24);
-  border-radius: 6px;
+.stat-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 72px;
+  padding: 12px 10px;
+  border: 1px solid rgba(82, 149, 218, 0.28);
+  border-radius: 10px;
   background: rgba(4, 17, 33, 0.72);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.twin-screen--light .metric-grid div {
-  border-color: rgba(78, 101, 140, 0.12);
+.stat-pill:hover {
+  border-color: rgba(82, 149, 218, 0.45);
+  box-shadow: 0 4px 16px rgba(47, 134, 255, 0.12);
+}
+
+.twin-screen--light .stat-pill {
+  border-color: rgba(78, 101, 140, 0.14);
   background: rgba(246, 249, 253, 0.78);
 }
 
-.metric-grid strong {
+.twin-screen--light .stat-pill:hover {
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.08);
+}
+
+.stat-pill strong {
   display: block;
   color: #22d886;
-  font-size: 32px;
+  font-size: 30px;
+  font-weight: 800;
   line-height: 1;
 }
 
-.metric-grid__blue {
+.stat-pill--blue strong {
   color: #2f86ff !important;
 }
 
-.metric-grid span {
+.stat-pill span {
   display: block;
-  margin-top: 8px;
   color: rgba(218, 232, 244, 0.74);
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.twin-screen--light .metric-grid span,
+.twin-screen--light .stat-pill span {
+  color: rgba(52, 65, 89, 0.68);
+}
+
 .twin-screen--light .area-row,
 .twin-screen--light .event-item small,
 .twin-screen--light .event-item time,
@@ -1839,51 +2021,68 @@ watch(
   color: rgba(52, 65, 89, 0.68);
 }
 
-.area-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
 .donut-wrap {
   flex: 0 0 auto;
   display: flex;
   justify-content: center;
-  padding: 16px 0 10px;
+  padding: 8px 0 14px;
 }
 
 .area-chart {
-  width: 136px;
-  height: 136px;
+  width: 220px;
+  height: 220px;
 }
 
 .area-list {
   display: grid;
   flex: 1 1 auto;
-  gap: 9px;
+  gap: 4px;
+  max-height: 180px;
   min-height: 0;
   overflow: auto;
-  padding: 0 18px 18px;
+  padding: 6px 16px 16px;
+  align-content: start;
+  border-top: 1px solid rgba(85, 145, 206, 0.12);
+}
+
+.twin-screen--light .area-list {
+  border-top-color: rgba(78, 101, 140, 0.08);
 }
 
 .area-row {
   display: grid;
   grid-template-columns: 10px 1fr auto;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 4px;
   color: rgba(223, 236, 248, 0.78);
-  font-size: 13px;
+  font-size: 12px;
+  transition: background 0.15s, box-shadow 0.15s;
+  cursor: default;
+}
+
+.area-row:hover {
+  background: rgba(47, 134, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(47, 134, 255, 0.12);
+}
+
+.twin-screen--light .area-row:hover {
+  background: rgba(37, 99, 235, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08);
 }
 
 .area-row i {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  box-shadow: 0 0 5px currentColor;
 }
 
 .area-row strong {
-  color: rgba(235, 245, 255, 0.86);
-  font-weight: 500;
+  color: rgba(235, 245, 255, 0.9);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .twin-screen--light .area-row strong,
@@ -2044,12 +2243,13 @@ watch(
 }
 
 .pick-chip {
-  position: absolute;
-  top: 16px;
-  left: 50%;
+  position: fixed;
+  top: 80px;
+  left: calc(50% + 80px);
   display: flex;
   gap: 10px;
   transform: translateX(-50%);
+  z-index: 10;
   padding: 8px 12px;
   border: 1px solid rgba(104, 169, 232, 0.3);
   border-radius: 6px;
@@ -2071,11 +2271,12 @@ watch(
 }
 
 .map-controls {
-  position: absolute;
-  right: 16px;
-  bottom: 100px;
+  position: fixed;
+  right: 36px;
+  bottom: 128px;
   display: grid;
   gap: 8px;
+  z-index: 10;
 }
 
 .map-controls button {
@@ -2102,14 +2303,15 @@ watch(
 }
 
 .tool-dock {
-  position: absolute;
-  left: 50%;
-  bottom: 8px;
+  position: fixed;
+  left: calc(50% + 80px);
+  bottom: 24px;
   display: grid;
   grid-template-columns: repeat(8, minmax(72px, 92px));
   max-width: calc(100% - 32px);
   overflow: hidden;
   transform: translateX(-50%);
+  z-index: 10;
   border: 1px solid rgba(80, 145, 205, 0.34);
   border-radius: 6px;
   background: rgba(5, 18, 33, 0.8);
@@ -2155,10 +2357,10 @@ watch(
 }
 
 .replay-progress-dock {
-  position: absolute;
-  left: 50%;
-  bottom: 76px;
-  z-index: 4;
+  position: fixed;
+  left: calc(50% + 80px);
+  bottom: 94px;
+  z-index: 10;
   width: clamp(460px, 52vw, 620px);
   max-width: calc(100% - 32px);
   transform: translateX(-50%);
@@ -2176,14 +2378,15 @@ watch(
 }
 
 .floating-popover {
-  position: absolute;
-  left: 50%;
-  bottom: 92px;
+  position: fixed;
+  left: calc(50% + 80px);
+  bottom: 108px;
   display: grid;
   gap: 8px;
   width: 180px;
   padding: 12px;
   transform: translateX(-300px);
+  z-index: 10;
   border: 1px solid rgba(80, 145, 205, 0.34);
   border-radius: 6px;
   background: rgba(5, 18, 33, 0.94);
@@ -2631,8 +2834,9 @@ watch(
 }
 
 @media (max-width: 1280px) {
-  .workspace {
-    grid-template-columns: 280px minmax(0, 1fr);
+  .workspace,
+  .workspace--replay-open {
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 
   .right-rail {
@@ -2645,7 +2849,8 @@ watch(
 }
 
 @media (max-width: 980px) {
-  .workspace {
+  .workspace,
+  .workspace--replay-open {
     grid-template-columns: 1fr;
     padding: 10px;
   }
@@ -2664,13 +2869,19 @@ watch(
     display: none;
   }
 
+  .pick-chip {
+    left: 50%;
+  }
+
   .tool-dock {
+    left: 50%;
     grid-template-columns: repeat(4, minmax(70px, 1fr));
     width: calc(100% - 20px);
   }
 
   .replay-progress-dock {
-    bottom: 70px;
+    left: 50%;
+    bottom: 84px;
     width: calc(100% - 24px);
   }
 }

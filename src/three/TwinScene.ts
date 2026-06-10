@@ -793,6 +793,18 @@ export class TwinScene {
     });
   }
 
+  toggleFences(visible: boolean): void {
+    if (!this.floorGroup) {
+      return;
+    }
+
+    this.floorGroup.traverse((object) => {
+      if (object.name.startsWith('fence:')) {
+        object.visible = visible;
+      }
+    });
+  }
+
   toggleLivePoseLabels(visible: boolean): void {
     this.livePoseLabelsVisible = visible;
     this.updateLivePoseLabelVisibility();

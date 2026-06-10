@@ -29,6 +29,18 @@ export interface WallConfig {
   color: string;
 }
 
+export interface FenceConfig {
+  id: string;
+  name: string;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  height: number;
+  color: string;
+  groupId?: string;
+}
+
 export interface DeviceConfig {
   id: string;
   name: string;
@@ -58,6 +70,7 @@ export interface SceneConfig {
   floor: FloorConfig;
   areas: AreaConfig[];
   walls: WallConfig[];
+  fences: FenceConfig[];
   devices: DeviceConfig[];
   models: ModelConfig[];
   overlay: OverlayConfig;
