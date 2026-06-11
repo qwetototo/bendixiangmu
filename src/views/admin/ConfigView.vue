@@ -13,7 +13,7 @@
         </div>
         <label>
           <input v-model="item.enabled" type="checkbox" @change="recordSettingChange(item.title, item.enabled)" />
-          <span>启用</span>
+          <span>{{ t('common.enable') }}</span>
         </label>
       </article>
     </section>
@@ -21,8 +21,8 @@
     <section class="config-layout">
       <article class="rule-panel">
         <div class="panel-title">
-          <h3>告警规则</h3>
-          <button type="button" @click="addRule">新增规则</button>
+          <h3>{{ t('config.alarmRules') }}</h3>
+          <button type="button" @click="addRule">{{ t('config.addRule') }}</button>
         </div>
         <div class="rule-list">
           <div
@@ -39,7 +39,7 @@
       </article>
 
       <article class="integration-panel">
-        <h3>数据通道</h3>
+        <h3>{{ t('config.dataChannels') }}</h3>
         <div class="channel-list">
           <div
             v-for="channel in channels"
@@ -53,14 +53,14 @@
           </div>
         </div>
         <div class="selected-channel">
-          <span>当前通道</span>
+          <span>{{ t('config.currentChannel') }}</span>
           <strong>{{ selectedChannel.name }}</strong>
           <small>{{ selectedChannel.status }} / {{ selectedChannel.value }}</small>
         </div>
       </article>
 
       <article class="audit-panel">
-        <h3>最近配置变更</h3>
+        <h3>{{ t('config.recentChanges') }}</h3>
         <div class="audit-list">
           <div v-for="item in audits" :key="item.time">
             <time>{{ item.time }}</time>
@@ -75,18 +75,18 @@
     <template v-if="viewMode === 'list'">
       <section class="map-toolbar">
         <div>
-          <h2>地图编辑</h2>
-          <p>管理轨迹中心使用的地图配置、平面贴图和参考模型。</p>
+          <h2>{{ t('config.mapEditor') }}</h2>
+          <p>{{ t('config.mapEditorDesc') }}</p>
         </div>
         <div class="toolbar-actions">
           <input ref="mapFileInput" class="model-file-input" type="file" @change="importMapFile" />
           <button type="button" class="upload-button" :disabled="mapImporting" @click="openMapFilePicker">
             <UploadOutlined />
-            <span>{{ mapImporting ? '正在导入' : '导入地图' }}</span>
+            <span>{{ mapImporting ? t('config.importing') : t('config.importMap') }}</span>
           </button>
           <button type="button" class="primary-button" @click="createBlankMap">
             <PlusOutlined />
-            <span>新建地图</span>
+            <span>{{ t('config.createMap') }}</span>
           </button>
         </div>
       </section>
@@ -117,29 +117,29 @@
           <div class="map-row__content">
             <div class="map-row__title">
               <h3>{{ map.name }}</h3>
-              <span v-if="map.id === sceneStore.activeMapId">当前地图</span>
+              <span v-if="map.id === sceneStore.activeMapId">{{ t('config.currentMap') }}</span>
             </div>
-            <p>{{ map.description || '未填写地图说明' }}</p>
+            <p>{{ map.description || t('config.noMapDesc') }}</p>
             <div class="map-row__meta">
               <span>{{ map.config.floor.width }} x {{ map.config.floor.height }}</span>
-              <span>{{ map.config.areas.length }} 个区域</span>
-              <span>{{ map.config.walls.length }} 段围墙</span>
-              <span>{{ map.config.models.length }} 个模型</span>
-              <span>更新 {{ formatDate(map.updatedAt) }}</span>
+              <span>{{ t('config.areasCount', { n: map.config.areas.length }) }}</span>
+              <span>{{ t('config.wallsCount', { n: map.config.walls.length }) }}</span>
+              <span>{{ t('config.modelsCount', { n: map.config.models.length }) }}</span>
+              <span>{{ t('config.updatedAt', { date: formatDate(map.updatedAt) }) }}</span>
             </div>
           </div>
           <div class="map-row__actions">
             <button type="button" @click="applyMap(map)">
               <CheckCircleOutlined />
-              <span>应用</span>
+              <span>{{ t('config.apply') }}</span>
             </button>
             <button type="button" @click="openEditor(map)">
               <EditOutlined />
-              <span>编辑</span>
+              <span>{{ t('common.edit') }}</span>
             </button>
             <button type="button" :disabled="map.id === DEFAULT_MAP_ID" @click="deleteMap(map)">
               <DeleteOutlined />
-              <span>删除</span>
+              <span>{{ t('common.delete') }}</span>
             </button>
           </div>
         </article>
@@ -150,27 +150,27 @@
       <section class="editor-header">
         <button type="button" class="back-button" @click="closeEditor">
           <ArrowLeftOutlined />
-          <span>返回列表</span>
+          <span>{{ t('config.backToList') }}</span>
         </button>
         <div>
           <h2>{{ draftMap.name }}</h2>
-          <p>调整后保存，可立即应用到轨迹中心。</p>
+          <p>{{ t('config.editorDesc') }}</p>
         </div>
         <div class="toolbar-actions">
           <button type="button" class="ghost-button" @click="applyDraft">
             <CheckCircleOutlined />
-            <span>应用到轨迹中心</span>
+            <span>{{ t('config.applyToTrack') }}</span>
           </button>
           <button type="button" class="primary-button" @click="saveDraft">
             <SaveOutlined />
-            <span>保存地图</span>
+            <span>{{ t('config.saveMap') }}</span>
           </button>
         </div>
       </section>
 
       <section class="editor-layout">
         <article class="preview-panel">
-          <h3>地图形象</h3>
+          <h3>{{ t('config.mapPreview') }}</h3>
           <div class="map-preview">
             <svg :viewBox="getPreviewBox(draftMap.config)" role="img">
               <polygon
@@ -196,78 +196,78 @@
             </svg>
           </div>
           <div class="preview-stats">
-            <span>楼层 {{ draftMap.config.floor.name }}</span>
-            <span>原点 {{ draftMap.config.floor.origin.join(', ') }}</span>
-            <span>比例 {{ draftMap.config.floor.scale }}</span>
+            <span>{{ t('config.floorName', { name: draftMap.config.floor.name }) }}</span>
+            <span>{{ t('config.originLabel', { origin: draftMap.config.floor.origin.join(', ') }) }}</span>
+            <span>{{ t('config.scaleLabel', { scale: draftMap.config.floor.scale }) }}</span>
           </div>
         </article>
 
         <article class="form-panel">
-          <h3>基本信息</h3>
+          <h3>{{ t('config.basicInfo') }}</h3>
           <div class="form-grid">
             <label>
-              <span>地图名称</span>
+              <span>{{ t('config.mapName') }}</span>
               <input v-model.trim="draftMap.name" type="text" />
             </label>
             <label>
-              <span>楼层名称</span>
+              <span>{{ t('config.floorNameLabel') }}</span>
               <input v-model.trim="draftMap.config.floor.name" type="text" />
             </label>
             <label class="wide">
-              <span>基本信息</span>
+              <span>{{ t('config.description') }}</span>
               <textarea v-model.trim="draftMap.description" rows="3" />
             </label>
             <label>
-              <span>宽度</span>
+              <span>{{ t('config.width') }}</span>
               <input v-model.number="draftMap.config.floor.width" type="number" min="1" />
             </label>
             <label>
-              <span>高度</span>
+              <span>{{ t('config.height') }}</span>
               <input v-model.number="draftMap.config.floor.height" type="number" min="1" />
             </label>
             <label>
-              <span>缩放比例</span>
+              <span>{{ t('config.scale') }}</span>
               <input v-model.number="draftMap.config.floor.scale" type="number" min="0.01" step="0.01" />
             </label>
             <label>
-              <span>原点 X</span>
+              <span>{{ t('config.originX') }}</span>
               <input v-model.number="draftMap.config.floor.origin[0]" type="number" />
             </label>
             <label>
-              <span>原点 Y</span>
+              <span>{{ t('config.originY') }}</span>
               <input v-model.number="draftMap.config.floor.origin[1]" type="number" />
             </label>
           </div>
         </article>
 
         <article class="form-panel">
-          <h3>贴图与模型</h3>
+          <h3>{{ t('config.texturesAndModels') }}</h3>
           <div class="form-grid">
             <label class="wide">
-              <span>平面贴图路径</span>
+              <span>{{ t('config.overlayPath') }}</span>
               <input v-model.trim="draftMap.config.overlay.path" type="text" />
             </label>
             <label>
-              <span>贴图缩放</span>
+              <span>{{ t('config.overlayScale') }}</span>
               <input v-model.number="draftMap.config.overlay.scale" type="number" min="0.01" step="0.01" />
             </label>
             <label>
-              <span>透明度</span>
+              <span>{{ t('config.opacity') }}</span>
               <input v-model.number="draftMap.config.overlay.opacity" type="number" min="0" max="1" step="0.01" />
             </label>
             <label>
-              <span>偏移 X</span>
+              <span>{{ t('config.offsetX') }}</span>
               <input v-model.number="draftMap.config.overlay.offset[0]" type="number" />
             </label>
             <label>
-              <span>偏移 Y</span>
+              <span>{{ t('config.offsetY') }}</span>
               <input v-model.number="draftMap.config.overlay.offset[1]" type="number" />
             </label>
           </div>
 
           <div class="model-tools">
             <label class="model-directory-field">
-              <span>保存目录</span>
+              <span>{{ t('config.saveDir') }}</span>
               <input v-model.trim="modelUploadDirectory" type="text" placeholder="uploads" />
             </label>
             <input ref="modelFileInput" class="model-file-input" type="file" @change="importModelFile" />
@@ -278,11 +278,11 @@
               @click="openModelFilePicker"
             >
               <UploadOutlined />
-              <span>{{ modelUploading ? '正在上传' : '上传地图 GLB' }}</span>
+              <span>{{ modelUploading ? t('config.uploading') : t('config.uploadMapGLB') }}</span>
             </button>
             <button type="button" @click="addModelByPath">
               <PlusOutlined />
-              <span>添加模型路径</span>
+              <span>{{ t('config.addModelPath') }}</span>
             </button>
           </div>
           <p v-if="modelUploadStatus" :class="['model-upload-status', { error: modelUploadFailed }]">
@@ -314,6 +314,9 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 import {
   ArrowLeftOutlined,
   CheckCircleOutlined,
@@ -365,24 +368,24 @@ defineProps<{
 }>();
 
 const configItems = reactive<ConfigItem[]>([
-  { title: '轨迹采样策略', text: '统一管理实时刷新频率、轨迹点保留时长与回放精度。', enabled: true },
-  { title: '电子围栏规则', text: '配置重点区域、越界告警、滞留告警与事件推送级别。', enabled: true },
-  { title: '外部数据接入', text: '维护 MQTT 地址、接口凭证、组织系统和设备平台同步设置。', enabled: false },
-  { title: '审计与安全', text: '记录关键操作，预留单点登录、角色权限和数据脱敏策略。', enabled: true },
+  { title: t('config.trajectorySampling'), text: t('config.trajectorySamplingDesc'), enabled: true },
+  { title: t('config.eFenceRules'), text: t('config.eFenceRulesDesc'), enabled: true },
+  { title: t('config.externalDataAccess'), text: t('config.externalDataAccessDesc'), enabled: false },
+  { title: t('config.auditSecurity'), text: t('config.auditSecurityDesc'), enabled: true },
 ]);
 
 const rules = reactive<RuleItem[]>([
-  { name: '重点区域越界', condition: '非授权人员进入实验区超过 10 秒', level: 'alarm', levelText: '高' },
-  { name: '人员长时间静止', condition: '同一区域停留超过 45 分钟', level: 'warn', levelText: '中' },
-  { name: '设备低电量', condition: '标签电量低于 20%', level: 'warn', levelText: '中' },
-  { name: '设备离线', condition: '超过 3 分钟未收到上报', level: 'normal', levelText: '低' },
+  { name: t('config.keyAreaCrossing'), condition: t('config.keyAreaCrossingCond'), level: 'alarm', levelText: t('config.high') },
+  { name: t('config.personStillness'), condition: t('config.personStillnessCond'), level: 'warn', levelText: t('config.medium') },
+  { name: t('config.deviceLowBattery'), condition: t('config.deviceLowBatteryCond'), level: 'warn', levelText: t('config.medium') },
+  { name: t('config.deviceOffline'), condition: t('config.deviceOfflineCond'), level: 'normal', levelText: t('config.low') },
 ]);
 
 const channels = reactive<ChannelItem[]>([
-  { name: 'MQTT WebSocket', value: 'ws://localhost:8080', status: '主通道' },
-  { name: '轨迹归档接口', value: '/api/track/archive', status: '待接入' },
-  { name: '组织同步', value: '企业通讯录', status: '每日 02:00' },
-  { name: '告警推送', value: 'Webhook / 短信', status: '已启用' },
+  { name: 'MQTT WebSocket', value: 'ws://localhost:8080', status: t('config.primaryChannel') },
+  { name: t('archive.title'), value: '/api/track/archive', status: t('config.pendingAccess') },
+  { name: '组织同步', value: '企业通讯录', status: t('config.dailySchedule', { time: '02:00' }) },
+  { name: '告警推送', value: 'Webhook / 短信', status: t('config.enabledStatus') },
 ]);
 
 const audits = reactive([
@@ -416,7 +419,7 @@ const selectedChannel = computed(() => {
 const previewAreas = computed(() => (config: SceneConfig) => config.areas.filter((area) => area.type === 'floor'));
 
 function addAudit(content: string) {
-  audits.unshift({ time: '刚刚', content });
+  audits.unshift({ time: t('config.justNow'), content });
   if (audits.length > 5) {
     audits.pop();
   }
@@ -424,19 +427,19 @@ function addAudit(content: string) {
 
 function recordSettingChange(title: string, enabled: boolean) {
   selectedSetting.value = title;
-  addAudit(`${title}${enabled ? '已启用' : '已停用'}`);
+  addAudit(enabled ? t('config.enabled', { title }) : t('config.disabled', { title }));
 }
 
 function addRule() {
   const nextRule: RuleItem = {
-    name: `临时访客越界 ${rules.length + 1}`,
-    condition: '临时访客进入非授权区域超过 5 秒',
+    name: t('config.tempVisitorCrossing', { n: rules.length + 1 }),
+    condition: t('config.tempVisitorCrossingCond'),
     level: 'warn',
-    levelText: '中',
+    levelText: t('config.medium'),
   };
   rules.unshift(nextRule);
   selectedRuleName.value = nextRule.name;
-  addAudit(`新增告警规则：${nextRule.name}`);
+  addAudit(t('config.ruleAdded', { name: nextRule.name }));
 }
 
 function showMessage(content: string) {
@@ -451,7 +454,7 @@ function showMessage(content: string) {
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return '刚刚';
+    return t('config.justNow');
   }
 
   return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date
@@ -473,7 +476,7 @@ function syncMaps(nextMaps: SavedMap[]) {
     maps.value = nextMaps;
     saveMapLibrary(nextMaps);
   } catch {
-    showMessage('保存失败：浏览器本地存储空间不足');
+    showMessage(t('config.saveFailed'));
   }
 }
 
@@ -491,7 +494,7 @@ function closeEditor() {
 }
 
 function createBlankMap() {
-  const map = createSavedMap('未命名地图', '空白地图', createBlankSceneConfig());
+  const map = createSavedMap(t('config.unnamedMap'), t('config.blankMap'), createBlankSceneConfig());
   syncMaps([map, ...maps.value]);
   openEditor(map);
 }
@@ -503,10 +506,10 @@ function saveDraft() {
 
   const nextMap: SavedMap =
     draftMap.value.id === DEFAULT_MAP_ID
-      ? createSavedMap(draftMap.value.name || '默认地图副本', draftMap.value.description || '从默认地图编辑保存', draftMap.value.config)
+      ? createSavedMap(draftMap.value.name || t('config.defaultMapCopy'), draftMap.value.description || t('config.fromDefaultEdit'), draftMap.value.config)
       : {
           ...draftMap.value,
-          name: draftMap.value.name || '未命名地图',
+          name: draftMap.value.name || t('config.unnamedMap'),
           updatedAt: new Date().toISOString(),
           config: cloneSceneConfig(draftMap.value.config),
         };
@@ -519,12 +522,12 @@ function saveDraft() {
   if (sceneStore.activeMapId === nextMap.id) {
     sceneStore.setActiveMap(nextMap.id, cloneSceneConfig(nextMap.config));
   }
-  showMessage('地图已保存');
+  showMessage(t('config.mapSaved'));
 }
 
 function applyMap(map: SavedMap) {
   sceneStore.setActiveMap(map.id, cloneSceneConfig(map.config));
-  showMessage(`已应用：${map.name}`);
+  showMessage(t('config.mapApplied', { name: map.name }));
 }
 
 function applyDraft() {
@@ -547,7 +550,7 @@ function deleteMap(map: SavedMap) {
     const fallbackMap = nextMaps[0];
     sceneStore.setActiveMap(fallbackMap.id, cloneSceneConfig(fallbackMap.config));
   }
-  showMessage(`已删除：${map.name}`);
+  showMessage(t('config.mapDeleted', { name: map.name }));
 }
 
 async function importMapFile(event: Event) {
@@ -571,16 +574,16 @@ async function importMapFile(event: Event) {
         center: [0, 0],
         rotation: [0, 0, 0],
       });
-      const map = createSavedMap(mapName, `从 ${file.name} 导入`, config);
+      const map = createSavedMap(mapName, t('config.importedFrom', { file: file.name }), config);
       syncMaps([map, ...maps.value]);
       openEditor(map);
-      modelUploadStatus.value = `已保存到 src/assets/model/${modelPath}`;
-      showMessage(`GLB 地图已导入，已自动缩放为 ${scale}`);
+      modelUploadStatus.value = t('config.modelSavedTo', { path: modelPath });
+      showMessage(t('config.mapImportedGLB', { scale }));
       return;
     }
 
     if (!/\.json$/i.test(file.name)) {
-      showMessage('请选择 .json、.glb 或 .gltf 文件');
+      showMessage(t('config.invalidFileType'));
       return;
     }
 
@@ -588,21 +591,21 @@ async function importMapFile(event: Event) {
     const parsed = JSON.parse(text) as unknown;
     const config = isSceneConfig(parsed) ? parsed : (parsed as { config?: unknown }).config;
     if (!isSceneConfig(config)) {
-      showMessage('导入失败：JSON 不符合当前地图配置结构');
+      showMessage(t('config.importConfigFailed'));
       return;
     }
 
     const map = createSavedMap(config.floor.name || file.name.replace(/\.json$/i, ''), `从 ${file.name} 导入`, config);
     syncMaps([map, ...maps.value]);
     openEditor(map);
-    showMessage('地图已导入');
+    showMessage(t('config.mapSaved'));
   } catch (error) {
     const errorMessage =
       error instanceof TypeError
-        ? '无法连接地图上传服务，请通过 npm run dev 启动项目后再导入 GLB'
+        ? t('config.uploadServiceError')
         : error instanceof Error
           ? error.message
-          : '地图导入失败';
+          : t('config.mapImportFailed');
     showMessage(errorMessage);
   } finally {
     mapImporting.value = false;
@@ -619,14 +622,14 @@ async function importModelFile(event: Event) {
 
   if (!/\.(glb|gltf)$/i.test(file.name)) {
     modelUploadFailed.value = true;
-    modelUploadStatus.value = '请选择 .glb 或 .gltf 模型文件';
+    modelUploadStatus.value = t('config.modelInvalidFile');
     showMessage(modelUploadStatus.value);
     return;
   }
 
   modelUploading.value = true;
   modelUploadFailed.value = false;
-  modelUploadStatus.value = `正在上传 ${file.name}...`;
+  modelUploadStatus.value = `${t('config.uploading')} ${file.name}...`;
 
   try {
     const modelPath = await uploadModelAsset(file, modelUploadDirectory.value || 'uploads');
@@ -638,16 +641,16 @@ async function importModelFile(event: Event) {
       center: [0, 0],
       rotation: [0, 0, 0],
     });
-    modelUploadStatus.value = `已保存到 src/assets/model/${modelPath}，自动缩放为 ${scale}`;
-    showMessage(`模型已导入并自动缩放为 ${scale}`);
+    modelUploadStatus.value = t('config.modelSavedTo', { path: modelPath });
+    showMessage(t('config.modelFitDone', { scale }));
   } catch (error) {
     modelUploadFailed.value = true;
     const errorMessage =
       error instanceof TypeError
-        ? '无法连接模型上传服务，请通过 npm run dev 启动项目后再上传'
+        ? t('config.modelUploadError')
         : error instanceof Error
           ? error.message
-          : '模型导入失败';
+          : t('config.modelImportFailed');
     modelUploadStatus.value = errorMessage;
     showMessage(errorMessage);
   } finally {
@@ -670,11 +673,11 @@ async function uploadModelAsset(file: File, directory: string): Promise<string> 
   try {
     result = JSON.parse(responseText) as { path?: string; message?: string };
   } catch {
-    throw new Error(`上传接口不可用（HTTP ${response.status}），请使用 npm run dev 启动项目`);
+    throw new Error(t('config.uploadServiceError'));
   }
 
   if (!response.ok || !result.path) {
-    throw new Error(result.message || '模型保存失败');
+    throw new Error(result.message || t('config.modelImportFailed'));
   }
 
   return result.path;
@@ -705,17 +708,17 @@ async function fitModelToMap(modelConfig: ModelConfig) {
   }
 
   modelUploadFailed.value = false;
-  modelUploadStatus.value = '正在计算模型尺寸...';
+  modelUploadStatus.value = t('config.modelFitCalc');
   try {
     const modelPath = modelConfig.path.replace(/\\/g, '/').replace(/^\/+/, '');
     const modelUrl = /^(data:|blob:|https?:\/\/)/i.test(modelPath) ? modelPath : `/src/assets/model/${modelPath}`;
     const gltf = await gltfLoader.loadAsync(modelUrl);
     modelConfig.scale = calculateModelFitScale(gltf.scene, draftMap.value.config);
-    modelUploadStatus.value = `模型已自动缩放为 ${modelConfig.scale}`;
+    modelUploadStatus.value = t('config.modelFitDone', { scale: modelConfig.scale });
     showMessage(modelUploadStatus.value);
   } catch {
     modelUploadFailed.value = true;
-    modelUploadStatus.value = '无法读取模型尺寸，请确认模型文件路径有效';
+    modelUploadStatus.value = t('config.modelSizeError');
     showMessage(modelUploadStatus.value);
   }
 }

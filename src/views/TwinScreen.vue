@@ -2,29 +2,29 @@
   <main :class="['twin-screen', `twin-screen--${themeMode ?? 'dark'}`, { 'twin-screen--embedded': embedded }]">
     <header class="topbar">
       <div class="topbar__status">
-        <span>实时更新：</span>
+        <span>{{ t('dashboard.realtimeUpdate') }}</span>
         <strong>{{ currentTime }}</strong>
         <span :class="['status-dot', `status-dot--${mqttStatus}`]" />
         <span class="topbar__mqtt">{{ mqttStatusText }}</span>
       </div>
       <div class="topbar__spacer" />
       <label class="select-field">
-        <span>3D视角</span>
+        <span>{{ t('dashboard.view3D') }}</span>
         <select v-model="cameraMode" @change="applyCameraMode">
-          <option value="overview">总览</option>
-          <option value="top">俯视</option>
-          <option value="side">侧视</option>
+          <option value="overview">{{ t('dashboard.overview') }}</option>
+          <option value="top">{{ t('dashboard.top') }}</option>
+          <option value="side">{{ t('dashboard.side') }}</option>
         </select>
       </label>
       <label class="select-field">
-        <span>视图模式</span>
+        <span>{{ t('dashboard.viewMode') }}</span>
         <select v-model="viewMode">
-          <option value="monitor">监控</option>
-          <option value="replay">回放</option>
-          <option value="thermal">热力</option>
+          <option value="monitor">{{ t('dashboard.monitor') }}</option>
+          <option value="replay">{{ t('dashboard.replay') }}</option>
+          <option value="thermal">{{ t('dashboard.thermal') }}</option>
         </select>
       </label>
-      <button type="button" class="icon-button" title="设置">
+      <button type="button" class="icon-button" :title="t('common.settings')">
         <SettingOutlined />
       </button>
     </header>
@@ -32,15 +32,15 @@
     <section :class="['workspace', workspaceClass]">
       <aside class="left-rail">
         <section class="glass-panel dashboard-card">
-          <h2>实时概览</h2>
+          <h2>{{ t('dashboard.realtimeOverview') }}</h2>
           <div class="dashboard-stats-row">
             <div class="stat-pill">
               <strong>{{ onlineDevices }}</strong>
-              <span>在线设备</span>
+              <span>{{ t('dashboard.onlineDevices') }}</span>
             </div>
             <div class="stat-pill stat-pill--blue">
               <strong>{{ totalDevices }}</strong>
-              <span>设备总数</span>
+              <span>{{ t('dashboard.totalDevices') }}</span>
             </div>
           </div>
           <div class="donut-wrap">
@@ -57,15 +57,15 @@
 
         <section class="glass-panel event-card">
           <div class="panel-title-row">
-            <h2>事件中心</h2>
-            <button type="button" @click="$emit('show-events')">全部事件</button>
+            <h2>{{ t('dashboard.eventCenterTitle') }}</h2>
+            <button type="button" @click="$emit('show-events')">{{ t('dashboard.allEvents') }}</button>
           </div>
           <div class="event-list">
             <article v-for="event in events" :key="event.title" class="event-item">
               <span :class="['event-item__icon', `event-item__icon--${event.level}`]">{{ event.icon }}</span>
               <div>
                 <strong>{{ event.title }}</strong>
-                <small>设备：{{ event.device }}</small>
+                <small>{{ t('dashboard.deviceLabel', { device: event.device }) }}</small>
               </div>
               <time>{{ event.time }}</time>
             </article>
@@ -78,23 +78,23 @@
       </section>
 
       <div v-if="pickedPoint" class="pick-chip">
-        <span>场景坐标</span>
+        <span>{{ t('dashboard.sceneCoord') }}</span>
         <strong>X {{ pickedPoint.scene.x }} / Z {{ pickedPoint.scene.z }}</strong>
       </div>
 
       <div class="map-controls">
-        <button type="button" title="指南针" @click="twinScene?.setCameraView('overview')">
+        <button type="button" :title="t('dashboard.compass')" @click="twinScene?.setCameraView('overview')">
           <CompassOutlined />
         </button>
-        <button type="button" title="2D俯视" @click="setCameraMode('top')">2D</button>
-        <button type="button" title="楼层图层">
+        <button type="button" :title="t('dashboard.top2D')" @click="setCameraMode('top')">2D</button>
+        <button type="button" :title="t('dashboard.floorLayer')">
           <BlockOutlined />
         </button>
         <div class="zoom-box">
-          <button type="button" title="放大" @click="twinScene?.zoom(1)">
+          <button type="button" :title="t('dashboard.zoomIn')" @click="twinScene?.zoom(1)">
             <PlusOutlined />
           </button>
-          <button type="button" title="缩小" @click="twinScene?.zoom(-1)">
+          <button type="button" :title="t('dashboard.zoomOut')" @click="twinScene?.zoom(-1)">
             <MinusOutlined />
           </button>
         </div>
@@ -103,19 +103,19 @@
       <nav class="tool-dock">
         <button type="button" :class="{ active: filterOpen }" @click="filterOpen = !filterOpen">
           <FilterOutlined />
-          <span>设备筛选</span>
+          <span>{{ t('dashboard.deviceFilter') }}</span>
         </button>
         <button type="button" :class="{ active: isReplayLoaded() }" @click="toggleReplayMode">
           <AimOutlined />
-          <span>轨迹回放</span>
+          <span>{{ t('dashboard.trackReplay') }}</span>
         </button>
         <button type="button" @click="viewMode = 'thermal'">
           <HeatMapOutlined />
-          <span>热力图</span>
+          <span>{{ t('dashboard.heatmap') }}</span>
         </button>
         <button type="button" :class="{ active: fencesVisible }" @click="fencesVisible = !fencesVisible; twinScene?.toggleFences(fencesVisible)">
           <BorderOuterOutlined />
-          <span>电子围栏</span>
+          <span>{{ t('dashboard.fence') }}</span>
         </button>
         <button
           type="button"
@@ -123,7 +123,7 @@
           @click="livePoseLabelsVisible = !livePoseLabelsVisible; twinScene?.toggleLivePoseLabels(livePoseLabelsVisible)"
         >
           <TagsOutlined />
-          <span>定位标签</span>
+          <span>{{ t('dashboard.poseLabels') }}</span>
         </button>
         <button
           type="button"
@@ -131,15 +131,15 @@
           @click="trailsVisible = !trailsVisible; twinScene?.setTrailsVisible(trailsVisible)"
         >
           <DeploymentUnitOutlined />
-          <span>轨迹显示</span>
+          <span>{{ t('dashboard.trailDisplay') }}</span>
         </button>
         <button type="button" @click="measureEnabled = !measureEnabled">
           <ColumnWidthOutlined />
-          <span>测距工具</span>
+          <span>{{ t('dashboard.measureTool') }}</span>
         </button>
         <button type="button" @click="clearTrails">
           <ClearOutlined />
-          <span>清除轨迹</span>
+          <span>{{ t('dashboard.clearTrail') }}</span>
         </button>
       </nav>
 
@@ -199,34 +199,34 @@
 
       <aside v-if="replayPanelOpen" class="right-rail">
         <section class="glass-panel replay-form">
-          <h2>轨迹回放</h2>
+          <h2>{{ t('dashboard.replayTitle') }}</h2>
           <label>
-            <span>人员/设备</span>
+            <span>{{ t('dashboard.personDevice') }}</span>
             <select v-model="selectedReplayDevice" @change="applyReplayDeviceSelection">
               <option v-for="device in replayDeviceOptions" :key="device.value" :value="device.value">{{ device.label }}</option>
             </select>
           </label>
           <label>
-            <span>回放日期</span>
+            <span>{{ t('dashboard.replayDate') }}</span>
             <input v-model="replayDate" type="date" @change="searchReplayForSelectedTime" />
           </label>
           <label>
-            <span>时间区间</span>
+            <span>{{ t('dashboard.timeRange') }}</span>
             <button type="button" class="time-range-button" @click="openReplayRangePicker">
               {{ replayRangeText }}
             </button>
           </label>
           <div class="replay-actions">
             <button type="button" class="primary-button" :disabled="replayLoading" @click="startReplay()">
-              {{ replayLoading ? '加载中' : '开始回放' }}
+              {{ replayLoading ? t('dashboard.loading') : t('dashboard.startReplay') }}
             </button>
-            <button type="button" class="ghost-button" @click="exitReplayMode">返回实时</button>
+            <button type="button" class="ghost-button" @click="exitReplayMode">{{ t('dashboard.backToLive') }}</button>
           </div>
           <p v-if="replayError" class="replay-error">{{ replayError }}</p>
         </section>
 
         <section class="glass-panel player-card">
-          <p>轨迹时长：{{ replayDuration }}</p>
+          <p>{{ t('dashboard.replayDuration') }}{{ replayDuration }}</p>
           <div class="timeline">
             <article v-for="item in timeline" :key="item.time" class="timeline-item">
               <i :class="{ green: item.type === 'start' || item.type === 'current' }" />
@@ -243,8 +243,8 @@
       <div v-if="replayRangePickerOpen" class="range-modal-backdrop" @click.self="cancelReplayRangePicker">
         <section class="range-modal" role="dialog" aria-modal="true" aria-labelledby="replay-range-title">
           <header>
-            <h2 id="replay-range-title">选择回放时间段</h2>
-            <button type="button" class="range-modal__close" title="关闭" @click="cancelReplayRangePicker">×</button>
+            <h2 id="replay-range-title">{{ t('dashboard.selectReplayRange') }}</h2>
+            <button type="button" class="range-modal__close" :title="t('common.close')" @click="cancelReplayRangePicker">×</button>
           </header>
           <div class="day-clock" :style="clockRangeStyle">
             <span>00:00</span>
@@ -272,14 +272,14 @@
             />
           </div>
           <div class="range-quick-actions">
-            <button type="button" @click="setDraftReplayRange(0, DAY_SECONDS)">全天</button>
-            <button type="button" @click="setDraftReplayRange(8 * 3600, 12 * 3600)">上午</button>
-            <button type="button" @click="setDraftReplayRange(12 * 3600, 18 * 3600)">下午</button>
-            <button type="button" @click="setDraftReplayRange(18 * 3600, DAY_SECONDS)">夜间</button>
+            <button type="button" @click="setDraftReplayRange(0, DAY_SECONDS)">{{ t('common.allDay') }}</button>
+            <button type="button" @click="setDraftReplayRange(8 * 3600, 12 * 3600)">{{ t('common.morning') }}</button>
+            <button type="button" @click="setDraftReplayRange(12 * 3600, 18 * 3600)">{{ t('common.afternoon') }}</button>
+            <button type="button" @click="setDraftReplayRange(18 * 3600, DAY_SECONDS)">{{ t('common.night') }}</button>
           </div>
           <footer>
-            <button type="button" class="ghost-button" @click="cancelReplayRangePicker">取消</button>
-            <button type="button" class="primary-button" @click="confirmReplayRangePicker">确定</button>
+            <button type="button" class="ghost-button" @click="cancelReplayRangePicker">{{ t('common.cancel') }}</button>
+            <button type="button" class="primary-button" @click="confirmReplayRangePicker">{{ t('common.confirm') }}</button>
           </footer>
         </section>
       </div>
@@ -296,6 +296,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import {
   AimOutlined,
   BlockOutlined,
@@ -352,6 +353,7 @@ const REPLAY_NUDGE_INTERVAL_MS = 160;
 const DAY_SECONDS = 24 * 60 * 60;
 const TIME_RANGE_STEP_SECONDS = 60;
 
+const { t } = useI18n();
 const sceneStore = useSceneStore();
 const sceneContainer = ref<HTMLDivElement | null>(null);
 const areaChartContainer = ref<HTMLDivElement | null>(null);
@@ -410,7 +412,7 @@ const onlineDeviceCount = ref(0);
 const replayOnlineCount = ref(0);
 
 const deviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10005'];
-const replayDeviceOptions = [{ label: '全部', value: ALL_REPLAY_DEVICES }, ...deviceOptions.map((device) => ({ label: device, value: device }))];
+const replayDeviceOptions = computed(() => [{ label: t('dashboard.allDevices'), value: ALL_REPLAY_DEVICES }, ...deviceOptions.map((device) => ({ label: device, value: device }))]);
 const totalDevices = 30; // 设备总数，可从数据库动态更新
 
 // 动态计算的区域统计
@@ -433,7 +435,7 @@ const sortedAreaStats = computed(() =>
 );
 const replayDuration = computed(() => {
   if (replayFrameTimes.value.length < 2) {
-    return '暂无轨迹';
+    return t('dashboard.noTrajectory');
   }
 
   const start = replayFrameTimes.value[0];
@@ -464,7 +466,7 @@ const draftReplayRangeText = computed(() => formatTimeRange(draftReplayTimeRange
 const replayQueryText = computed(() => `${replayDate.value} ${replayRangeText.value}`);
 const replayLoadStatus = computed(() => {
   if (replayBuffering.value) {
-    return '正在加载后续轨迹，请稍候';
+    return t('dashboard.loadingMore');
   }
 
   return '';
@@ -489,7 +491,7 @@ const clockRangeStyle = computed(() => {
 
 const timeline = computed(() => {
   if (replayLoading.value) {
-    return [{ id: 'searching', time: '--:--:--', title: '正在搜索轨迹', place: `${getReplayDeviceName()} · ${replayQueryText.value}`, type: 'current' }];
+    return [{ id: 'searching', time: '--:--:--', title: t('dashboard.searching'), place: `${getReplayDeviceName()} · ${replayQueryText.value}`, type: 'current' }];
   }
 
   if (replayError.value) {
@@ -498,10 +500,10 @@ const timeline = computed(() => {
 
   if (replayPoints.value.length === 0) {
     if (replaySearchAttempted.value) {
-      return [{ id: 'empty-search', time: '--:--:--', title: '未搜索到轨迹', place: `${getReplayDeviceName()} · ${replayQueryText.value}`, type: 'point' }];
+      return [{ id: 'empty-search', time: '--:--:--', title: t('dashboard.noResult'), place: `${getReplayDeviceName()} · ${replayQueryText.value}`, type: 'point' }];
     }
 
-    return [{ id: '0', time: '--:--:--', title: '暂无轨迹', place: getReplayDeviceName(), type: 'point' }];
+    return [{ id: '0', time: '--:--:--', title: t('dashboard.noTrajectory'), place: getReplayDeviceName(), type: 'point' }];
   }
 
   if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
@@ -511,13 +513,13 @@ const timeline = computed(() => {
       return clusters.map((cluster, index) => ({
         id: `${currentTime}-${index}`,
         time: formatClock(new Date(currentTime)),
-        title: `${cluster.area} 聚集`,
-        place: `${cluster.count} 个定位点处于同一区域`,
+        title: t('dashboard.cluster', { area: cluster.area }),
+        place: t('dashboard.clusterDetail', { count: cluster.count }),
         type: 'current',
       }));
     }
 
-    return [{ id: `${currentTime}-single`, time: formatClock(new Date(currentTime)), title: '正常分布', place: '未发现区域聚集', type: 'point' }];
+    return [{ id: `${currentTime}-single`, time: formatClock(new Date(currentTime)), title: t('dashboard.normalDist'), place: t('dashboard.noCluster'), type: 'point' }];
   }
 
   const indexes = Array.from(new Set([0, currentReplayIndex.value, replayFrameTimes.value.length - 1])).sort((a, b) => b - a);
@@ -528,7 +530,7 @@ const timeline = computed(() => {
     return {
       id: `${time}-${index}`,
       time: formatClock(new Date(time)),
-      title: type === 'start' ? '起点' : type === 'current' ? '当前位置' : '经过',
+      title: type === 'start' ? t('dashboard.startPoint') : type === 'current' ? t('dashboard.currentPosition') : t('dashboard.passing'),
       place: `${point.deviceId} X ${point.x.toFixed(1)} / Z ${point.y.toFixed(1)}`,
       type,
     };
@@ -537,18 +539,20 @@ const timeline = computed(() => {
 
 const mqttStatusText = computed(() => {
   if (mqttStatus.value === 'connected') {
-    return '已连接';
+    return t('dashboard.connected');
   }
 
   if (mqttStatus.value === 'error') {
-    return mqttError.value?.closeCode ? `重连中 ${mqttError.value.closeCode}` : '重连中';
+    return mqttError.value?.closeCode
+      ? t('dashboard.reconnectingWithCode', { code: mqttError.value.closeCode })
+      : t('dashboard.reconnecting');
   }
 
   if (mqttStatus.value === 'disconnected') {
-    return '已断开';
+    return t('dashboard.disconnected');
   }
 
-  return '连接中';
+  return t('dashboard.connecting');
 });
 
 function formatClock(date: Date): string {
@@ -582,18 +586,18 @@ function formatDuration(durationMs: number): string {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   if (hours > 0) {
-    return `${hours}小时${minutes}分钟`;
+    return `${hours}${t('dashboard.hours')}${minutes}${t('dashboard.minutes')}`;
   }
 
   if (minutes > 0) {
-    return `${minutes}分钟${seconds}秒`;
+    return `${minutes}${t('dashboard.minutes')}${seconds}${t('dashboard.seconds')}`;
   }
 
-  return `${seconds}秒`;
+  return `${seconds}${t('dashboard.seconds')}`;
 }
 
 function getReplayDeviceName(): string {
-  return selectedReplayDevice.value === ALL_REPLAY_DEVICES ? '全部设备' : selectedReplayDevice.value;
+  return selectedReplayDevice.value === ALL_REPLAY_DEVICES ? t('dashboard.allDevices') : selectedReplayDevice.value;
 }
 
 function resolveReplayPointTime(point: PathPoint | LivePose, fallbackTime: number): number {
@@ -629,7 +633,7 @@ function createAreaChartOption(): EChartsOption {
           value?: number;
           percent?: number;
         };
-        return `${p.name ?? ''}<br/>设备数量：${p.value ?? 0}<br/>占比：${p.percent ?? 0}%`;
+        return `${p.name ?? ''}<br/>${t('dashboard.deviceCount')}：${p.value ?? 0}<br/>${t('dashboard.percent')}：${p.percent ?? 0}%`;
       },
     },
     graphic: [
@@ -639,7 +643,7 @@ function createAreaChartOption(): EChartsOption {
         top: '34%',
         silent: true,
         style: {
-          text: hasData ? '区域分布' : '暂无数据',
+          text: hasData ? t('dashboard.areaDist') : t('dashboard.noData'),
           fill: chartTextColor.value,
           fontSize: 14,
           fontWeight: 500,
@@ -667,7 +671,7 @@ function createAreaChartOption(): EChartsOption {
         top: '62%',
         silent: true,
         style: {
-          text: '在线设备',
+          text: t('dashboard.online'),
           fill: chartTextColor.value,
           fontSize: 13,
           align: 'center',
@@ -676,7 +680,7 @@ function createAreaChartOption(): EChartsOption {
     ],
     series: [
       {
-        name: '区域统计',
+        name: t('dashboard.areaStats'),
         type: 'pie',
         radius: ['55%', '80%'],
         center: ['50%', '50%'],
@@ -942,7 +946,7 @@ async function loadRemainingReplayChunks(token: number): Promise<void> {
     }
   } catch (error) {
     if (token === replayLoadToken) {
-      replayError.value = error instanceof Error ? error.message : '后续轨迹数据加载失败';
+      replayError.value = error instanceof Error ? error.message : t('dashboard.loadFailed');
     }
   } finally {
     if (token === replayLoadToken) {
@@ -1100,7 +1104,7 @@ function getAreaName(point: ReplayPoint): string {
   const offsetY = sceneStore.config.floor.origin[1] + sceneStore.config.floor.height / 2;
   const floorPoint: [number, number] = [point.x + offsetX, point.y + offsetY];
   const area = sceneStore.config.areas.find((item) => item.type === 'floor' && isPointInPolygon(floorPoint, item.points));
-  return area?.name ?? '其他区域';
+  return area?.name ?? t('dashboard.areaOther') + ' ' + t('dashboard.areaStats');
 }
 
 function isPointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
@@ -1189,7 +1193,7 @@ function updateAreaStats(): void {
 
   // 始终添加"其他"分类（未知区域），保证饼图始终完整
   result.push({
-    name: '其他',
+    name: t('dashboard.areaOther'),
     count: otherCount,
     percent: Number(((otherCount / totalOnline) * 100).toFixed(1)),
     color: '#a0a0a0',
@@ -1242,7 +1246,7 @@ function updateReplayAreaStats(time: number): void {
 
   // 始终添加"其他"分类（未知区域），保证饼图始终完整
   result.push({
-    name: '其他',
+    name: t('dashboard.areaOther'),
     count: otherCount,
     percent: Number(((otherCount / totalOnline) * 100).toFixed(1)),
     color: '#a0a0a0',
@@ -1405,7 +1409,7 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   try {
     await loadInitialReplayChunks(token);
   } catch (error) {
-    replayError.value = error instanceof Error ? error.message : '轨迹数据加载失败';
+    replayError.value = error instanceof Error ? error.message : t('dashboard.trajectoryLoadFailed');
     resetReplayState();
     return;
   } finally {
@@ -1420,7 +1424,7 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   refreshReplayDataAfterLoad();
   replayDirection.value = 1;
   if (replayFrameTimes.value.length < 2) {
-    replayError.value = '当前时间段没有可回放的轨迹数据';
+    replayError.value = t('dashboard.noReplayData');
     replayPoints.value = [];
     replayFrameTimes.value = [];
     replayTracks.clear();

@@ -19,14 +19,17 @@
         </button>
       </nav>
       <div class="topbar-actions">
-        <button type="button" class="theme-toggle" title="切换主题" @click="toggleTheme">
-          <BgColorsOutlined />
-          <span>{{ themeMode === 'dark' ? '浅色' : '深色' }}</span>
+        <button type="button" class="theme-toggle" :title="t('theme.switchTheme')" @click="toggleLanguage">
+          <span>{{ languageStore.locale === 'zh-CN' ? 'EN' : '中' }}</span>
         </button>
-        <button type="button" title="通知">
+        <button type="button" class="theme-toggle" :title="t('theme.switchTheme')" @click="toggleTheme">
+          <BgColorsOutlined />
+          <span>{{ themeMode === 'dark' ? t('theme.light') : t('theme.dark') }}</span>
+        </button>
+        <button type="button" :title="t('common.notifications')">
           <BellOutlined />
         </button>
-        <button type="button" title="退出登录" @click="handleLogout">
+        <button type="button" :title="t('common.logout')" @click="handleLogout">
           <LogoutOutlined />
         </button>
       </div>
@@ -56,7 +59,7 @@
           </div>
           <button class="outline-action" type="button">
             <ReloadOutlined />
-            <span>刷新</span>
+            <span>{{ t('common.refresh') }}</span>
           </button>
         </div>
 
@@ -72,6 +75,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { BellOutlined, BgColorsOutlined, LogoutOutlined, ReloadOutlined } from '@ant-design/icons-vue';
 import BeaconDeviceView from '@/views/admin/BeaconDeviceView.vue';
 import ConfigView from '@/views/admin/ConfigView.vue';
@@ -80,7 +84,25 @@ import HomeView from '@/views/admin/HomeView.vue';
 import IdentityView from '@/views/admin/IdentityView.vue';
 import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
-import { findNavSection, getDefaultSubmenu, navSections, type SectionKey } from '@/services/navigation';
+import { useNavigation, type SectionKey } from '@/services/navigation';
+import { useLanguageStore } from '@/stores/language';
+
+const { t, locale } = useI18n();
+const languageStore = useLanguageStore();
+const { navSections, findNavSection, getDefaultSubmenu } = useNavigation();
+
+function toggleLanguage() {
+  languageStore.toggle();
+}
+
+// Sync Pinia locale → vue-i18n locale
+watch(
+  () => languageStore.locale,
+  (next) => {
+    locale.value = next;
+  },
+  { immediate: true },
+);
 
 const AUTH_STORAGE_KEY = 'twintrack.authenticated';
 const NAV_STORAGE_KEY = 'twintrack.activeNav';

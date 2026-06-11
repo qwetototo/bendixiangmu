@@ -2,11 +2,11 @@
   <section class="archive-page">
     <section class="archive-hero">
       <div>
-        <span>轨迹归档</span>
-        <h2>历史轨迹保存与检索</h2>
-        <p>按人员、设备、区域和时间范围管理归档任务，前端先补齐页面流程，后续可直接对接历史轨迹接口。</p>
+        <span>{{ t('archive.title') }}</span>
+        <h2>{{ t('archive.desc') }}</h2>
+        <p>{{ t('archive.subDesc') }}</p>
       </div>
-      <button type="button">新建归档任务</button>
+      <button type="button">{{ t('archive.createTask') }}</button>
     </section>
 
     <section class="archive-grid">
@@ -20,18 +20,18 @@
     <section class="archive-layout">
       <article class="job-panel">
         <div class="panel-title">
-          <h3>归档任务</h3>
+          <h3>{{ t('archive.archiveTasks') }}</h3>
           <div class="filter-row">
-            <button type="button">今日</button>
-            <button type="button">本周</button>
-            <button type="button">全部</button>
+            <button type="button">{{ t('common.today') }}</button>
+            <button type="button">{{ t('common.week') }}</button>
+            <button type="button">{{ t('common.all') }}</button>
           </div>
         </div>
         <div class="job-head">
-          <span>任务</span>
-          <span>范围</span>
-          <span>状态</span>
-          <span>操作</span>
+          <span>{{ t('archive.task') }}</span>
+          <span>{{ t('archive.scope') }}</span>
+          <span>{{ t('archive.status') }}</span>
+          <span>{{ t('archive.operation') }}</span>
         </div>
         <div v-for="job in archiveJobs" :key="job.name" class="job-row">
           <div>
@@ -45,37 +45,42 @@
       </article>
 
       <aside class="query-panel">
-        <h3>快速检索</h3>
+        <h3>{{ t('archive.quickSearch') }}</h3>
         <label v-for="field in queryFields" :key="field.label">
           <span>{{ field.label }}</span>
           <input :placeholder="field.placeholder" />
         </label>
-        <button type="button">检索轨迹</button>
+        <button type="button">{{ t('archive.searchTrajectory') }}</button>
       </aside>
     </section>
   </section>
 </template>
 
 <script setup lang="ts">
-const archiveStats = [
-  { label: '今日归档', value: '38', note: '自动任务 32 个' },
-  { label: '可检索轨迹', value: '12,604', note: '保留 30 天' },
-  { label: '异常任务', value: '2', note: '等待重试' },
-  { label: '存储占用', value: '48GB', note: '本周 +6.2GB' },
-];
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 
-const archiveJobs = [
-  { name: '研发部全天轨迹', time: '10:45 创建', scope: '研发部 / 24 小时', status: 'done', statusText: '完成', action: '查看' },
-  { name: '访客临时轨迹', time: '10:20 创建', scope: '访客 / 今日', status: 'running', statusText: '运行中', action: '进度' },
-  { name: '实验区越界复核', time: '09:40 创建', scope: '实验区 / 告警人员', status: 'warn', statusText: '待重试', action: '重试' },
-  { name: '低电量设备轨迹', time: '09:05 创建', scope: '设备状态 / 低电量', status: 'done', statusText: '完成', action: '导出' },
-];
+const { t } = useI18n();
 
-const queryFields = [
-  { label: '人员或设备', placeholder: '姓名 / TAG 编号' },
-  { label: '时间范围', placeholder: '2026-05-21 00:00 - 23:59' },
-  { label: '区域', placeholder: '办公区、会议区、实验区' },
-];
+const archiveStats = computed(() => [
+  { label: t('archive.todayArchive'), value: '38', note: t('archive.autoTaskNote', { count: 32 }) },
+  { label: t('archive.searchableTrajectories'), value: '12,604', note: t('archive.retainDays', { days: 30 }) },
+  { label: t('archive.abnormalTasks'), value: '2', note: t('archive.waitRetry') },
+  { label: t('archive.storageUsage'), value: '48GB', note: t('archive.weeklyIncrease', { size: '6.2GB' }) },
+]);
+
+const archiveJobs = computed(() => [
+  { name: '研发部全天轨迹', time: '10:45 创建', scope: '研发部 / 24 小时', status: 'done', statusText: t('archive.done'), action: t('common.view') },
+  { name: '访客临时轨迹', time: '10:20 创建', scope: '访客 / 今日', status: 'running', statusText: t('archive.running'), action: t('common.progress') },
+  { name: '实验区越界复核', time: '09:40 创建', scope: '实验区 / 告警人员', status: 'warn', statusText: t('archive.pendingRetry'), action: t('common.retry') },
+  { name: '低电量设备轨迹', time: '09:05 创建', scope: '设备状态 / 低电量', status: 'done', statusText: t('archive.done'), action: t('common.export') },
+]);
+
+const queryFields = computed(() => [
+  { label: t('archive.personOrDevice'), placeholder: t('archive.searchPersonPlaceholder') },
+  { label: t('archive.timeRange'), placeholder: t('archive.timeRangePlaceholder') },
+  { label: t('archive.area'), placeholder: t('archive.areaPlaceholder') },
+]);
 </script>
 
 <style scoped>

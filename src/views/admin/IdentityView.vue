@@ -2,17 +2,17 @@
   <section :class="['identity-page', `identity-page--${themeMode}`]">
     <section class="identity-command">
       <div class="command-copy">
-        <span class="eyebrow">人员设备中心</span>
-        <h2>人员-设备绑定</h2>
+        <span class="eyebrow">{{ t('identity.center') }}</span>
+        <h2>{{ t('identity.title') }}</h2>
         <div class="command-actions">
-          <button type="button">新增绑定</button>
-          <button class="secondary" type="button">批量导入</button>
+          <button type="button">{{ t('identity.addBinding') }}</button>
+          <button class="secondary" type="button">{{ t('common.import') }}</button>
         </div>
       </div>
 
       <div class="command-side">
         <div class="sync-card">
-          <span>最近同步</span>
+          <span>{{ t('identity.lastSync') }}</span>
           <strong>10:45:18</strong>
         </div>
         
@@ -35,13 +35,13 @@
             <span>{{ panelSubtitle }}</span>
           </div>
           <div class="board-actions">
-            <button type="button" :class="{ active: abnormalOnly }" @click="abnormalOnly = !abnormalOnly">仅看异常</button>
-            <button type="button">导出</button>
+            <button type="button" :class="{ active: abnormalOnly }" @click="abnormalOnly = !abnormalOnly">{{ t('identity.onlyAbnormal') }}</button>
+            <button type="button">{{ t('common.export') }}</button>
           </div>
         </div>
 
         <div class="filter-strip">
-          <input v-model="keyword" class="search-box" placeholder="搜索姓名、设备编号、部门或区域" />
+          <input v-model="keyword" class="search-box" :placeholder="t('identity.searchPlaceholder')" />
           <div class="segment-tabs">
             <button
               v-for="tab in bindingTabs"
@@ -57,11 +57,11 @@
 
         <div class="binding-table">
           <div class="table-head">
-            <span>人员信息</span>
-            <span>设备信息</span>
-            <span>权限区域</span>
-            <span>状态</span>
-            <span>操作</span>
+            <span>{{ t('identity.personInfo') }}</span>
+            <span>{{ t('identity.deviceInfo') }}</span>
+            <span>{{ t('identity.permissionArea') }}</span>
+            <span>{{ t('identity.status') }}</span>
+            <span>{{ t('identity.action') }}</span>
           </div>
 
           <article
@@ -79,7 +79,7 @@
             </div>
 
             <div class="device-cell">
-              <strong>{{ row.deviceId || '待分配设备' }}</strong>
+              <strong>{{ row.deviceId || t('identity.awaitingDevice') }}</strong>
               <small>{{ row.deviceType }} · {{ row.protocol }} · {{ row.firmware }}</small>
               <div class="battery-track">
                 <span :style="{ width: row.battery === '-' ? '0%' : row.battery }"></span>
@@ -92,27 +92,27 @@
             </div>
 
             <small :class="['status-pill', row.status]">{{ row.statusText }}</small>
-            <button type="button" @click.stop="toggleBinding(row.personId)">{{ row.deviceId ? '换绑' : '绑定' }}</button>
+            <button type="button" @click.stop="toggleBinding(row.personId)">{{ row.deviceId ? t('identity.swapBind') : t('identity.bind') }}</button>
           </article>
 
-          <div v-if="visibleBindings.length === 0" class="empty-state">暂无匹配的绑定关系</div>
+          <div v-if="visibleBindings.length === 0" class="empty-state">{{ t('identity.noMatch') }}</div>
         </div>
       </section>
 
       <aside class="insight-panel">
         <div class="selected-card">
-          <span class="eyebrow">当前选中</span>
+          <span class="eyebrow">{{ t('identity.currentSelected') }}</span>
           <h3>{{ featuredBinding.personName }}</h3>
           <p>{{ featuredBinding.personId }} / {{ featuredBinding.department }} / {{ featuredBinding.role }}</p>
           <div class="link-line">
-            <span>人员</span>
-            <strong>{{ featuredBinding.deviceId || '未绑定' }}</strong>
-            <span>设备</span>
+            <span>{{ t('identity.person') }}</span>
+            <strong>{{ featuredBinding.deviceId || t('identity.unbound') }}</strong>
+            <span>{{ t('identity.device') }}</span>
           </div>
         </div>
 
         <div class="field-card">
-          <h4>人员表字段</h4>
+          <h4>{{ t('identity.personFields') }}</h4>
           <div v-for="item in personFields" :key="item.label">
             <span>{{ item.label }}</span>
             <strong>{{ item.value }}</strong>
@@ -120,7 +120,7 @@
         </div>
 
         <div class="field-card device-card">
-          <h4>设备表字段</h4>
+          <h4>{{ t('identity.deviceFields') }}</h4>
           <div v-for="item in deviceFields" :key="item.label">
             <span>{{ item.label }}</span>
             <strong>{{ item.value }}</strong>
@@ -128,11 +128,11 @@
         </div>
 
         <div class="rule-card">
-          <h4>绑定规则</h4>
+          <h4>{{ t('identity.bindingRules') }}</h4>
           <ul>
-            <li>人员编号只能出现在一条绑定关系中</li>
-            <li>设备换绑后自动释放旧库存</li>
-            <li>低电量设备进入异常筛选列表</li>
+            <li>{{ t('identity.rule1') }}</li>
+            <li>{{ t('identity.rule2') }}</li>
+            <li>{{ t('identity.rule3') }}</li>
           </ul>
         </div>
       </aside>
@@ -141,9 +141,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
-const props = defineProps<{
+const { t } = useI18n();
+
+defineProps<{
   themeMode: 'dark' | 'light';
 }>();
 
@@ -166,113 +169,138 @@ interface BindingRow {
   statusText: string;
 }
 
-const bindings = reactive<BindingRow[]>([
+interface RawBinding {
+  personId: string;
+  personName: string;
+  departmentKey: string;
+  roleKey: string;
+  deviceId: string;
+  deviceTypeKey: string;
+  protocol: string;
+  battery: string;
+  firmware: string;
+  areaKey: string;
+  permissionKey: string;
+  status: BindingStatus;
+  statusTextKey: string;
+}
+
+const departmentMap: Record<string, string> = {
+  deptRD: 'identity.deptRD',
+  deptOps: 'identity.deptOps',
+  deptSecurity: 'identity.deptSecurity',
+  deptProduction: 'identity.deptProduction',
+  deptVisitor: 'identity.deptVisitor',
+};
+
+const roleMap: Record<string, string> = {
+  roleAdmin: 'identity.roleAdmin',
+  roleOperator: 'identity.roleOperator',
+  roleAuditor: 'identity.roleAuditor',
+  roleUser: 'identity.roleUser',
+  roleVisitor: 'identity.roleVisitor',
+};
+
+const deviceTypeMap: Record<string, string> = {
+  deviceTag: 'identity.deviceTag',
+  deviceWristband: 'identity.deviceWristband',
+  deviceUnassigned: 'identity.deviceUnassigned',
+};
+
+const areaMap: Record<string, string> = {
+  areaOffice: 'identity.areaOffice',
+  areaEquipment: 'identity.areaEquipment',
+  areaLab: 'identity.areaLab',
+  areaMeeting: 'identity.areaMeeting',
+  areaProduction: 'identity.areaProduction',
+};
+
+const permissionMap: Record<string, string> = {
+  permissionAll: 'identity.permissionAll',
+  permissionDuty: 'identity.permissionDuty',
+  permissionKey: 'identity.permissionKey',
+  permissionExpiring: 'identity.permissionExpiring',
+  permissionPending: 'identity.permissionPending',
+};
+
+const statusTextMap: Record<string, string> = {
+  online: 'identity.online',
+  lowBattery: 'identity.lowBattery',
+  temp: 'identity.temp',
+  unbound: 'identity.unbound',
+};
+
+const rawBindings = ref<RawBinding[]>([
   {
-    personId: 'P-001',
-    personName: '张工',
-    department: '研发部',
-    role: '管理员',
-    deviceId: 'TAG-10086',
-    deviceType: '定位标签',
-    protocol: 'UWB',
-    battery: '86%',
-    firmware: 'v2.4.1',
-    area: '办公区 A',
-    permission: '全域通行',
-    status: 'online',
-    statusText: '在线',
+    personId: 'P-001', personName: '张工', departmentKey: 'deptRD', roleKey: 'roleAdmin',
+    deviceId: 'TAG-10086', deviceTypeKey: 'deviceTag', protocol: 'UWB', battery: '86%', firmware: 'v2.4.1',
+    areaKey: 'areaOffice', permissionKey: 'permissionAll', status: 'online', statusTextKey: 'online',
   },
   {
-    personId: 'P-002',
-    personName: '李工',
-    department: '运维部',
-    role: '操作员',
-    deviceId: 'TAG-10015',
-    deviceType: '腕带',
-    protocol: 'UWB',
-    battery: '18%',
-    firmware: 'v2.3.8',
-    area: '设备间',
-    permission: '值班权限',
-    status: 'warn',
-    statusText: '低电量',
+    personId: 'P-002', personName: '李工', departmentKey: 'deptOps', roleKey: 'roleOperator',
+    deviceId: 'TAG-10015', deviceTypeKey: 'deviceWristband', protocol: 'UWB', battery: '18%', firmware: 'v2.3.8',
+    areaKey: 'areaEquipment', permissionKey: 'permissionDuty', status: 'warn', statusTextKey: 'lowBattery',
   },
   {
-    personId: 'P-003',
-    personName: '王工',
-    department: '安全部',
-    role: '审计员',
-    deviceId: 'TAG-10003',
-    deviceType: '定位标签',
-    protocol: 'BLE',
-    battery: '72%',
-    firmware: 'v2.4.0',
-    area: '实验区',
-    permission: '重点区域',
-    status: 'online',
-    statusText: '在线',
+    personId: 'P-003', personName: '王工', departmentKey: 'deptSecurity', roleKey: 'roleAuditor',
+    deviceId: 'TAG-10003', deviceTypeKey: 'deviceTag', protocol: 'BLE', battery: '72%', firmware: 'v2.4.0',
+    areaKey: 'areaLab', permissionKey: 'permissionKey', status: 'online', statusTextKey: 'online',
   },
   {
-    personId: 'P-004',
-    personName: '访客 A',
-    department: '临时访客',
-    role: '访客',
-    deviceId: 'TAG-10021',
-    deviceType: '定位标签',
-    protocol: 'UWB',
-    battery: '61%',
-    firmware: 'v2.4.1',
-    area: '会议区',
-    permission: '18:00 过期',
-    status: 'idle',
-    statusText: '临时',
+    personId: 'P-004', personName: '访客 A', departmentKey: 'deptVisitor', roleKey: 'roleVisitor',
+    deviceId: 'TAG-10021', deviceTypeKey: 'deviceTag', protocol: 'UWB', battery: '61%', firmware: 'v2.4.1',
+    areaKey: 'areaMeeting', permissionKey: 'permissionExpiring', status: 'idle', statusTextKey: 'temp',
   },
   {
-    personId: 'P-005',
-    personName: '赵工',
-    department: '生产部',
-    role: '普通用户',
-    deviceId: '',
-    deviceType: '待分配',
-    protocol: '-',
-    battery: '-',
-    firmware: '-',
-    area: '生产区',
-    permission: '待授权',
-    status: 'offline',
-    statusText: '未绑定',
+    personId: 'P-005', personName: '赵工', departmentKey: 'deptProduction', roleKey: 'roleUser',
+    deviceId: '', deviceTypeKey: 'deviceUnassigned', protocol: '-', battery: '-', firmware: '-',
+    areaKey: 'areaProduction', permissionKey: 'permissionPending', status: 'offline', statusTextKey: 'unbound',
   },
 ]);
 
-const bindingTabs: { key: BindingFilter; label: string }[] = [
-  { key: 'all', label: '全部' },
-  { key: 'bound', label: '已绑定' },
-  { key: 'pending', label: '待处理' },
-];
+const bindings = computed<BindingRow[]>(() =>
+  rawBindings.value.map((raw) => ({
+    personId: raw.personId,
+    personName: raw.personName,
+    department: t(departmentMap[raw.departmentKey] ?? 'identity.deptRD'),
+    role: t(roleMap[raw.roleKey] ?? 'identity.roleUser'),
+    deviceId: raw.deviceId,
+    deviceType: t(deviceTypeMap[raw.deviceTypeKey] ?? 'identity.deviceUnassigned'),
+    protocol: raw.protocol,
+    battery: raw.battery,
+    firmware: raw.firmware,
+    area: t(areaMap[raw.areaKey] ?? 'identity.areaOffice'),
+    permission: t(permissionMap[raw.permissionKey] ?? 'identity.permissionPending'),
+    status: raw.status,
+    statusText: t(statusTextMap[raw.statusTextKey] ?? 'identity.online'),
+  })),
+);
+
+const bindingTabs = computed<{ key: BindingFilter; label: string }[]>(() => [
+  { key: 'all', label: t('identity.tabAll') },
+  { key: 'bound', label: t('identity.tabBound') },
+  { key: 'pending', label: t('identity.tabPending') },
+]);
 
 const keyword = ref('');
 const activeFilter = ref<BindingFilter>('all');
 const abnormalOnly = ref(false);
-const selectedBindingId = ref(bindings[0]?.personId ?? '');
+const selectedBindingId = ref(rawBindings.value[0]?.personId ?? '');
 
-const summaryCards = [
-  { label: '人员总数', value: '248', note: '统一入口维护', tone: 'blue' },
-  { label: '已绑定', value: '214', note: '86% 覆盖率', tone: 'green' },
-  { label: '待绑定', value: '34', note: '需分配设备', tone: 'amber' },
-  { label: '库存设备', value: '18', note: '可立即绑定', tone: 'violet' },
-];
+const summaryCards = computed(() => [
+  { label: t('identity.totalPersonnel'), value: '248', note: t('identity.unifiedEntry'), tone: 'blue' },
+  { label: t('identity.boundCount'), value: '214', note: t('identity.coverageRate', { rate: 86 }), tone: 'green' },
+  { label: t('identity.pendingBind'), value: '34', note: t('identity.needAssignDevice'), tone: 'amber' },
+  { label: t('identity.stockDevices'), value: '18', note: t('identity.canBindNow'), tone: 'violet' },
+]);
 
-const panelTitle = computed(() => {
-  return '绑定关系台账';
-});
+const panelTitle = computed(() => t('identity.bindingLedger'));
 
-const panelSubtitle = computed(() => {
-  return '把人员与设备合并成一张前端操作表，减少重复维护。';
-});
+const panelSubtitle = computed(() => t('identity.bindingLedgerDesc'));
 
 const visibleBindings = computed(() => {
   const normalizedKeyword = keyword.value.trim().toLowerCase();
-  return bindings.filter((row) => {
+  return bindings.value.filter((row) => {
     const keywordMatched = !normalizedKeyword
       || `${row.personId} ${row.personName} ${row.department} ${row.role} ${row.deviceId} ${row.area}`.toLowerCase().includes(normalizedKeyword);
     const tabMatched = activeFilter.value === 'all'
@@ -284,7 +312,7 @@ const visibleBindings = computed(() => {
 });
 
 const featuredBinding = computed(() => {
-  return visibleBindings.value.find((row) => row.personId === selectedBindingId.value) ?? visibleBindings.value[0] ?? bindings[0];
+  return visibleBindings.value.find((row) => row.personId === selectedBindingId.value) ?? visibleBindings.value[0] ?? bindings.value[0];
 });
 
 function selectBinding(personId: string) {
@@ -292,44 +320,44 @@ function selectBinding(personId: string) {
 }
 
 function toggleBinding(personId: string) {
-  const row = bindings.find((item) => item.personId === personId);
-  if (!row) {
+  const raw = rawBindings.value.find((item) => item.personId === personId);
+  if (!raw) {
     return;
   }
 
   selectedBindingId.value = personId;
-  if (row.deviceId) {
-    row.deviceId = '';
-    row.deviceType = '待分配';
-    row.protocol = '-';
-    row.battery = '-';
-    row.firmware = '-';
-    row.status = 'offline';
-    row.statusText = '未绑定';
+  if (raw.deviceId) {
+    raw.deviceId = '';
+    raw.deviceTypeKey = 'deviceUnassigned';
+    raw.protocol = '-';
+    raw.battery = '-';
+    raw.firmware = '-';
+    raw.status = 'offline';
+    raw.statusTextKey = 'unbound';
     return;
   }
 
-  row.deviceId = `TAG-${Math.floor(10000 + Math.random() * 89999)}`;
-  row.deviceType = '定位标签';
-  row.protocol = 'UWB';
-  row.battery = '100%';
-  row.firmware = 'v2.4.1';
-  row.status = 'online';
-  row.statusText = '在线';
+  raw.deviceId = `TAG-${Math.floor(10000 + Math.random() * 89999)}`;
+  raw.deviceTypeKey = 'deviceTag';
+  raw.protocol = 'UWB';
+  raw.battery = '100%';
+  raw.firmware = 'v2.4.1';
+  raw.status = 'online';
+  raw.statusTextKey = 'online';
 }
 
 const personFields = computed(() => [
-  { label: '人员编号', value: featuredBinding.value.personId },
-  { label: '部门角色', value: `${featuredBinding.value.department} / ${featuredBinding.value.role}` },
-  { label: '授权范围', value: featuredBinding.value.permission },
-  { label: '常驻区域', value: featuredBinding.value.area },
+  { label: t('identity.personId'), value: featuredBinding.value.personId },
+  { label: t('identity.deptRole'), value: `${featuredBinding.value.department} / ${featuredBinding.value.role}` },
+  { label: t('identity.authScope'), value: featuredBinding.value.permission },
+  { label: t('identity.residentArea'), value: featuredBinding.value.area },
 ]);
 
 const deviceFields = computed(() => [
-  { label: '设备编号', value: featuredBinding.value.deviceId || '未绑定' },
-  { label: '类型协议', value: `${featuredBinding.value.deviceType} / ${featuredBinding.value.protocol}` },
-  { label: '电量', value: featuredBinding.value.battery },
-  { label: '固件版本', value: featuredBinding.value.firmware },
+  { label: t('identity.deviceId'), value: featuredBinding.value.deviceId || t('identity.unbound') },
+  { label: t('identity.typeProtocol'), value: `${featuredBinding.value.deviceType} / ${featuredBinding.value.protocol}` },
+  { label: t('identity.battery'), value: featuredBinding.value.battery },
+  { label: t('identity.firmwareVersion'), value: featuredBinding.value.firmware },
 ]);
 </script>
 

@@ -12,46 +12,46 @@
       <section class="event-panel">
         <div class="event-panel-title">
           <div>
-            <h3>告警事件列表</h3>
-            <span>按时间、类型、等级和处理状态筛选告警事件。</span>
+            <h3>{{ t('events.title') }}</h3>
+            <span>{{ t('events.desc') }}</span>
           </div>
-          <button type="button" @click="toastMessage = `已导出 ${filteredEvents.length} 条事件`">导出事件</button>
+          <button type="button" @click="toastMessage = t('events.exportDone', { count: filteredEvents.length })">{{ t('common.export') + t('events.event') }}</button>
         </div>
 
         <div class="event-filter">
           <label>
-            <span>时间范围</span>
+            <span>{{ t('events.timeRange') }}</span>
             <input v-model="filters.timeRange" />
           </label>
           <label>
-            <span>事件类型</span>
+            <span>{{ t('events.eventType') }}</span>
             <select v-model="filters.type">
-              <option value="all">全部类型</option>
-              <option value="越界">越界</option>
-              <option value="聚集">聚集</option>
-              <option value="低电量">低电量</option>
-              <option value="离线">离线</option>
+              <option value="all">{{ t('events.allTypes') }}</option>
+              <option value="越界">{{ t('events.typeCrossing') }}</option>
+              <option value="聚集">{{ t('events.typeGather') }}</option>
+              <option value="低电量">{{ t('events.typeLowBattery') }}</option>
+              <option value="离线">{{ t('events.typeOffline') }}</option>
             </select>
           </label>
           <label>
-            <span>处理状态</span>
+            <span>{{ t('events.processStatus') }}</span>
             <select v-model="filters.status">
-              <option value="all">全部状态</option>
-              <option value="待处理">待处理</option>
-              <option value="处理中">处理中</option>
-              <option value="已关闭">已关闭</option>
+              <option value="all">{{ t('events.allStatus') }}</option>
+              <option value="待处理">{{ t('events.statusPending') }}</option>
+              <option value="处理中">{{ t('events.statusProcessing') }}</option>
+              <option value="已关闭">{{ t('events.statusClosed') }}</option>
             </select>
           </label>
         </div>
 
         <div class="event-table">
           <div class="event-table-head">
-            <span>事件</span>
-            <span>时间</span>
-            <span>类型</span>
-            <span>等级</span>
-            <span>状态</span>
-            <span>操作</span>
+            <span>{{ t('events.event') }}</span>
+            <span>{{ t('events.time') }}</span>
+            <span>{{ t('events.type') }}</span>
+            <span>{{ t('events.level') }}</span>
+            <span>{{ t('events.status') }}</span>
+            <span>{{ t('events.action') }}</span>
           </div>
 
           <article
@@ -69,23 +69,23 @@
             <small :class="['level-pill', event.level]">{{ event.levelText }}</small>
             <small :class="['status-pill', event.statusTone]">{{ event.status }}</small>
             <div class="row-actions">
-              <button type="button" @click.stop="addRemark(event.id)">备注</button>
-              <button type="button" @click.stop="selectedEventId = event.id">详情</button>
-              <button type="button" @click.stop="processEvent(event.id)">处理</button>
+              <button type="button" @click.stop="addRemark(event.id)">{{ t('common.remark') }}</button>
+              <button type="button" @click.stop="selectedEventId = event.id">{{ t('common.detail') }}</button>
+              <button type="button" @click.stop="processEvent(event.id)">{{ t('common.process') }}</button>
             </div>
           </article>
 
-          <div v-if="filteredEvents.length === 0" class="empty-state">暂无匹配的告警事件</div>
+          <div v-if="filteredEvents.length === 0" class="empty-state">{{ t('events.emptyState') }}</div>
         </div>
       </section>
 
       <aside class="event-detail">
-        <h3>事件详情</h3>
+        <h3>{{ t('events.eventDetail') }}</h3>
         <div v-for="item in detailItems" :key="item.label">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
         </div>
-        <button type="button" @click="createTicket">创建处置工单</button>
+        <button type="button" @click="createTicket">{{ t('events.createTicket') }}</button>
         <small v-if="toastMessage" class="toast-line">{{ toastMessage }}</small>
       </aside>
     </section>
@@ -94,6 +94,9 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 defineProps<{
   themeMode: 'dark' | 'light';
@@ -131,12 +134,12 @@ const events = reactive<EventRow[]>([
 const selectedEventId = ref(events[0]?.id ?? '');
 const toastMessage = ref('');
 
-const eventStats = [
-  { label: '今日事件', value: '42', note: '较昨日 +6' },
-  { label: '待处理', value: '7', note: '高优先级 3 项' },
-  { label: '处理中', value: '12', note: '平均 18 分钟' },
-  { label: '已关闭', value: '23', note: '闭环率 84%' },
-];
+const eventStats = computed(() => [
+  { label: t('events.todayEvents'), value: '42', note: '较昨日 +6' },
+  { label: t('events.pending'), value: '7', note: t('events.highPriority') + ' 3 项' },
+  { label: t('events.processing'), value: '12', note: t('events.avgMinutes', { min: 18 }) },
+  { label: t('events.closed'), value: '23', note: t('events.closureRate', { rate: 84 }) },
+]);
 
 const filteredEvents = computed(() => events.filter((event) => {
   const typeMatched = filters.type === 'all' || event.type === filters.type;
@@ -149,11 +152,11 @@ const selectedEvent = computed(() => {
 });
 
 const detailItems = computed(() => [
-  { label: '事件编号', value: selectedEvent.value?.id ?? '-' },
-  { label: '事件位置', value: selectedEvent.value?.area ?? '-' },
-  { label: '关联设备', value: selectedEvent.value?.device ?? '-' },
-  { label: '处理状态', value: selectedEvent.value?.status ?? '-' },
-  { label: '备注', value: selectedEvent.value?.remark ?? '-' },
+  { label: t('events.eventId'), value: selectedEvent.value?.id ?? '-' },
+  { label: t('events.eventLocation'), value: selectedEvent.value?.area ?? '-' },
+  { label: t('events.associatedDevice'), value: selectedEvent.value?.device ?? '-' },
+  { label: t('events.processStatus'), value: selectedEvent.value?.status ?? '-' },
+  { label: t('common.remark'), value: selectedEvent.value?.remark ?? '-' },
 ]);
 
 function addRemark(eventId: string) {
@@ -164,7 +167,7 @@ function addRemark(eventId: string) {
 
   selectedEventId.value = eventId;
   event.remark = event.remark === '已追加备注' ? '等待进一步复核' : '已追加备注';
-  toastMessage.value = `${event.id} 备注已更新`;
+  toastMessage.value = t('events.remarkUpdated', { id: event.id });
 }
 
 function processEvent(eventId: string) {
@@ -175,13 +178,13 @@ function processEvent(eventId: string) {
 
   selectedEventId.value = eventId;
   if (event.statusTone === 'open') {
-    event.status = '处理中';
+    event.status = t('events.statusProcessing');
     event.statusTone = 'running';
   } else {
-    event.status = '已关闭';
+    event.status = t('events.statusClosed');
     event.statusTone = 'done';
   }
-  toastMessage.value = `${event.id} 状态已更新为${event.status}`;
+  toastMessage.value = t('events.statusUpdated', { id: event.id, status: event.status });
 }
 
 function createTicket() {
@@ -189,7 +192,7 @@ function createTicket() {
     return;
   }
 
-  toastMessage.value = `${selectedEvent.value.id} 已创建处置工单`;
+  toastMessage.value = t('events.ticketCreated', { id: selectedEvent.value.id });
 }
 </script>
 

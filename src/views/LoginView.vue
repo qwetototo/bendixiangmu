@@ -3,38 +3,38 @@
     <section class="login-panel">
       <div class="login-brand">
         <span>deepfusion</span>
-        <strong>人员轨迹数字孪生平台</strong>
+        <strong>{{ t('login.title') }}</strong>
       </div>
       <form class="login-form" @submit.prevent="$emit('login', { remember: loginForm.remember })">
         <label>
-          <span>账号</span>
+          <span>{{ t('login.account') }}</span>
           <input v-model="loginForm.account" autocomplete="username" placeholder="admin@deepfusion" />
         </label>
         <label>
-          <span>密码</span>
-          <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
+          <span>{{ t('login.password') }}</span>
+          <input v-model="loginForm.password" autocomplete="current-password" :placeholder="t('login.passwordPlaceholder')" type="password" />
         </label>
         <div class="login-options">
           <label>
             <input v-model="loginForm.remember" type="checkbox" />
-            <span>保持登录</span>
+            <span>{{ t('login.rememberMe') }}</span>
           </label>
-          <button type="button">忘记密码</button>
+          <button type="button">{{ t('login.forgotPassword') }}</button>
         </div>
-        <button class="login-submit" type="submit">登录控制台</button>
+        <button class="login-submit" type="submit">{{ t('login.submit') }}</button>
       </form>
       <div class="login-metrics">
         <div>
           <strong>3D</strong>
-          <span>实时轨迹展示</span>
+          <span>{{ t('login.feature1') }}</span>
         </div>
         <div>
           <strong>24h</strong>
-          <span>轨迹保存回放</span>
+          <span>{{ t('login.feature2') }}</span>
         </div>
         <div>
           <strong>IoT</strong>
-          <span>用户设备联动</span>
+          <span>{{ t('login.feature3') }}</span>
         </div>
       </div>
     </section>
@@ -43,6 +43,9 @@
 
 <script setup lang="ts">
 import { reactive } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 defineEmits<{
   login: [{ remember: boolean }];

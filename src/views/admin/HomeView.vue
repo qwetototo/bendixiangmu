@@ -11,17 +11,17 @@
     <section class="overview-grid">
       <article class="intro-panel">
         <div>
-          <h2>平台概览</h2>
-          <p>面向企业园区、工厂与实验空间的人员轨迹管理平台，集中展示实时位置、历史轨迹、事件告警与设备状态。</p>
+          <h2>{{ t('home.overview') }}</h2>
+          <p>{{ t('home.overviewDesc') }}</p>
         </div>
         <div class="quick-actions">
-          <button type="button" @click="$emit('navigate', 'track', 'live')">进入实时轨迹</button>
-          <button type="button" @click="$emit('navigate', 'track', 'events')">查看事件中心</button>
+          <button type="button" @click="$emit('navigate', 'track', 'live')">{{ t('home.enterLive') }}</button>
+          <button type="button" @click="$emit('navigate', 'track', 'events')">{{ t('home.viewEvents') }}</button>
         </div>
       </article>
 
       <article class="status-panel">
-        <h3>今日运行状态</h3>
+        <h3>{{ t('home.todayStatus') }}</h3>
         <div class="status-list">
           <div v-for="item in statusItems" :key="item.label">
             <span>{{ item.label }}</span>
@@ -39,7 +39,7 @@
       </article>
 
       <article class="activity-panel">
-        <h3>实时事件</h3>
+        <h3>{{ t('home.realtimeEvents') }}</h3>
         <div class="activity-list">
           <div
             v-for="event in events"
@@ -53,15 +53,15 @@
           </div>
         </div>
         <div class="activity-detail">
-          <span>当前事件</span>
+          <span>{{ t('home.currentEvents') }}</span>
           <strong>{{ selectedEvent.content }}</strong>
         </div>
       </article>
 
       <article class="task-panel">
-        <h3>待处理事项</h3>
+        <h3>{{ t('home.pendingTasks') }}</h3>
         <div class="task-progress">
-          <span>{{ completedTaskCount }} / {{ tasks.length }} 已完成</span>
+          <span>{{ completedTaskCount }} / {{ tasks.length }} {{ t('home.completed') }}</span>
           <div><i :style="{ width: `${taskProgress}%` }"></i></div>
         </div>
         <div class="task-list">
@@ -77,25 +77,29 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { guideItems, type SectionKey } from '@/services/navigation';
+import { useI18n } from 'vue-i18n';
+import { useNavigation, type SectionKey } from '@/services/navigation';
+
+const { t } = useI18n();
+const { guideItems } = useNavigation();
 
 defineEmits<{
   navigate: [sectionKey: SectionKey, submenuKey: string];
 }>();
 
-const summaryMetrics = [
-  { label: '在线人员', value: '112', trend: '+8 较昨日', trendType: 'up' },
-  { label: '绑定设备', value: '156', trend: '96% 可用', trendType: 'normal' },
-  { label: '今日轨迹', value: '2,438', trend: '+12.4%', trendType: 'up' },
-  { label: '未处理告警', value: '7', trend: '3 项高优先级', trendType: 'warn' },
-];
+const summaryMetrics = computed(() => [
+  { label: t('home.onlinePersonnel'), value: '112', trend: '+8 较昨日', trendType: 'up' },
+  { label: t('home.boundDevices'), value: '156', trend: '96% 可用', trendType: 'normal' },
+  { label: t('home.todayTrajectories'), value: '2,438', trend: '+12.4%', trendType: 'up' },
+  { label: t('home.unresolvedAlerts'), value: '7', trend: '3 项高优先级', trendType: 'warn' },
+]);
 
-const statusItems = [
-  { label: 'MQTT 接入', value: '运行中' },
-  { label: '轨迹归档', value: '正常' },
-  { label: '定位延迟', value: '48ms' },
-  { label: '数据保留', value: '30天' },
-];
+const statusItems = computed(() => [
+  { label: t('home.mqttAccess'), value: t('home.running') },
+  { label: t('home.trajectoryArchive'), value: t('home.normal') },
+  { label: t('home.positioningDelay'), value: '48ms' },
+  { label: t('home.dataRetention'), value: '30天' },
+]);
 
 const events = [
   { time: '10:42:31', content: 'TAG-10086 进入办公区 A', level: 'info', levelText: '记录' },
@@ -104,7 +108,7 @@ const events = [
   { time: '10:28:44', content: '访客 A 离开授权区域', level: 'warn', levelText: '越界' },
 ];
 
-const tasks = ['核对 3 个未绑定标签', '复查办公区电子围栏规则', '导出今日重点人员轨迹', '确认 MQTT 备用通道配置'];
+const tasks = computed<string[]>(() => t('home.tasks') as unknown as string[]);
 
 const selectedEventTime = ref(events[0]?.time ?? '');
 const completedTasks = ref<string[]>([]);
@@ -114,7 +118,7 @@ const selectedEvent = computed(() => {
 });
 
 const completedTaskCount = computed(() => completedTasks.value.length);
-const taskProgress = computed(() => Math.round((completedTaskCount.value / tasks.length) * 100));
+const taskProgress = computed(() => Math.round((completedTaskCount.value / tasks.value.length) * 100));
 </script>
 
 <style scoped>

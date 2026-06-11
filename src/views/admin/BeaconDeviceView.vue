@@ -12,33 +12,33 @@
       <section class="beacon-panel">
         <div class="beacon-panel-title">
           <div>
-            <h3>信标设备台账</h3>
-            <span>管理信标编号、部署区域、固件、电量和在线状态。</span>
+            <h3>{{ t('beacon.title') }}</h3>
+            <span>{{ t('beacon.desc') }}</span>
           </div>
           <div class="beacon-actions">
-            <button type="button" @click="addBeacon">新增信标</button>
-            <button type="button" @click="feedbackMessage = '已进入批量导入流程'">批量导入</button>
+            <button type="button" @click="addBeacon">{{ t('beacon.addBeacon') }}</button>
+            <button type="button" @click="feedbackMessage = t('beacon.importPrompt')">{{ t('common.import') }}</button>
           </div>
         </div>
 
         <div class="beacon-filter">
-          <input v-model="keyword" placeholder="搜索信标编号、区域或协议" />
+          <input v-model="keyword" :placeholder="t('beacon.searchPlaceholder')" />
           <select v-model="statusFilter">
-            <option value="all">全部状态</option>
-            <option value="在线">在线</option>
-            <option value="维护">维护</option>
-            <option value="离线">离线</option>
+            <option value="all">{{ t('beacon.allStatus') }}</option>
+            <option value="online">{{ t('beacon.online') }}</option>
+            <option value="maintenance">{{ t('beacon.maintenance') }}</option>
+            <option value="offline">{{ t('beacon.offline') }}</option>
           </select>
         </div>
 
         <div class="beacon-table">
           <div class="beacon-table-head">
-            <span>信标</span>
-            <span>部署区域</span>
-            <span>协议</span>
-            <span>电量</span>
-            <span>状态</span>
-            <span>操作</span>
+            <span>{{ t('beacon.beacon') }}</span>
+            <span>{{ t('beacon.deploymentArea') }}</span>
+            <span>{{ t('beacon.protocol') }}</span>
+            <span>{{ t('beacon.battery') }}</span>
+            <span>{{ t('beacon.status') }}</span>
+            <span>{{ t('beacon.action') }}</span>
           </div>
 
           <article
@@ -59,23 +59,23 @@
             </div>
             <small :class="['status-pill', beacon.statusTone]">{{ beacon.status }}</small>
             <div class="row-actions">
-              <button type="button" @click.stop="editBeacon(beacon.id)">编辑</button>
-              <button type="button" @click.stop="calibrateBeacon(beacon.id)">校准</button>
-              <button type="button" @click.stop="selectedBeaconId = beacon.id">详情</button>
+              <button type="button" @click.stop="editBeacon(beacon.id)">{{ t('common.edit') }}</button>
+              <button type="button" @click.stop="calibrateBeacon(beacon.id)">{{ t('beacon.calibrate') }}</button>
+              <button type="button" @click.stop="selectedBeaconId = beacon.id">{{ t('common.detail') }}</button>
             </div>
           </article>
 
-          <div v-if="filteredBeacons.length === 0" class="empty-state">暂无匹配的信标设备</div>
+          <div v-if="filteredBeacons.length === 0" class="empty-state">{{ t('beacon.noMatch') }}</div>
         </div>
       </section>
 
       <aside class="beacon-detail">
-        <h3>信标详情</h3>
+        <h3>{{ t('beacon.beaconDetail') }}</h3>
         <div v-for="item in beaconDetailItems" :key="item.label">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
         </div>
-        <button type="button" @click="feedbackMessage = `${selectedBeacon.id} 部署图已定位`">查看部署图</button>
+        <button type="button" @click="feedbackMessage = t('beacon.deployMapLocated', { id: selectedBeacon.id })">{{ t('beacon.viewDeployMap') }}</button>
         <small v-if="feedbackMessage" class="feedback-line">{{ feedbackMessage }}</small>
       </aside>
     </section>
@@ -83,7 +83,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 defineProps<{
   themeMode: 'dark' | 'light';
@@ -93,6 +96,19 @@ const keyword = ref('');
 const statusFilter = ref('all');
 
 type BeaconStatusTone = 'online' | 'warn' | 'offline';
+type BeaconStatusKey = 'online' | 'maintenance' | 'offline';
+
+interface RawBeacon {
+  id: string;
+  model: string;
+  firmware: string;
+  areaKey: string;
+  protocol: string;
+  battery: string;
+  statusKey: BeaconStatusKey;
+  statusTone: BeaconStatusTone;
+  lastCalibratedKey: string;
+}
 
 interface BeaconRow {
   id: string;
@@ -106,27 +122,68 @@ interface BeaconRow {
   lastCalibrated: string;
 }
 
-const beacons = reactive<BeaconRow[]>([
-  { id: 'BCN-A-001', model: 'UWB Anchor X2', firmware: 'v3.2.1', area: '办公区 A', protocol: 'UWB', battery: '92%', status: '在线', statusTone: 'online', lastCalibrated: '10:12' },
-  { id: 'BCN-M-012', model: 'BLE Beacon S1', firmware: 'v2.8.4', area: '会议区', protocol: 'BLE', battery: '78%', status: '在线', statusTone: 'online', lastCalibrated: '09:40' },
-  { id: 'BCN-L-006', model: 'UWB Anchor X2', firmware: 'v3.1.9', area: '实验区', protocol: 'UWB', battery: '36%', status: '维护', statusTone: 'warn', lastCalibrated: '昨日 18:20' },
-  { id: 'BCN-W-019', model: 'BLE Beacon S1', firmware: 'v2.7.6', area: '仓储区', protocol: 'BLE', battery: '14%', status: '离线', statusTone: 'offline', lastCalibrated: '待校准' },
+const statusDisplayMap: Record<BeaconStatusKey, string> = {
+  online: 'beacon.online',
+  maintenance: 'beacon.maintenance',
+  offline: 'beacon.offline',
+};
+
+const areaDisplayMap: Record<string, string> = {
+  areaOffice: 'identity.areaOffice',
+  areaMeeting: 'identity.areaMeeting',
+  areaLab: 'identity.areaLab',
+  areaWarehouse: '仓储区',
+  pendingDeploy: 'beacon.pendingDeploy',
+};
+
+function translateArea(key: string): string {
+  if (key === 'areaWarehouse') return '仓储区';
+  if (key === 'pendingDeploy') return t('beacon.pendingDeploy');
+  return t(areaDisplayMap[key] ?? key);
+}
+
+const rawBeacons = ref<RawBeacon[]>([
+  { id: 'BCN-A-001', model: 'UWB Anchor X2', firmware: 'v3.2.1', areaKey: 'areaOffice', protocol: 'UWB', battery: '92%', statusKey: 'online', statusTone: 'online', lastCalibratedKey: '10:12' },
+  { id: 'BCN-M-012', model: 'BLE Beacon S1', firmware: 'v2.8.4', areaKey: 'areaMeeting', protocol: 'BLE', battery: '78%', statusKey: 'online', statusTone: 'online', lastCalibratedKey: '09:40' },
+  { id: 'BCN-L-006', model: 'UWB Anchor X2', firmware: 'v3.1.9', areaKey: 'areaLab', protocol: 'UWB', battery: '36%', statusKey: 'maintenance', statusTone: 'warn', lastCalibratedKey: 'yesterday' },
+  { id: 'BCN-W-019', model: 'BLE Beacon S1', firmware: 'v2.7.6', areaKey: 'areaWarehouse', protocol: 'BLE', battery: '14%', statusKey: 'offline', statusTone: 'offline', lastCalibratedKey: 'pending' },
 ]);
 
-const selectedBeaconId = ref(beacons[0]?.id ?? '');
+const lastCalibratedDisplayMap: Record<string, string> = {
+  '10:12': '10:12',
+  '09:40': '09:40',
+  yesterday: '昨日 18:20',
+  pending: '待校准',
+};
+
+const beacons = computed<BeaconRow[]>(() =>
+  rawBeacons.value.map((raw) => ({
+    id: raw.id,
+    model: raw.model,
+    firmware: raw.firmware,
+    area: translateArea(raw.areaKey),
+    protocol: raw.protocol,
+    battery: raw.battery,
+    status: t(statusDisplayMap[raw.statusKey]),
+    statusTone: raw.statusTone,
+    lastCalibrated: raw.lastCalibratedKey === 'justNow' ? t('beacon.justNow') : (lastCalibratedDisplayMap[raw.lastCalibratedKey] ?? raw.lastCalibratedKey),
+  })),
+);
+
+const selectedBeaconId = ref(rawBeacons.value[0]?.id ?? '');
 const feedbackMessage = ref('');
 
-const summaryCards = [
-  { label: '信标总数', value: '64', note: '覆盖 8 个区域' },
-  { label: '在线信标', value: '58', note: '90.6% 在线率' },
-  { label: '待维护', value: '4', note: '含低电量 2 台' },
-  { label: '离线信标', value: '2', note: '需现场复核' },
-];
+const summaryCards = computed(() => [
+  { label: t('beacon.totalBeacons'), value: '64', note: t('beacon.coverageAreas', { n: 8 }) },
+  { label: t('beacon.onlineBeacons'), value: '58', note: t('beacon.onlineRate', { rate: '90.6' }) },
+  { label: t('beacon.pendingMaintenance'), value: '4', note: t('beacon.includesLowBattery', { n: 2 }) },
+  { label: t('beacon.offlineBeacons'), value: '2', note: t('beacon.needsOnsiteCheck') },
+]);
 
 const filteredBeacons = computed(() => {
   const normalizedKeyword = keyword.value.trim().toLowerCase();
-  return beacons.filter((beacon) => {
-    const statusMatched = statusFilter.value === 'all' || beacon.status === statusFilter.value;
+  return beacons.value.filter((beacon) => {
+    const statusMatched = statusFilter.value === 'all' || rawBeacons.value.find((r) => r.id === beacon.id)?.statusKey === statusFilter.value;
     const keywordMatched = !normalizedKeyword
       || `${beacon.id} ${beacon.area} ${beacon.protocol}`.toLowerCase().includes(normalizedKeyword);
     return statusMatched && keywordMatched;
@@ -134,62 +191,62 @@ const filteredBeacons = computed(() => {
 });
 
 const selectedBeacon = computed(() => {
-  return filteredBeacons.value.find((beacon) => beacon.id === selectedBeaconId.value) ?? filteredBeacons.value[0] ?? beacons[0];
+  return filteredBeacons.value.find((beacon) => beacon.id === selectedBeaconId.value) ?? filteredBeacons.value[0] ?? beacons.value[0];
 });
 
 const beaconDetailItems = computed(() => [
-  { label: '信标编号', value: selectedBeacon.value.id },
-  { label: '设备型号', value: selectedBeacon.value.model },
-  { label: '部署区域', value: selectedBeacon.value.area },
-  { label: '协议固件', value: `${selectedBeacon.value.protocol} / ${selectedBeacon.value.firmware}` },
-  { label: '最近校准', value: selectedBeacon.value.lastCalibrated },
-  { label: '运行状态', value: selectedBeacon.value.status },
+  { label: t('beacon.beaconId'), value: selectedBeacon.value.id },
+  { label: t('beacon.deviceModel'), value: selectedBeacon.value.model },
+  { label: t('beacon.deploymentArea'), value: selectedBeacon.value.area },
+  { label: t('beacon.protocolFirmware'), value: `${selectedBeacon.value.protocol} / ${selectedBeacon.value.firmware}` },
+  { label: t('beacon.lastCalibrated'), value: selectedBeacon.value.lastCalibrated },
+  { label: t('beacon.runStatus'), value: selectedBeacon.value.status },
 ]);
 
 function addBeacon() {
-  const nextIndex = beacons.length + 1;
-  const nextBeacon: BeaconRow = {
+  const nextIndex = rawBeacons.value.length + 1;
+  const nextRaw: RawBeacon = {
     id: `BCN-N-${String(nextIndex).padStart(3, '0')}`,
     model: 'BLE Beacon S1',
     firmware: 'v2.8.4',
-    area: '待部署',
+    areaKey: 'pendingDeploy',
     protocol: 'BLE',
     battery: '100%',
-    status: '维护',
+    statusKey: 'maintenance',
     statusTone: 'warn',
-    lastCalibrated: '待校准',
+    lastCalibratedKey: 'pending',
   };
-  beacons.unshift(nextBeacon);
-  selectedBeaconId.value = nextBeacon.id;
-  feedbackMessage.value = `${nextBeacon.id} 已新增`;
+  rawBeacons.value.unshift(nextRaw);
+  selectedBeaconId.value = nextRaw.id;
+  feedbackMessage.value = t('beacon.beaconAdded', { id: nextRaw.id });
 }
 
 function editBeacon(beaconId: string) {
-  const beacon = beacons.find((item) => item.id === beaconId);
-  if (!beacon) {
+  const raw = rawBeacons.value.find((item) => item.id === beaconId);
+  if (!raw) {
     return;
   }
 
   selectedBeaconId.value = beaconId;
-  beacon.area = beacon.area === '待部署' ? '办公区 A' : '待部署';
-  beacon.status = beacon.area === '待部署' ? '维护' : '在线';
-  beacon.statusTone = beacon.area === '待部署' ? 'warn' : 'online';
-  feedbackMessage.value = `${beacon.id} 部署区域已更新`;
+  raw.areaKey = raw.areaKey === 'pendingDeploy' ? 'areaOffice' : 'pendingDeploy';
+  raw.statusKey = raw.areaKey === 'pendingDeploy' ? 'maintenance' : 'online';
+  raw.statusTone = raw.areaKey === 'pendingDeploy' ? 'warn' : 'online';
+  feedbackMessage.value = t('beacon.deployAreaUpdated', { id: raw.id });
 }
 
 function calibrateBeacon(beaconId: string) {
-  const beacon = beacons.find((item) => item.id === beaconId);
-  if (!beacon) {
+  const raw = rawBeacons.value.find((item) => item.id === beaconId);
+  if (!raw) {
     return;
   }
 
   selectedBeaconId.value = beaconId;
-  beacon.lastCalibrated = '刚刚';
-  if (beacon.statusTone === 'offline') {
-    beacon.status = '维护';
-    beacon.statusTone = 'warn';
+  raw.lastCalibratedKey = 'justNow';
+  if (raw.statusTone === 'offline') {
+    raw.statusKey = 'maintenance';
+    raw.statusTone = 'warn';
   }
-  feedbackMessage.value = `${beacon.id} 已完成校准`;
+  feedbackMessage.value = t('beacon.calibrationDone', { id: raw.id });
 }
 </script>
 
