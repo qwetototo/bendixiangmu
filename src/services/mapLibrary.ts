@@ -87,6 +87,7 @@ export function createBlankSceneConfig(name = '新建地图'): SceneConfig {
     },
     areas: [],
     walls: [],
+    fences: [],
     devices: [],
     models: [],
     overlay: {

@@ -15,6 +15,12 @@ const overlayModules = import.meta.glob('/src/assets/image/**/*.{png,jpg,jpeg,we
   import: 'default',
 }) as Record<string, string>;
 
+// Keep downloaded files and parsed model templates for the lifetime of the page.
+// Repeated scene instances and repeated furniture entries then share the same assets.
+THREE.Cache.enabled = true;
+const sharedGltfLoader = new GLTFLoader();
+const sharedModelTemplateCache = new Map<string, Promise<THREE.Object3D | null>>();
+
 export interface PickPointResult {
   scene: {
     x: number;
@@ -68,8 +74,6 @@ export class TwinScene {
   private readonly builder = new SceneBuilder();
   private readonly onPointPick?: (point: PickPointResult) => void;
   private readonly onLivePoseSelect?: (deviceId: string) => void;
-  private readonly gltfLoader = new GLTFLoader();
-  private readonly modelTemplateCache = new Map<string, Promise<THREE.Object3D | null>>();
 
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
@@ -1002,32 +1006,31 @@ export class TwinScene {
   }
 
   private async loadModelTemplate(modelPath: string): Promise<THREE.Object3D | null> {
-    const cachedTemplate = this.modelTemplateCache.get(modelPath);
-    if (cachedTemplate) {
-      return cachedTemplate;
-    }
-
-    const templatePromise = this.fetchModelTemplate(modelPath);
-    this.modelTemplateCache.set(modelPath, templatePromise);
-
-    const template = await templatePromise;
-    if (!template) {
-      this.modelTemplateCache.delete(modelPath);
-    }
-
-    return template;
-  }
-
-  private async fetchModelTemplate(modelPath: string): Promise<THREE.Object3D | null> {
     const modelUrl = this.resolveModelUrl(modelPath);
-
     if (!modelUrl) {
       console.error(`Model file not found in src/assets/model: ${modelPath}`);
       return null;
     }
 
+    const cachedTemplate = sharedModelTemplateCache.get(modelUrl);
+    if (cachedTemplate) {
+      return cachedTemplate;
+    }
+
+    const templatePromise = this.fetchModelTemplate(modelPath, modelUrl);
+    sharedModelTemplateCache.set(modelUrl, templatePromise);
+
+    const template = await templatePromise;
+    if (!template) {
+      sharedModelTemplateCache.delete(modelUrl);
+    }
+
+    return template;
+  }
+
+  private async fetchModelTemplate(modelPath: string, modelUrl: string): Promise<THREE.Object3D | null> {
     try {
-      const gltf = await this.gltfLoader.loadAsync(modelUrl);
+      const gltf = await sharedGltfLoader.loadAsync(modelUrl);
       const template = gltf.scene;
       this.prepareModelTemplate(template);
       return template;
@@ -1192,6 +1195,10 @@ export class TwinScene {
     this.controls?.dispose();
 
     if (this.scene) {
+      // Cached model templates own these shared GPU resources. Remove model
+      // instances before disposing scene-local geometry and materials.
+      this.modelGroups.forEach((model) => model.removeFromParent());
+
       this.scene.traverse((object: THREE.Object3D) => {
         const mesh = object as THREE.Mesh;
         if (mesh.geometry) {
@@ -1212,7 +1219,6 @@ export class TwinScene {
 
     this.floorGroup = null;
     this.modelGroups = [];
-    this.modelTemplateCache.clear();
     this.overlayPlane = null;
     this.overlayMaterial = null;
     this.livePoseGroup = null;
