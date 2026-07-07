@@ -5,7 +5,9 @@ import fs from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const MODEL_UPLOAD_PATH = '/__twintrack/model-upload';
+const THUMBNAIL_UPLOAD_PATH = '/__twintrack/thumbnail-upload';
 const MODEL_UPLOAD_LIMIT = 256 * 1024 * 1024;
+const THUMBNAIL_UPLOAD_LIMIT = 12 * 1024 * 1024;
 
 function sanitizePathSegment(value: string): string {
   return value.replace(/[^\w.-]/g, '_').replace(/^\.+$/, '_');
@@ -20,20 +22,60 @@ function sanitizeSubdirectory(value: string): string {
     .join('/');
 }
 
-async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
+async function readRequestBody(request: IncomingMessage, limit = MODEL_UPLOAD_LIMIT): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
 
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MODEL_UPLOAD_LIMIT) {
-      throw new Error('模型文件不能超过 256 MB');
+    if (size > limit) {
+      throw new Error(limit === THUMBNAIL_UPLOAD_LIMIT ? '缩略图不能超过 12 MB' : '模型文件不能超过 256 MB');
     }
     chunks.push(buffer);
   }
 
   return Buffer.concat(chunks);
+}
+
+function thumbnailUploadMiddleware(request: IncomingMessage, response: ServerResponse, next: () => void) {
+  if (request.url !== THUMBNAIL_UPLOAD_PATH || request.method !== 'POST') {
+    next();
+    return;
+  }
+
+  void (async () => {
+    const encodedFileName = String(request.headers['x-file-name'] || '');
+    const fileName = sanitizePathSegment(decodeURIComponent(encodedFileName));
+    const extension = path.extname(fileName).toLowerCase();
+
+    if (!fileName || !['.png', '.jpg', '.jpeg', '.webp'].includes(extension)) {
+      response.statusCode = 400;
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ message: '只支持 .png、.jpg、.jpeg 或 .webp 缩略图' }));
+      return;
+    }
+
+    const body = await readRequestBody(request, THUMBNAIL_UPLOAD_LIMIT);
+    if (body.length === 0) {
+      response.statusCode = 400;
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ message: '缩略图文件为空' }));
+      return;
+    }
+
+    const thumbnailDirectory = path.resolve(__dirname, 'public/twintrack/thumbnails');
+    await fs.mkdir(thumbnailDirectory, { recursive: true });
+    await fs.writeFile(path.join(thumbnailDirectory, fileName), body);
+
+    response.statusCode = 200;
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ path: `/twintrack/thumbnails/${fileName}` }));
+  })().catch((error: unknown) => {
+    response.statusCode = 500;
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ message: error instanceof Error ? error.message : '缩略图保存失败' }));
+  });
 }
 
 function modelUploadMiddleware(request: IncomingMessage, response: ServerResponse, next: () => void) {
@@ -90,9 +132,11 @@ export default defineConfig({
       name: 'twintrack-model-upload',
       configureServer(server) {
         server.middlewares.use(modelUploadMiddleware);
+        server.middlewares.use(thumbnailUploadMiddleware);
       },
       configurePreviewServer(server) {
         server.middlewares.use(modelUploadMiddleware);
+        server.middlewares.use(thumbnailUploadMiddleware);
       },
     },
   ],

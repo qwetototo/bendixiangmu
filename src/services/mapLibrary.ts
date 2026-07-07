@@ -2,12 +2,33 @@ import floorConfig from '@/assets/config/config.json';
 import type { SceneConfig } from '@/types/scene';
 import { toRaw } from 'vue';
 
+export type Point3D = [number, number, number];
+
+export interface MapFloorItem {
+  id: string;
+  name: string;
+  config: SceneConfig;
+}
+
+export interface MapMetadata {
+  thumbnail: string;
+  floor: string;
+  region: string;
+  address: string;
+  mapOrigin: Point3D;
+  positioningOrigin: Point3D;
+  scaleRatio: number;
+  activeFloorId: string;
+  floors: MapFloorItem[];
+}
+
 export interface SavedMap {
   id: string;
   name: string;
   description: string;
   updatedAt: string;
   config: SceneConfig;
+  metadata: MapMetadata;
 }
 
 const MAP_LIBRARY_STORAGE_KEY = 'twintrack.mapLibrary';
@@ -18,6 +39,80 @@ export function cloneSceneConfig(config: SceneConfig): SceneConfig {
   return JSON.parse(JSON.stringify(toRaw(config))) as SceneConfig;
 }
 
+function normalizePoint3D(value: unknown, fallback: Point3D): Point3D {
+  if (!Array.isArray(value)) {
+    return [...fallback] as Point3D;
+  }
+
+  return [0, 1, 2].map((index) => {
+    const numericValue = Number(value[index]);
+    return Number.isFinite(numericValue) ? numericValue : fallback[index];
+  }) as Point3D;
+}
+
+function createDefaultMetadata(config: SceneConfig, metadata?: Partial<MapMetadata>): MapMetadata {
+  const mapOrigin: Point3D = normalizePoint3D(metadata?.mapOrigin, [0, 0, 0]);
+  const positioningOrigin = normalizePoint3D(metadata?.positioningOrigin, mapOrigin);
+  const metadataScaleRatio = Number(metadata?.scaleRatio);
+  const configScaleRatio = Number(config.floor.scale);
+  const scaleRatio =
+    Number.isFinite(metadataScaleRatio) && metadataScaleRatio > 0
+      ? metadataScaleRatio
+      : Number.isFinite(configScaleRatio) && configScaleRatio > 1
+        ? configScaleRatio
+        : 300;
+  const fallbackFloor: MapFloorItem = {
+    id: config.floor.id || `floor-${Date.now()}`,
+    name: config.floor.name || '1F',
+    config: cloneSceneConfig(config),
+  };
+  const floors = Array.isArray(metadata?.floors)
+    ? metadata.floors
+        .filter((floor) => floor && typeof floor.id === 'string' && isSceneConfig(floor.config))
+        .map((floor) => ({
+          id: floor.id,
+          name: floor.name || floor.config.floor.name || floor.id,
+          config: cloneSceneConfig(floor.config),
+        }))
+    : [];
+  const normalizedFloors = floors.length > 0 ? floors : [fallbackFloor];
+  normalizedFloors.forEach((floor) => {
+    floor.config.floor.scale = scaleRatio;
+  });
+  const activeFloorId =
+    typeof metadata?.activeFloorId === 'string' && normalizedFloors.some((floor) => floor.id === metadata.activeFloorId)
+      ? metadata.activeFloorId
+      : normalizedFloors[0].id;
+
+  return {
+    thumbnail: typeof metadata?.thumbnail === 'string' ? metadata.thumbnail : '',
+    floor: typeof metadata?.floor === 'string' && metadata.floor.trim() ? metadata.floor : config.floor.name || '1F',
+    region: typeof metadata?.region === 'string' ? metadata.region : '',
+    address: typeof metadata?.address === 'string' ? metadata.address : '',
+    mapOrigin,
+    positioningOrigin,
+    scaleRatio,
+    activeFloorId,
+    floors: normalizedFloors,
+  };
+}
+
+function normalizeSavedMap(map: SavedMap): SavedMap {
+  const config = cloneSceneConfig(map.config);
+  const metadata = createDefaultMetadata(config, map.metadata);
+  const activeFloor = metadata.floors.find((floor) => floor.id === metadata.activeFloorId) ?? metadata.floors[0];
+  const activeConfig = activeFloor ? cloneSceneConfig(activeFloor.config) : config;
+  activeConfig.floor.scale = metadata.scaleRatio;
+  return {
+    ...map,
+    name: map.name || config.floor.name || '未命名地图',
+    description: map.description || '',
+    updatedAt: map.updatedAt || new Date().toISOString(),
+    config: activeConfig,
+    metadata,
+  };
+}
+
 export function getDefaultMap(): SavedMap {
   const config = cloneSceneConfig(floorConfig as unknown as SceneConfig);
   return {
@@ -26,6 +121,7 @@ export function getDefaultMap(): SavedMap {
     description: '系统内置地图配置',
     updatedAt: new Date().toISOString(),
     config,
+    metadata: createDefaultMetadata(config),
   };
 }
 
@@ -39,7 +135,9 @@ export function getMapLibrary(): SavedMap[] {
     }
 
     const parsed = JSON.parse(rawValue) as SavedMap[];
-    const customMaps = Array.isArray(parsed) ? parsed.filter((item) => item.id !== DEFAULT_MAP_ID && isSceneConfig(item.config)) : [];
+    const customMaps = Array.isArray(parsed)
+      ? parsed.filter((item) => item.id !== DEFAULT_MAP_ID && isSceneConfig(item.config)).map(normalizeSavedMap)
+      : [];
     return [defaultMap, ...customMaps];
   } catch {
     return [defaultMap];
@@ -64,13 +162,14 @@ export function getActiveMap(): SavedMap {
   return maps.find((item) => item.id === getActiveMapId()) ?? maps[0] ?? getDefaultMap();
 }
 
-export function createSavedMap(name: string, description: string, config: SceneConfig): SavedMap {
+export function createSavedMap(name: string, description: string, config: SceneConfig, metadata?: Partial<MapMetadata>): SavedMap {
   return {
     id: `map-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     name,
     description,
     updatedAt: new Date().toISOString(),
     config: cloneSceneConfig(config),
+    metadata: createDefaultMetadata(config, metadata),
   };
 }
 

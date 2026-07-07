@@ -279,6 +279,20 @@ watch(
   { immediate: true },
 );
 
+// Dynamically update the browser tab title based on locale and current page
+watch(
+  [isAuthed, currentPageTitle, locale],
+  () => {
+    if (!isAuthed.value) {
+      document.title = t('login.title');
+      return;
+    }
+    const site = t('siteTitle');
+    document.title = currentPageTitle.value ? `${currentPageTitle.value} - ${site}` : site;
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   syncNavFromRoute();
   window.addEventListener('popstate', syncNavFromRoute);

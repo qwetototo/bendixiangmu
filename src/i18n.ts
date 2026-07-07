@@ -5,6 +5,8 @@ import { useLanguageStore } from './stores/language';
 
 const i18n = createI18n({
   legacy: false,
+  // locale: 'en',
+  // fallbackLocale: 'en',
   locale: 'zh-CN',
   fallbackLocale: 'zh-CN',
   messages: {

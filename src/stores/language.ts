@@ -12,7 +12,8 @@ function getStoredLocale(): Locale {
   } catch {
     // localStorage unavailable
   }
-  return 'zh-CN';
+  // return 'en';
+  return 'zh-CN'
 }
 
 export const useLanguageStore = defineStore('language', () => {

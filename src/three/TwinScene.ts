@@ -20,6 +20,7 @@ const overlayModules = import.meta.glob('/src/assets/image/**/*.{png,jpg,jpeg,we
 THREE.Cache.enabled = true;
 const sharedGltfLoader = new GLTFLoader();
 const sharedModelTemplateCache = new Map<string, Promise<THREE.Object3D | null>>();
+const DEFAULT_MODEL_SCALE_RATIO = 300;
 
 export interface PickPointResult {
   scene: {
@@ -815,7 +816,7 @@ export class TwinScene {
   }
 
   setVisibleLivePoses(deviceIds: string[] | null): void {
-    this.visibleLivePoseIds = deviceIds && deviceIds.length > 0 ? new Set(deviceIds.map((id) => id || 'unknown')) : null;
+    this.visibleLivePoseIds = deviceIds === null ? null : new Set(deviceIds.map((id) => id || 'unknown'));
     if (this.selectedLivePoseId && !this.isLivePoseVisible(this.selectedLivePoseId)) {
       this.clearLivePoseSelection();
     }
@@ -1089,20 +1090,33 @@ export class TwinScene {
 
   private applyModelConfig(model: THREE.Object3D, modelConfig: ModelConfig): void {
     const { scale, center, rotation } = modelConfig;
+    const modelX = Number.isFinite(Number(center[0])) ? Number(center[0]) : 0;
+    const modelY = center.length > 2 ? (Number.isFinite(Number(center[1])) ? Number(center[1]) : 0) : 0;
+    const modelZ = center.length > 2 ? (Number.isFinite(Number(center[2])) ? Number(center[2]) : 0) : (Number.isFinite(Number(center[1])) ? Number(center[1]) : 0);
+    const floorScaleRatio = Number(this.config.floor.scale);
+    const scaleRatioFactor =
+      modelConfig.role !== 'base-map' || !Number.isFinite(floorScaleRatio) || floorScaleRatio <= 0
+        ? 1
+        : DEFAULT_MODEL_SCALE_RATIO / floorScaleRatio;
 
-    model.scale.setScalar(scale);
+    const modelScale = Number(scale);
+    model.scale.setScalar((Number.isFinite(modelScale) && modelScale > 0 ? modelScale : 1) * scaleRatioFactor);
     model.rotation.set(
-      THREE.MathUtils.degToRad(rotation[0]),
-      THREE.MathUtils.degToRad(rotation[1]),
-      THREE.MathUtils.degToRad(rotation[2]),
+      THREE.MathUtils.degToRad(Number.isFinite(Number(rotation[0])) ? Number(rotation[0]) : 0),
+      THREE.MathUtils.degToRad(Number.isFinite(Number(rotation[1])) ? Number(rotation[1]) : 0),
+      THREE.MathUtils.degToRad(Number.isFinite(Number(rotation[2])) ? Number(rotation[2]) : 0),
     );
+
+    // Compute bounding box at origin to get true local center without position offset,
+    // preventing position drift on repeated updates.
+    model.position.set(0, 0, 0);
     model.updateMatrixWorld(true);
 
     const box = new THREE.Box3().setFromObject(model);
-    const modelCenter = box.getCenter(new THREE.Vector3());
+    const localCenter = box.getCenter(new THREE.Vector3());
     const minY = box.min.y;
 
-    model.position.set(center[0] - modelCenter.x, -minY, center[1] - modelCenter.z);
+    model.position.set(modelX - localCenter.x, modelY - minY, modelZ - localCenter.z);
   }
 
   private handleSceneClick(event: MouseEvent): void {

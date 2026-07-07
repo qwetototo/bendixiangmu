@@ -191,10 +191,27 @@
       </div>
 
       <div v-if="filterOpen" class="floating-popover filter-popover">
-        <label v-for="device in deviceOptions" :key="device">
-          <input v-model="selectedDevices" type="checkbox" :value="device" />
-          <span>{{ device }}</span>
-        </label>
+        <div class="filter-popover__header">
+          <strong>{{ t('dashboard.deviceFilter') }}</strong>
+          <span>{{ t('dashboard.deviceFilterCount', { selected: selectedDevices.length, total: deviceOptions.length }) }}</span>
+        </div>
+        <input
+          v-model.trim="deviceFilterKeyword"
+          class="filter-search"
+          type="search"
+          :placeholder="t('dashboard.deviceFilterSearch')"
+        />
+        <div class="filter-list">
+          <label v-for="device in filteredDeviceOptions" :key="device">
+            <input v-model="selectedDevices" type="checkbox" :value="device" />
+            <span>{{ device }}</span>
+          </label>
+          <p v-if="filteredDeviceOptions.length === 0" class="filter-empty">{{ t('dashboard.noDeviceMatch') }}</p>
+        </div>
+        <div class="filter-actions">
+          <button type="button" @click="cancelDeviceFilter">{{ t('dashboard.cancelDeviceFilter') }}</button>
+          <button type="button" @click="clearDeviceFilter">{{ t('dashboard.clearDeviceSelection') }}</button>
+        </div>
       </div>
 
       <aside v-if="replayPanelOpen" class="right-rail">
@@ -285,12 +302,7 @@
       </div>
     </section>
 
-    <footer class="beian-footer">
-      <img :src="footerGaIcon" alt="" class="beian-footer__icon" />
-      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
-        苏ICP备2026022812号
-      </a>
-    </footer>
+    
   </main>
 </template>
 
@@ -318,7 +330,7 @@ import {
 } from '@ant-design/icons-vue';
 import * as echarts from 'echarts';
 import type { ECharts, EChartsOption } from 'echarts';
-import footerGaIcon from '@/assets/image/footer_ga-1.png';
+
 import { useSceneStore } from '@/stores/scene';
 import { MqttPoseClient, type MqttConnectionError, type MqttConnectionStatus } from '@/services/mqttPose';
 import { fetchTrajectoryPoints } from '@/services/trajectoryService';
@@ -368,6 +380,7 @@ const currentTime = ref(formatClock(new Date()));
 const cameraMode = ref<'overview' | 'top' | 'side'>('overview');
 const viewMode = ref('monitor');
 const filterOpen = ref(false);
+const deviceFilterKeyword = ref('');
 const replayPanelOpen = ref(false);
 const replayPlaying = ref(false);
 const replayProgress = ref(0);
@@ -381,7 +394,8 @@ const replayBuffering = ref(false);
 const replayError = ref('');
 const replaySearchAttempted = ref(false);
 const selectedReplayDevice = ref(ALL_REPLAY_DEVICES);
-const selectedDevices = ref(['TAG-10086', 'TAG-10001', 'TAG-10004']);
+const baseDeviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10005', '864714062554895'];
+const selectedDevices = ref([...baseDeviceOptions]);
 const replayDate = ref(formatDateOnly(new Date()));
 const replayTimeRange = ref<[number, number]>([0, DAY_SECONDS]);
 const draftReplayTimeRange = ref<[number, number]>([0, DAY_SECONDS]);
@@ -408,11 +422,23 @@ const replayHistories = new Map<string, ReplayPoint[]>();
 const replayTracks = new Map<string, ReplayPoint[]>();
 const replayTrackIndexes = new Map<string, number>();
 const latestLivePoses = new Map<string, LivePose>();
+const livePoseVersion = ref(0);
 const onlineDeviceCount = ref(0);
 const replayOnlineCount = ref(0);
 
-const deviceOptions = ['TAG-10086', 'TAG-10001', 'TAG-10002', 'TAG-10003', 'TAG-10004', 'TAG-10005'];
-const replayDeviceOptions = computed(() => [{ label: t('dashboard.allDevices'), value: ALL_REPLAY_DEVICES }, ...deviceOptions.map((device) => ({ label: device, value: device }))]);
+const deviceOptions = computed(() => {
+  livePoseVersion.value;
+  return [...new Set([...baseDeviceOptions, ...latestLivePoses.keys()])];
+});
+const filteredDeviceOptions = computed(() => {
+  const keyword = deviceFilterKeyword.value.trim().toLowerCase();
+  if (!keyword) return deviceOptions.value;
+  return deviceOptions.value.filter((device) => device.toLowerCase().includes(keyword));
+});
+const replayDeviceOptions = computed(() => [
+  { label: t('dashboard.allDevices'), value: ALL_REPLAY_DEVICES },
+  ...deviceOptions.value.map((device) => ({ label: device, value: device })),
+]);
 const totalDevices = 30; // 设备总数，可从数据库动态更新
 
 // 动态计算的区域统计
@@ -607,6 +633,7 @@ function resolveReplayPointTime(point: PathPoint | LivePose, fallbackTime: numbe
 function resolveMqttWebSocketUrl(): string {
   const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
   const resolvedUrl = configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
+  // const resolvedUrl = configuredUrl || 'wss://user.deepfusionrobotics.com/ws';
   console.log('[TwinScreen MQTT] resolve websocket url', {
     configuredUrl,
     resolvedUrl,
@@ -816,8 +843,54 @@ function restoreLivePoseView() {
   latestLivePoses.forEach((pose) => {
     twinScene?.updateLivePose(pose);
   });
+  applyLiveDeviceFilter();
   // 恢复实时数据的区域统计
   updateAreaStats();
+}
+
+function applyLiveDeviceFilter() {
+  if (replayPanelOpen.value) {
+    return;
+  }
+
+  twinScene?.setVisibleLivePoses([...selectedDevices.value]);
+}
+
+function cancelDeviceFilter() {
+  selectedDevices.value = [...deviceOptions.value];
+  deviceFilterKeyword.value = '';
+  filterOpen.value = false;
+}
+
+function clearDeviceFilter() {
+  selectedDevices.value = [];
+}
+
+function createTwinScene() {
+  if (!sceneContainer.value) {
+    console.warn('[TwinScreen MQTT] scene not created because scene container is missing');
+    return;
+  }
+
+  twinScene?.destroy();
+  twinScene = new TwinScene(
+    sceneContainer.value,
+    sceneStore.config,
+    (point) => {
+      pickedPoint.value = point;
+    },
+    () => {
+      // Map selection is handled inside TwinScene; the replay device filter only changes from the select control.
+    },
+  );
+  twinScene.init();
+  twinScene.toggleFences(fencesVisible.value);
+  twinScene.toggleLivePoseLabels(livePoseLabelsVisible.value);
+
+  if (!replayPanelOpen.value) {
+    restoreLivePoseView();
+    applyLiveDeviceFilter();
+  }
 }
 
 function clearTrails() {
@@ -1460,6 +1533,7 @@ function clearReplay() {
 function exitReplayMode() {
   clearReplay();
   replayPanelOpen.value = false;
+  applyLiveDeviceFilter();
 }
 
 function toggleReplayMode() {
@@ -1571,36 +1645,28 @@ onMounted(() => {
     return;
   }
 
-  twinScene = new TwinScene(
-    sceneContainer.value,
-    sceneStore.config,
-    (point) => {
-      pickedPoint.value = point;
-    },
-    () => {
-      // Map selection is handled inside TwinScene; the replay device filter only changes from the select control.
-    },
-  );
-  twinScene.init();
-  twinScene.toggleFences(fencesVisible.value);
-  twinScene.toggleLivePoseLabels(livePoseLabelsVisible.value);
+  createTwinScene();
 
   const mqttUrl = resolveMqttWebSocketUrl();
   console.log('[TwinScreen MQTT] creating mqtt client', { mqttUrl });
   mqttClient = new MqttPoseClient({
     url: mqttUrl,
     onPose: (pose) => {
-      console.log('[TwinScreen MQTT] onPose callback', {
-        deviceId: pose.deviceId,
-        x: pose.x,
-        y: pose.y,
-        z: pose.z,
-        theta: pose.theta,
-        time: pose.time,
-        receivedAt: pose.receivedAt,
-      });
+      if (pose.deviceId.includes('95')) {
+        console.log('[TwinScreen MQTT] onPose callback', {
+          deviceId: pose.deviceId,
+          x: pose.x,
+          y: pose.y,
+          z: pose.z,
+          theta: pose.theta,
+          time: pose.time,
+          receivedAt: pose.receivedAt,
+        });
+      }
+      
       livePose.value = pose;
       latestLivePoses.set(pose.deviceId, pose);
+      livePoseVersion.value += 1;
       onlineDeviceCount.value = latestLivePoses.size;
       updateAreaStats(); // 更新区域统计
       appendReplayHistory(pose.deviceId, [
@@ -1641,6 +1707,7 @@ onMounted(() => {
     onDeviceDisconnect: (deviceId) => {
       console.log('[TwinScreen MQTT] onDeviceDisconnect callback', { deviceId });
       latestLivePoses.delete(deviceId);
+      livePoseVersion.value += 1;
       onlineDeviceCount.value = latestLivePoses.size;
       updateAreaStats(); // 更新区域统计
       if (!replayPanelOpen.value) {
@@ -1685,11 +1752,33 @@ watch(areaStats, () => {
   renderAreaChart();
 }, { deep: true });
 
+watch(selectedDevices, () => {
+  applyLiveDeviceFilter();
+}, { deep: true });
+
+watch(deviceOptions, (nextDevices, previousDevices) => {
+  const selectedSet = new Set(selectedDevices.value);
+  const wasShowingAll = previousDevices.length === 0 || previousDevices.every((device) => selectedSet.has(device));
+
+  if (wasShowingAll) {
+    selectedDevices.value = [...nextDevices];
+  }
+});
+
 watch(
   () => props.themeMode,
   () => {
     renderAreaChart();
   },
+);
+
+watch(
+  () => sceneStore.config,
+  () => {
+    createTwinScene();
+    updateAreaStats();
+  },
+  { deep: true },
 );
 </script>
 
@@ -2270,6 +2359,32 @@ watch(
   box-shadow: 0 14px 32px rgba(38, 52, 82, 0.12);
 }
 
+.twin-screen--light .filter-popover__header {
+  color: rgba(39, 52, 75, 0.9);
+}
+
+.twin-screen--light .filter-popover__header span,
+.twin-screen--light .filter-empty {
+  color: rgba(52, 65, 89, 0.58);
+}
+
+.twin-screen--light .filter-search {
+  border-color: rgba(78, 101, 140, 0.18);
+  background: rgba(246, 249, 253, 0.94);
+  color: rgba(39, 52, 75, 0.9);
+}
+
+.twin-screen--light .filter-actions button {
+  border-color: rgba(78, 101, 140, 0.18);
+  background: rgba(240, 245, 251, 0.96);
+  color: rgba(39, 52, 75, 0.78);
+}
+
+.twin-screen--light .filter-actions button:hover {
+  border-color: rgba(47, 134, 255, 0.34);
+  background: rgba(226, 238, 253, 0.96);
+}
+
 .pick-chip strong {
   color: #8bdcff;
 }
@@ -2394,6 +2509,102 @@ watch(
   border: 1px solid rgba(80, 145, 205, 0.34);
   border-radius: 6px;
   background: rgba(5, 18, 33, 0.94);
+}
+
+.filter-popover {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  max-height: min(430px, calc(100vh - 140px));
+  gap: 10px;
+}
+
+.filter-popover__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(226, 239, 250, 0.92);
+  font-size: 13px;
+}
+
+.filter-popover__header strong,
+.filter-popover__header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-popover__header span {
+  flex: 0 0 auto;
+  color: rgba(226, 239, 250, 0.58);
+  font-size: 12px;
+}
+
+.filter-search {
+  width: 100%;
+  height: 34px;
+  border: 1px solid rgba(104, 169, 232, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 239, 250, 0.9);
+  padding: 0 10px;
+  outline: none;
+}
+
+.filter-search:focus {
+  border-color: rgba(84, 189, 255, 0.68);
+  box-shadow: 0 0 0 2px rgba(84, 189, 255, 0.14);
+}
+
+.filter-list {
+  display: grid;
+  gap: 8px;
+  min-height: 42px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.filter-list label {
+  min-height: 28px;
+}
+
+.filter-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-empty {
+  margin: 8px 0;
+  color: rgba(226, 239, 250, 0.52);
+  font-size: 12px;
+  text-align: center;
+}
+
+.filter-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.filter-actions button {
+  min-width: 0;
+  height: 32px;
+  border: 1px solid rgba(104, 169, 232, 0.28);
+  border-radius: 6px;
+  background: rgba(55, 142, 232, 0.16);
+  color: rgba(226, 239, 250, 0.86);
+  cursor: pointer;
+}
+
+.filter-actions button:hover {
+  border-color: rgba(84, 189, 255, 0.58);
+  background: rgba(55, 142, 232, 0.28);
 }
 
 .floating-popover label {

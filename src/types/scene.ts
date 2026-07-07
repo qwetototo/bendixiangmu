@@ -1,4 +1,5 @@
 export type Point2D = [number, number];
+export type Point3D = [number, number, number];
 
 export interface FloorConfig {
   id: string;
@@ -55,8 +56,9 @@ export interface DeviceConfig {
 export interface ModelConfig {
   path: string;
   scale: number;
-  center: Point2D;
+  center: Point3D;
   rotation: [number, number, number];
+  role?: 'base-map' | 'detail';
 }
 
 export interface OverlayConfig {

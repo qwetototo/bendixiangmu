@@ -9,15 +9,14 @@ export interface MqttConnectionError {
   wasClean?: boolean;
 }
 
-const POSITION_X_SCALE = 14.5;
+const POSITION_SCALE = 14.5;
 const POSITION_X_OFFSET = -84.95;
-const POSITION_Y_SCALE = 14.5;
 const POSITION_Y_OFFSET = 79.67;
 
 export function transformProtocolCoordinates(x: number, y: number): { x: number; y: number } {
   return {
-    x: POSITION_X_SCALE * x + POSITION_X_OFFSET,
-    y: POSITION_Y_SCALE * -y + POSITION_Y_OFFSET,
+    x: POSITION_SCALE * x + POSITION_X_OFFSET,
+    y: POSITION_SCALE * -y + POSITION_Y_OFFSET,
   };
 }
 
@@ -218,7 +217,7 @@ export class MqttPoseClient {
       return;
     }
 
-    console.log(`[MqttPoseClient] ${message}`, details ?? '');
+    // console.log(`[MqttPoseClient] ${message}`, details ?? '');
   }
 
   private warn(message: string, details?: unknown): void {

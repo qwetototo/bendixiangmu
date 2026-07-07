@@ -80,7 +80,7 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useNavigation, type SectionKey } from '@/services/navigation';
 
-const { t } = useI18n();
+const { t, tm } = useI18n();
 const { guideItems } = useNavigation();
 
 defineEmits<{
@@ -108,7 +108,7 @@ const events = [
   { time: '10:28:44', content: '访客 A 离开授权区域', level: 'warn', levelText: '越界' },
 ];
 
-const tasks = computed<string[]>(() => t('home.tasks') as unknown as string[]);
+const tasks = computed<string[]>(() => tm('home.tasks') as string[]);
 
 const selectedEventTime = ref(events[0]?.time ?? '');
 const completedTasks = ref<string[]>([]);

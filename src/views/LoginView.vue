@@ -39,12 +39,19 @@
       </div>
     </section>
   </main>
-</template>
+
+    <footer class="beian-footer">
+      <img :src="footerGaIcon" alt="" class="beian-footer__icon" />
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+        苏ICP备2026022812号
+      </a>
+    </footer>
+  </template>
 
 <script setup lang="ts">
 import { reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
-
+import footerGaIcon from '@/assets/image/footer_ga-1.png';
 const { t } = useI18n();
 
 defineEmits<{
@@ -194,5 +201,37 @@ const loginForm = reactive({
   .login-panel {
     grid-template-columns: 1fr;
   }
+}
+
+.beian-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border-top: 1px solid rgba(92, 151, 213, 0.16);
+  background: rgba(5, 18, 31, 0.78);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.beian-footer__icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.beian-footer a {
+  color: rgba(226, 239, 252, 0.88);
+  text-decoration: none;
+}
+
+.beian-footer a:hover {
+  color: #fff;
 }
 </style>
