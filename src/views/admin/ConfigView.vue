@@ -229,7 +229,7 @@
               </div>
               <label>
                 <span>{{ t('config.scaleRatio') }}</span>
-                <input v-model.number="scaleRatioInput" type="number" min="1" step="1" />
+                <input :value="scaleRatioDisplay" type="number" min="0" step="1" @input="onScaleRatioInput" @blur="onScaleRatioBlur" />
               </label>
               <template v-if="baseMapModel">
                 <label>
@@ -250,27 +250,23 @@
                   <input v-model.number="baseMapModel.rotation[1]" type="number" step="1" @change="sanitizeModelNumberField(baseMapModel!.rotation, 1)" />
                 </label>
               </template>
-              <input ref="baseMapFileInput" class="model-file-input" type="file" @change="importBaseMapFile" />
+              <input ref="baseMapFileInput" class="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" @change="importBaseMapFile" />
               <button type="button" class="upload-button" :disabled="baseMapImporting" @click.stop="openBaseMapFilePicker">
                 <UploadOutlined />
                 <span>{{ baseMapImporting ? t('config.uploading') : t('config.uploadBaseMap') }}</span>
               </button>
             </div>
-            <span v-if="!baseMapModel && !detailModelRows.length" class="map-preview__empty">
+            <span v-if="!baseMapModel" class="map-preview__empty">
               {{ t('config.noBaseMap') }}
             </span>
           </div>
           <div class="preview-stats">
             <span>{{ t('config.floorName', { name: draftMap.config.floor.name }) }}</span>
             <span>{{ t('config.scaleLabel', { scale: `1:${draftMap.metadata.scaleRatio}` }) }}</span>
-            <span>{{ t('config.modelsCount', { n: detailModelRows.length }) }}</span>
           </div>
           <div class="pick-actions">
             <button type="button" :class="{ active: pickMode === 'positioning-origin' }" @click="startPick('positioning-origin')">
               <span>{{ t('config.pickPositioningOrigin') }}</span>
-            </button>
-            <button type="button" :class="{ active: pickMode === 'new-model' }" :disabled="!hasBaseLayer" @click="startPick('new-model')">
-              <span>{{ t('config.pickAddModel') }}</span>
             </button>
           </div>
         </article>
@@ -286,11 +282,7 @@
               <span>{{ t('config.floorNameLabel') }}</span>
               <input v-model.trim="draftMap.config.floor.name" type="text" @input="updateCurrentFloorName" />
             </label>
-            <label>
-              <span>{{ t('config.floorLabel') }}</span>
-              <input v-model.trim="draftMap.metadata.floor" type="text" />
-            </label>
-            <label>
+<label>
               <span>{{ t('config.region') }}</span>
               <input v-model.trim="draftMap.metadata.region" type="text" />
             </label>
@@ -329,119 +321,19 @@
           <div class="form-grid coordinate-grid">
             <label>
               <span>{{ t('config.positioningOriginX') }}</span>
-              <input v-model.number="draftMap.metadata.positioningOrigin[0]" type="number" />
+              <input v-model.number="positioningOriginDisplay[0]" type="number" @change="commitPositioningOriginDisplay" />
             </label>
             <label>
               <span>{{ t('config.positioningOriginY') }}</span>
-              <input v-model.number="draftMap.metadata.positioningOrigin[1]" type="number" />
+              <input v-model.number="positioningOriginDisplay[1]" type="number" @change="commitPositioningOriginDisplay" />
             </label>
             <label>
               <span>{{ t('config.positioningOriginZ') }}</span>
-              <input v-model.number="draftMap.metadata.positioningOrigin[2]" type="number" />
+              <input v-model.number="positioningOriginDisplay[2]" type="number" @change="commitPositioningOriginDisplay" />
             </label>
           </div>
-          <div class="map-workflow">
-            <div class="model-add-panel">
-              <label>
-                <span>{{ t('config.modelPath') }}</span>
-                <select v-model="newModel.path">
-                  <option v-for="path in modelLibraryPaths" :key="path" :value="path">{{ path }}</option>
-                </select>
-              </label>
-              <label>
-                <span>{{ t('config.modelScale') }}</span>
-                <input v-model.number="newModel.scale" type="number" min="0.01" step="0.1" />
-              </label>
-              <label>
-                <span>{{ t('config.modelX') }}</span>
-                <input v-model.number="newModel.center[0]" type="number" />
-              </label>
-              <label>
-                <span>{{ t('config.modelY') }}</span>
-                <input v-model.number="newModel.center[1]" type="number" />
-              </label>
-              <label>
-                <span>{{ t('config.modelZ') }}</span>
-                <input v-model.number="newModel.center[2]" type="number" />
-              </label>
-              <label>
-                <span>{{ t('config.rotationY') }}</span>
-                <input v-model.number="newModel.rotation[1]" type="number" />
-              </label>
-              <button type="button" :disabled="!newModel.path || !hasBaseLayer" @click="fitNewModel">
-                <ExpandOutlined />
-                <span>{{ t('config.autoBestScale') }}</span>
-              </button>
-              <button type="button" class="primary-button" :disabled="!hasBaseLayer" @click="() => addModelFromDraft()">
-                <PlusOutlined />
-                <span>{{ t('config.addAtCoordinate') }}</span>
-              </button>
-              <small v-if="!hasBaseLayer">{{ t('config.baseMapRequired') }}</small>
-            </div>
-            <div class="model-tools">
-              <label class="model-directory-field">
-                <span>{{ t('config.saveDir') }}</span>
-                <input v-model.trim="modelUploadDirectory" type="text" placeholder="uploads" />
-              </label>
-              <input ref="modelFileInput" class="model-file-input" type="file" @change="importModelFile" />
-              <button
-                type="button"
-                class="upload-button"
-                :disabled="modelUploading"
-                @click="openModelFilePicker"
-              >
-                <UploadOutlined />
-                <span>{{ modelUploading ? t('config.uploading') : t('config.uploadModelGLB') }}</span>
-              </button>
-              <small>{{ t('config.modelUploadOnlyHint') }}</small>
-            </div>
-            <p v-if="modelUploadStatus" :class="['model-upload-status', { error: modelUploadFailed }]">
-              {{ modelUploadStatus }}
-            </p>
-          </div>
         </article>
 
-        <article class="form-panel editor-span">
-          <h3>{{ t('config.currentFloorModels') }}</h3>
-
-          <div class="model-list">
-            <div v-for="{ model, index } in detailModelRows" :key="`${model.path}-${index}`" class="model-row">
-              <input v-model.trim="model.path" class="model-row__path" :title="t('config.modelPath')" />
-              <label>
-                <span>{{ t('config.modelScale') }}</span>
-                <input v-model.number="model.scale" type="number" min="0.01" step="0.01" />
-              </label>
-              <label>
-                <span>{{ t('config.modelX') }}</span>
-                <input v-model.number="model.center[0]" type="number" step="0.1" />
-              </label>
-              <label>
-                <span>{{ t('config.modelY') }}</span>
-                <input v-model.number="model.center[1]" type="number" step="0.1" />
-              </label>
-              <label>
-                <span>{{ t('config.modelZ') }}</span>
-                <input v-model.number="model.center[2]" type="number" step="0.1" />
-              </label>
-              <label class="slider-field">
-                <span>{{ t('config.rotationY') }}</span>
-                <input v-model.number="model.rotation[1]" type="range" min="-180" max="180" step="1" />
-                <input v-model.number="model.rotation[1]" type="number" step="1" />
-              </label>
-              <div class="model-row__actions">
-                <button type="button" :title="t('config.pickModelPosition')" @click="startPick('model-position', index)">
-                  <EditOutlined />
-                </button>
-                <button type="button" :title="t('config.autoFitModel')" @click="fitModelToMap(model)">
-                  <ExpandOutlined />
-                </button>
-                <button type="button" :title="t('common.delete')" @click="removeModel(index)">
-                  <DeleteOutlined />
-                </button>
-              </div>
-            </div>
-          </div>
-        </article>
       </section>
     </template>
 
@@ -457,9 +349,8 @@ const { t } = useI18n();
 import {
   ArrowLeftOutlined,
   CheckCircleOutlined,
-  DeleteOutlined,
   EditOutlined,
-  ExpandOutlined,
+  DeleteOutlined,
   PlusOutlined,
   SaveOutlined,
   UploadOutlined,
@@ -467,7 +358,7 @@ import {
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { useSceneStore } from '@/stores/scene';
-import type { AreaConfig, ModelConfig, SceneConfig } from '@/types/scene';
+import type { AreaConfig, ModelConfig, Point3D, SceneConfig } from '@/types/scene';
 import {
   DEFAULT_MAP_ID,
   cloneSceneConfig,
@@ -481,7 +372,7 @@ import {
 } from '@/services/mapLibrary';
 
 type RuleLevel = 'alarm' | 'warn' | 'normal';
-type PickMode = 'positioning-origin' | 'new-model' | 'model-position';
+type PickMode = 'positioning-origin';
 type PreviewDragMode = 'pan' | 'rotate';
 
 interface PreviewViewState {
@@ -518,8 +409,9 @@ interface ChannelItem {
   status: string;
 }
 
-defineProps<{
+const props = defineProps<{
   pageKey?: string;
+  editMapId?: string;
 }>();
 
 const configItems = reactive<ConfigItem[]>([
@@ -566,28 +458,15 @@ const baseMapImporting = ref(false);
 const thumbnailFileInput = ref<HTMLInputElement | null>(null);
 const thumbnailUploading = ref(false);
 const thumbnailUploadStatus = ref('');
-const modelUploadDirectory = ref('uploads');
-const modelFileInput = ref<HTMLInputElement | null>(null);
-const modelUploading = ref(false);
-const modelUploadStatus = ref('');
-const modelUploadFailed = ref(false);
 const baseMapToolsOpen = ref(true);
 const pickMode = ref<PickMode | null>(null);
-const selectedModelIndex = ref<number | null>(null);
-const modelPresets = ['cabinet.glb', 'desk2.glb', 'desk2b.glb', 'desk3.glb', 'desk3b.glb', 'desk4.glb', 'desk5.glb', 'rel.glb', 'boss.glb'];
-const newModel = reactive<ModelConfig>({
-  path: 'cabinet.glb',
-  scale: 1,
-  center: [0, 0, 0],
-  rotation: [0, 0, 0],
-});
 const gltfLoader = new GLTFLoader();
 const modelModules = import.meta.glob('/src/assets/model/**/*.{glb,gltf}', {
   eager: true,
   import: 'default',
   query: '?url',
 }) as Record<string, string>;
-const DEFAULT_MODEL_SCALE_RATIO = 300;
+const DEFAULT_MODEL_SCALE_RATIO = 100;
 let previewRenderer: THREE.WebGLRenderer | null = null;
 let previewScene: THREE.Scene | null = null;
 let previewCamera: THREE.PerspectiveCamera | null = null;
@@ -600,6 +479,7 @@ let previewLayoutSignature = '';
 let previewDragState: PreviewDragState | null = null;
 let previewRestoreView: PreviewViewState | null = null;
 let previewClickBlocked = false;
+let skipNextWatchRebuild = false;
 const previewModelObjects = new Map<string, THREE.Object3D>();
 let previewAuxObjects: THREE.Object3D[] = [];
 const previewView = reactive<PreviewViewState>({
@@ -607,8 +487,8 @@ const previewView = reactive<PreviewViewState>({
   targetY: 0,
   targetZ: 0,
   distance: 900,
-  yaw: 42,
-  pitch: 52,
+  yaw: 0,
+  pitch: 89.5,
 });
 const previewClickedPoint = ref<[number, number, number] | null>(null);
 
@@ -617,27 +497,7 @@ const selectedChannel = computed(() => {
 });
 
 const previewAreas = computed(() => (config: SceneConfig) => config.areas.filter((area) => area.type === 'floor'));
-const pickModeLabel = computed(() => {
-  if (pickMode.value === 'positioning-origin') {
-    return t('config.positioningOrigin');
-  }
-  if (pickMode.value === 'model-position') {
-    return t('config.modelPosition');
-  }
-  return t('config.newModel');
-});
-const modelLibraryPaths = computed(() => {
-  const paths = new Set(modelPresets);
-  if (newModel.path) {
-    paths.add(newModel.path);
-  }
-  draftMap.value?.config.models.filter((model) => model.role !== 'base-map').forEach((model) => {
-    if (model.path) {
-      paths.add(model.path);
-    }
-  });
-  return [...paths];
-});
+const pickModeLabel = computed(() => t('config.positioningOrigin'));
 const currentFloor = computed(() => {
   if (!draftMap.value) {
     return null;
@@ -645,13 +505,7 @@ const currentFloor = computed(() => {
 
   return draftMap.value.metadata.floors.find((floor) => floor.id === draftMap.value?.metadata.activeFloorId) ?? draftMap.value.metadata.floors[0] ?? null;
 });
-const detailModelRows = computed(() =>
-  draftMap.value?.config.models
-    .map((model, index) => ({ model, index }))
-    .filter((row) => row.model.role !== 'base-map') ?? [],
-);
 const baseMapModel = computed(() => draftMap.value?.config.models.find((model) => model.role === 'base-map') ?? null);
-const hasBaseLayer = computed(() => Boolean(baseMapModel.value || draftMap.value?.config.areas.length || draftMap.value?.config.walls.length));
 const transformRange = computed(() => {
   const floor = draftMap.value?.config.floor;
   return Math.max(floor?.width ?? 1000, floor?.height ?? 600, 100);
@@ -663,18 +517,51 @@ const previewCoordinateText = computed(() => {
 
   return `X ${previewClickedPoint.value[0].toFixed(2)} / Z ${previewClickedPoint.value[2].toFixed(2)}`;
 });
-const scaleRatioInput = computed({
-  get: () => (draftMap.value ? getSafeScaleRatio(draftMap.value) : 300),
-  set: (value: number) => {
-    if (!draftMap.value) {
-      return;
-    }
+const scaleRatioDisplay = ref('');
+function updateScaleRatioDisplay() {
+  scaleRatioDisplay.value = String(draftMap.value ? getSafeScaleRatio(draftMap.value) : 100);
+}
+function onScaleRatioInput(event: Event) {
+  scaleRatioDisplay.value = (event.target as HTMLInputElement).value;
+}
+function onScaleRatioBlur() {
+  if (!draftMap.value) return;
+  const raw = scaleRatioDisplay.value.trim();
+  if (raw === '' || raw === '-' || raw === '.') {
+    updateScaleRatioDisplay();
+    return;
+  }
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num <= 0) {
+    updateScaleRatioDisplay();
+    return;
+  }
+  draftMap.value.metadata.scaleRatio = num;
+  syncScaleRatioToConfig(draftMap.value);
+  scaleRatioDisplay.value = String(num);
+}
 
-    const nextScaleRatio = Number(value);
-    draftMap.value.metadata.scaleRatio = Number.isFinite(nextScaleRatio) && nextScaleRatio > 0 ? nextScaleRatio : 300;
-    syncScaleRatioToConfig(draftMap.value);
-  },
-});
+// Per-floor positioningOrigin display
+const positioningOriginDisplay = ref<Point3D>([0, 0, 0]);
+function syncPositioningOriginDisplay() {
+  if (!draftMap.value) return;
+  const floor = currentFloor.value;
+  if (floor?.positioningOrigin) {
+    positioningOriginDisplay.value = [...floor.positioningOrigin] as Point3D;
+  } else {
+    positioningOriginDisplay.value = [...draftMap.value.metadata.positioningOrigin] as Point3D;
+  }
+}
+function commitPositioningOriginDisplay() {
+  if (!draftMap.value) return;
+  const floor = currentFloor.value;
+  if (floor) {
+    floor.positioningOrigin = [...positioningOriginDisplay.value] as Point3D;
+  }
+}
+watch(() => draftMap.value?.metadata.activeFloorId, syncPositioningOriginDisplay);
+watch(() => draftMap.value, syncPositioningOriginDisplay, { immediate: true });
+watch(() => draftMap.value, updateScaleRatioDisplay, { immediate: true });
 function addAudit(content: string) {
   audits.unshift({ time: t('config.justNow'), content });
   if (audits.length > 5) {
@@ -753,17 +640,21 @@ function getPreviewBox(config: SceneConfig) {
 }
 
 function getSafeScaleRatio(map: SavedMap): number {
-  const scaleRatio = Number(map.metadata.scaleRatio);
-  return Number.isFinite(scaleRatio) && scaleRatio > 0 ? scaleRatio : 300;
+  const activeFloor = map.metadata.floors.find((floor) => floor.id === map.metadata.activeFloorId);
+  const scaleRatio = activeFloor?.scaleRatio ?? map.metadata.scaleRatio;
+  return Number.isFinite(scaleRatio) && scaleRatio > 0 ? scaleRatio : 100;
 }
 
 function syncScaleRatioToConfig(map: SavedMap) {
   const scaleRatio = getSafeScaleRatio(map);
   map.metadata.scaleRatio = scaleRatio;
   map.config.floor.scale = scaleRatio;
-  map.metadata.floors.forEach((floor) => {
-    floor.config.floor.scale = scaleRatio;
-  });
+  // Only sync the active floor — do not overwrite other floors
+  const activeFloor = map.metadata.floors.find((floor) => floor.id === map.metadata.activeFloorId);
+  if (activeFloor) {
+    activeFloor.scaleRatio = scaleRatio;
+    activeFloor.config.floor.scale = scaleRatio;
+  }
 }
 
 function normalizeModelConfig(model: ModelConfig): ModelConfig {
@@ -804,10 +695,15 @@ function syncActiveFloorFromConfig(map: SavedMap) {
   syncScaleRatioToConfig(map);
   const activeFloorId = map.metadata.activeFloorId;
   const activeIndex = map.metadata.floors.findIndex((floor) => floor.id === activeFloorId);
+  const oldFloor = activeIndex >= 0 ? map.metadata.floors[activeIndex] : null;
   const floorItem: MapFloorItem = {
     id: map.config.floor.id || activeFloorId || `floor-${Date.now()}`,
     name: map.config.floor.name || map.metadata.floor || t('config.floorLabel'),
     config: normalizeClonedSceneConfig(map.config),
+    scaleRatio: oldFloor?.scaleRatio ?? getSafeScaleRatio(map),
+    positioningOrigin: oldFloor?.positioningOrigin
+      ? ([...oldFloor.positioningOrigin] as Point3D)
+      : ([...map.metadata.positioningOrigin] as Point3D),
   };
 
   if (activeIndex >= 0) {
@@ -834,7 +730,6 @@ function switchFloor(floorId: string) {
   draftMap.value.config = normalizeClonedSceneConfig(targetFloor.config);
   syncScaleRatioToConfig(draftMap.value);
   pickMode.value = null;
-  selectedModelIndex.value = null;
   previewRestoreView = null;
   previewHasFramed = false;
   previewClickedPoint.value = null;
@@ -1046,7 +941,7 @@ function addPreviewAuxObject(object: THREE.Object3D) {
 }
 
 function getPreviewModelKey(modelConfig: ModelConfig, index: number): string {
-  return `${index}:${modelConfig.role ?? 'detail'}:${modelConfig.path}`;
+  return `${index}:base-map:${modelConfig.path}`;
 }
 
 function getPreviewAssetSignature(config: SceneConfig): string {
@@ -1059,6 +954,10 @@ function getPreviewLayoutSignature(config: SceneConfig, origin: [number, number,
 
 function resolveModelUrl(modelPath: string): string | null {
   if (/^(data:|blob:|https?:\/\/)/i.test(modelPath)) {
+    return modelPath;
+  }
+
+  if (modelPath.startsWith('/') && !modelPath.startsWith('/src/assets/model/')) {
     return modelPath;
   }
 
@@ -1133,6 +1032,55 @@ function createPreviewGrid(config: SceneConfig) {
   return grid;
 }
 
+function createTextSprite(text: string, color: string): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.fillStyle = color;
+  ctx.font = 'bold 48px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(255,255,255,0.9)';
+  ctx.shadowBlur = 8;
+  ctx.fillText(text, 32, 32);
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+  return new THREE.Sprite(material);
+}
+
+function createXDirectionIndicator(config: SceneConfig) {
+  const maxDim = Math.max(config.floor.width, config.floor.height, 100);
+  const length = maxDim * 0.12;
+  const headLength = length * 0.2;
+  const headWidth = length * 0.12;
+  const margin = length * 0.3;
+
+  const group = new THREE.Group();
+
+  // X-axis positive direction arrow at the bottom-left corner of the grid,
+  // pointing right (toward positive X)
+  const origin = new THREE.Vector3(
+    -maxDim / 2 + margin,
+    0.15,
+    -maxDim / 2 + margin,
+  );
+  const arrow = new THREE.ArrowHelper(
+    new THREE.Vector3(1, 0, 0), origin, length,
+    0xe74c3c, headLength, headWidth,
+  );
+  group.add(arrow);
+
+  const labelScale = maxDim * 0.028;
+  const label = createTextSprite('X', '#e74c3c');
+  label.position.set(origin.x + length + labelScale * 0.6, origin.y, origin.z);
+  label.scale.set(labelScale, labelScale, 1);
+  group.add(label);
+
+  return group;
+}
+
 async function rebuildPreviewScene() {
   const map = draftMap.value;
   const preview = ensurePreviewRenderer();
@@ -1142,7 +1090,10 @@ async function rebuildPreviewScene() {
 
   const token = ++previewBuildToken;
   const config = normalizeClonedSceneConfig(map.config);
-  const positioningOrigin = [...map.metadata.positioningOrigin] as [number, number, number];
+  const activeFloor = map.metadata.floors.find((f) => f.id === map.metadata.activeFloorId);
+  const positioningOrigin = (activeFloor?.positioningOrigin
+    ? [...activeFloor.positioningOrigin]
+    : [...map.metadata.positioningOrigin]) as [number, number, number];
   const assetSignature = getPreviewAssetSignature(config);
   const layoutSignature = getPreviewLayoutSignature(config, positioningOrigin);
   const needsAssetReload = assetSignature !== previewAssetSignature;
@@ -1154,6 +1105,7 @@ async function rebuildPreviewScene() {
   if (needsLayoutUpdate) {
     clearPreviewAuxObjects();
     addPreviewAuxObject(createPreviewGrid(config));
+    addPreviewAuxObject(createXDirectionIndicator(config));
     addPreviewAuxObject(createPositioningOriginMarker(positioningOrigin));
     previewLayoutSignature = layoutSignature;
   }
@@ -1284,16 +1236,27 @@ function openEditor(map: SavedMap) {
   };
   syncScaleRatioToConfig(draftMap.value);
   viewMode.value = 'edit';
+
+  // Update URL to include map ID so refresh restores the editor
+  const editorUrl = `/config/map-editor/${encodeURIComponent(map.id)}`;
+  if (window.location.pathname !== editorUrl) {
+    window.history.pushState({}, '', editorUrl);
+  }
 }
 
 function closeEditor() {
+  if (baseMapImporting.value) {
+    console.warn('[MapEditor] closeEditor suppressed — base map upload in progress');
+    return;
+  }
+  console.log('[MapEditor] closeEditor called, viewMode → list');
   draftMap.value = null;
   viewMode.value = 'list';
   pickMode.value = null;
-  selectedModelIndex.value = null;
   thumbnailUploadStatus.value = '';
   previewRestoreView = null;
   previewClickedPoint.value = null;
+  navigateToMapList();
 }
 
 function createBlankMap() {
@@ -1323,7 +1286,7 @@ function saveDraft() {
           updatedAt: new Date().toISOString(),
           metadata: {
             ...draftMap.value.metadata,
-            scaleRatio: Number(draftMap.value.metadata.scaleRatio) > 0 ? Number(draftMap.value.metadata.scaleRatio) : 300,
+            scaleRatio: Number(draftMap.value.metadata.scaleRatio) > 0 ? Number(draftMap.value.metadata.scaleRatio) : 100,
             floors: cloneMapFloors(draftMap.value.metadata.floors),
           },
           config: normalizeClonedSceneConfig(draftMap.value.config),
@@ -1354,12 +1317,46 @@ function applyDraft() {
   applyMap(draftMap.value);
 }
 
-function deleteMap(map: SavedMap) {
+async function deleteMap(map: SavedMap) {
   if (map.id === DEFAULT_MAP_ID) {
     return;
   }
 
   const nextMaps = maps.value.filter((item) => item.id !== map.id);
+
+  // Collect uploaded file paths that belong to this map
+  const mapFilePaths: string[] = [];
+  for (const model of map.config.models) {
+    if (model.path && model.path.startsWith('/twintrack/')) {
+      mapFilePaths.push(model.path);
+    }
+  }
+  if (map.metadata.thumbnail && map.metadata.thumbnail.startsWith('/twintrack/')) {
+    mapFilePaths.push(map.metadata.thumbnail);
+  }
+
+  // Only delete files not referenced by other remaining maps
+  const referencedPaths = new Set<string>();
+  for (const m of nextMaps) {
+    for (const model of m.config.models) {
+      if (model.path) referencedPaths.add(model.path);
+    }
+    if (m.metadata.thumbnail) referencedPaths.add(m.metadata.thumbnail);
+  }
+
+  await Promise.all(
+    mapFilePaths
+      .filter((filePath) => !referencedPaths.has(filePath))
+      .map((filePath) =>
+        fetch('/__twintrack/file-delete', {
+          method: 'DELETE',
+          headers: { 'X-File-Path': encodeURIComponent(filePath) },
+        }).catch(() => {
+          // Silently ignore delete errors — map removal is the primary function
+        }),
+      ),
+  );
+
   syncMaps(nextMaps);
   if (sceneStore.activeMapId === map.id) {
     const fallbackMap = nextMaps[0];
@@ -1393,7 +1390,6 @@ async function importMapFile(event: Event) {
       const map = createSavedMap(mapName, t('config.importedFrom', { file: file.name }), config);
       syncMaps([map, ...maps.value]);
       openEditor(map);
-      modelUploadStatus.value = t('config.modelSavedTo', { path: modelPath });
       showMessage(t('config.mapImportedGLB', { scale }));
       return;
     }
@@ -1425,48 +1421,6 @@ async function importMapFile(event: Event) {
     showMessage(errorMessage);
   } finally {
     mapImporting.value = false;
-  }
-}
-
-async function importModelFile(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file || !draftMap.value) {
-    return;
-  }
-
-  if (!/\.(glb|gltf)$/i.test(file.name)) {
-    modelUploadFailed.value = true;
-    modelUploadStatus.value = t('config.modelInvalidFile');
-    showMessage(modelUploadStatus.value);
-    return;
-  }
-
-  modelUploading.value = true;
-  modelUploadFailed.value = false;
-  modelUploadStatus.value = `${t('config.uploading')} ${file.name}...`;
-
-  try {
-    const modelPath = await uploadModelAsset(file, modelUploadDirectory.value || 'uploads');
-    const scale = await calculateModelFitScaleFromFile(file, draftMap.value.config);
-
-    newModel.path = modelPath;
-    newModel.scale = scale;
-    modelUploadStatus.value = t('config.modelReadyToPlace', { path: modelPath, scale });
-    showMessage(modelUploadStatus.value);
-  } catch (error) {
-    modelUploadFailed.value = true;
-    const errorMessage =
-      error instanceof TypeError
-        ? t('config.modelUploadError')
-        : error instanceof Error
-          ? error.message
-          : t('config.modelImportFailed');
-    modelUploadStatus.value = errorMessage;
-    showMessage(errorMessage);
-  } finally {
-    modelUploading.value = false;
   }
 }
 
@@ -1573,27 +1527,6 @@ function calculateModelFitScale(model: THREE.Object3D, config: SceneConfig): num
   return Number(THREE.MathUtils.clamp(fitScale, 0.001, 10_000).toFixed(3));
 }
 
-async function fitModelToMap(modelConfig: ModelConfig) {
-  if (!draftMap.value) {
-    return;
-  }
-
-  modelUploadFailed.value = false;
-  modelUploadStatus.value = t('config.modelFitCalc');
-  try {
-    const modelPath = modelConfig.path.replace(/\\/g, '/').replace(/^\/+/, '');
-    const modelUrl = /^(data:|blob:|https?:\/\/)/i.test(modelPath) ? modelPath : `/src/assets/model/${modelPath}`;
-    const gltf = await gltfLoader.loadAsync(modelUrl);
-    modelConfig.scale = calculateModelFitScale(gltf.scene, draftMap.value.config);
-    modelUploadStatus.value = t('config.modelFitDone', { scale: modelConfig.scale });
-    showMessage(modelUploadStatus.value);
-  } catch {
-    modelUploadFailed.value = true;
-    modelUploadStatus.value = t('config.modelSizeError');
-    showMessage(modelUploadStatus.value);
-  }
-}
-
 function openMapFilePicker() {
   mapFileInput.value?.click();
 }
@@ -1602,8 +1535,14 @@ function openBaseMapFilePicker() {
   baseMapFileInput.value?.click();
 }
 
-function openModelFilePicker() {
-  modelFileInput.value?.click();
+function replaceCurrentFloorBaseMap(baseModel: ModelConfig) {
+  if (!draftMap.value) {
+    return;
+  }
+
+  const nonBaseModels = draftMap.value.config.models.filter((model) => model.role !== 'base-map');
+  draftMap.value.config.models = [baseModel, ...nonBaseModels];
+  syncActiveFloorFromConfig(draftMap.value);
 }
 
 function openThumbnailFilePicker() {
@@ -1688,59 +1627,54 @@ function handlePreviewWheel(event: WheelEvent) {
   updatePreviewCamera();
 }
 
-function startPick(mode: PickMode, modelIndex: number | null = null) {
+function startPick(mode: PickMode) {
   if (!pickMode.value) {
     previewRestoreView = copyPreviewView();
   }
   pickMode.value = mode;
-  selectedModelIndex.value = modelIndex;
   setPreviewTopDownView();
 }
 
 function cancelPick() {
   pickMode.value = null;
-  selectedModelIndex.value = null;
   if (previewRestoreView) {
     applyPreviewViewState(previewRestoreView);
     previewRestoreView = null;
   }
 }
 
-function addModelFromDraft(center = newModel.center) {
-  if (!draftMap.value || !hasBaseLayer.value) {
-    return;
-  }
-
-  draftMap.value.config.models.push({
-    path: newModel.path || 'cabinet.glb',
-    scale: Number(newModel.scale) > 0 ? Number(newModel.scale) : 1,
-    center: [Number(center[0]) || 0, 0, Number(center[2]) || 0],
-    rotation: [0, Number(newModel.rotation[1]) || 0, 0],
-    role: 'detail',
-  });
-}
-
 async function importBaseMapFile(event: Event) {
+  const logPrefix = '[importBaseMapFile]';
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
   if (!file || !draftMap.value) {
+    console.warn(logPrefix, 'aborted: no file or no draftMap');
     return;
   }
+  console.log(logPrefix, 'start file=', file.name, 'size=', file.size);
 
   if (!/\.(glb|gltf)$/i.test(file.name)) {
-    modelUploadFailed.value = true;
-    modelUploadStatus.value = t('config.modelInvalidFile');
-    showMessage(modelUploadStatus.value);
+    console.warn(logPrefix, 'invalid file type:', file.name);
+    showMessage(t('config.modelInvalidFile'));
     return;
   }
 
   baseMapImporting.value = true;
-  modelUploadFailed.value = false;
-  modelUploadStatus.value = `${t('config.uploading')} ${file.name}...`;
+  console.log(logPrefix, 'baseMapImporting=true, viewMode=', viewMode.value);
+
+  // Remember URL before upload to detect unexpected navigation
+  const urlBefore = window.location.pathname;
+
   try {
+    console.log(logPrefix, 'step 1: uploading to server...');
     const modelPath = await uploadModelAsset(file, 'maps');
+    console.log(logPrefix, 'step 1 done: modelPath=', modelPath);
+
+    console.log(logPrefix, 'step 2: calculating fit scale...');
     const scale = await calculateModelFitScaleFromFile(file, draftMap.value.config);
+    console.log(logPrefix, 'step 2 done: scale=', scale);
+
     const baseModel: ModelConfig = {
       path: modelPath,
       scale,
@@ -1748,27 +1682,85 @@ async function importBaseMapFile(event: Event) {
       rotation: [0, 0, 0],
       role: 'base-map',
     };
-    draftMap.value.config.models = [baseModel, ...draftMap.value.config.models.filter((model) => model.role !== 'base-map')];
+
+    // Prevent the deep watcher from rebuilding while we load from local file
+    skipNextWatchRebuild = true;
+    replaceCurrentFloorBaseMap(baseModel);
     previewHasFramed = false;
-    modelUploadStatus.value = t('config.baseMapReady', { path: modelPath, scale });
-    showMessage(modelUploadStatus.value);
+    console.log(logPrefix, 'step 3: config.models set, skipNextWatchRebuild=true');
+
+    // Load directly from the local file buffer into the Three.js scene.
+    // This bypasses Vite's URL resolution for runtime-uploaded assets.
+    console.log(logPrefix, 'step 4: loading model from file buffer into preview...');
+    const preview = ensurePreviewRenderer();
+    if (preview?.scene) {
+      const buffer = await file.arrayBuffer();
+      console.log(logPrefix, '  buffer size:', buffer.byteLength);
+      const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
+        gltfLoader.parse(buffer, '', resolve, reject);
+      });
+      const model = gltf.scene.clone(true);
+      model.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        }
+      });
+      applyPreviewModelConfig(model, baseModel, draftMap.value.config);
+
+      previewBuildToken += 1;
+      clearPreviewScene();
+      clearPreviewAuxObjects();
+      addPreviewAuxObject(createPreviewGrid(draftMap.value.config));
+      addPreviewAuxObject(createXDirectionIndicator(draftMap.value.config));
+      const activeFloor = draftMap.value?.metadata.floors.find((f) => f.id === draftMap.value?.metadata.activeFloorId);
+      const origin = (activeFloor?.positioningOrigin
+        ? [...activeFloor.positioningOrigin]
+        : [...draftMap.value.metadata.positioningOrigin]) as [number, number, number];
+      addPreviewAuxObject(createPositioningOriginMarker(origin));
+      const modelKey = `0:base-map:${modelPath}`;
+      previewModelObjects.set(modelKey, model);
+      preview.scene.add(model);
+      console.log(logPrefix, '  model added to scene, key=', modelKey);
+
+      framePreviewCamera([model], draftMap.value.config);
+      console.log(logPrefix, '  camera framed');
+    } else {
+      console.warn(logPrefix, 'ensurePreviewRenderer returned null — preview not available');
+    }
+
+    // Check for unexpected navigation
+    const urlAfter = window.location.pathname;
+    if (urlAfter !== urlBefore) {
+      console.error(logPrefix, 'URL CHANGED during upload!', urlBefore, '→', urlAfter);
+    }
+
+    console.log(logPrefix, 'step 5: done — showing success message');
+    showMessage(t('config.baseMapReady', { path: modelPath, scale }));
   } catch (error) {
-    modelUploadFailed.value = true;
+    const urlAfter = window.location.pathname;
+    console.error(logPrefix, 'ERROR caught:', error, 'URL:', urlBefore, '→', urlAfter);
+    console.error(logPrefix, 'viewMode at error:', viewMode.value, 'draftMap:', !!draftMap.value);
     const errorMessage =
       error instanceof TypeError
         ? t('config.modelUploadError')
         : error instanceof Error
           ? error.message
           : t('config.modelImportFailed');
-    modelUploadStatus.value = errorMessage;
     showMessage(errorMessage);
   } finally {
     baseMapImporting.value = false;
+    console.log(logPrefix, 'finally: baseMapImporting=false, viewMode=', viewMode.value);
+    if (viewMode.value !== 'edit') {
+      console.error(logPrefix, 'CRITICAL: viewMode changed from "edit" to', viewMode.value,
+        'during upload! Stack:', new Error().stack?.split('\n').slice(2).join('\n'));
+    }
   }
 }
 
 function handlePreviewClick(event: MouseEvent) {
-  if (!draftMap.value || event.button !== 2) {
+  if (!draftMap.value) {
     return;
   }
 
@@ -1792,25 +1784,15 @@ function handlePreviewClick(event: MouseEvent) {
       0,
       mapPoint[2],
     ];
-    showMessage(t('config.positioningOriginUpdated'));
-  } else if (pickMode.value === 'new-model') {
-    newModel.center = [mapPoint[0], 0, mapPoint[2]];
-    addModelFromDraft(newModel.center);
-    showMessage(t('config.modelAdded'));
-  } else if (pickMode.value === 'model-position' && selectedModelIndex.value !== null) {
-    const model = draftMap.value.config.models[selectedModelIndex.value];
-    if (model) {
-      model.center = [
-        mapPoint[0],
-        0,
-        mapPoint[2],
-      ];
-      showMessage(t('config.modelPositionUpdated'));
+    const floor = currentFloor.value;
+    if (floor) {
+      floor.positioningOrigin = [mapPoint[0], 0, mapPoint[2]];
     }
+    syncPositioningOriginDisplay();
+    showMessage(t('config.positioningOriginUpdated'));
   }
 
   pickMode.value = null;
-  selectedModelIndex.value = null;
   if (previewRestoreView) {
     applyPreviewViewState(previewRestoreView);
     previewRestoreView = null;
@@ -1823,13 +1805,42 @@ watch(
     if (viewMode.value !== 'edit') {
       return;
     }
+    // When importBaseMapFile has already loaded the model directly into the
+    // preview scene, skip the watcher to avoid clearing what was just added.
+    if (skipNextWatchRebuild) {
+      console.log('[Watcher] skipNextWatchRebuild=true → skipping rebuild');
+      skipNextWatchRebuild = false;
+      return;
+    }
 
+    console.log('[Watcher] deep change detected → scheduling rebuildPreviewScene');
     void nextTick(() => {
       void rebuildPreviewScene();
     });
   },
   { deep: true, flush: 'post' },
 );
+
+// Auto-open editor when navigating directly to a map-editor/:mapId route
+watch(
+  () => props.editMapId,
+  (mapId) => {
+    if (!mapId || viewMode.value === 'edit') return;
+    const target = maps.value.find((m) => m.id === mapId);
+    if (target) {
+      openEditor(target);
+    }
+  },
+  { immediate: true },
+);
+
+// When the user clicks "back" from the editor, navigate to the map-list route
+function navigateToMapList() {
+  const baseUrl = '/config/map-editor';
+  if (window.location.pathname !== baseUrl) {
+    window.history.pushState({}, '', baseUrl);
+  }
+}
 
 onBeforeUnmount(() => {
   previewBuildToken += 1;
@@ -1846,17 +1857,7 @@ onBeforeUnmount(() => {
   previewCamera = null;
 });
 
-async function fitNewModel() {
-  if (!draftMap.value || !newModel.path) {
-    return;
-  }
 
-  await fitModelToMap(newModel);
-}
-
-function removeModel(index: number) {
-  draftMap.value?.config.models.splice(index, 1);
-}
 </script>
 
 <style scoped>
@@ -1904,7 +1905,6 @@ function removeModel(index: number) {
 
 .toolbar-actions,
 .map-row__actions,
-.model-tools,
 .pick-actions {
   display: flex;
   align-items: center;
@@ -2316,11 +2316,6 @@ function removeModel(index: number) {
   padding: 9px 10px;
 }
 
-.model-tools {
-  align-items: end;
-  margin: 16px 0 10px;
-}
-
 .editor-span {
   grid-column: 1 / -1;
 }
@@ -2368,74 +2363,9 @@ function removeModel(index: number) {
   font-weight: 700;
 }
 
-.thumbnail-uploader__actions small,
-.model-tools small {
+.thumbnail-uploader__actions small {
   color: rgba(40, 59, 91, 0.58);
   line-height: 1.5;
-}
-
-.model-add-panel {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) repeat(5, minmax(88px, 0.7fr)) auto auto auto;
-  align-items: end;
-  gap: 10px;
-}
-
-.model-add-panel small {
-  align-self: center;
-  color: #9a4d12;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.map-editor-page .model-directory-field {
-  width: min(280px, 100%);
-}
-
-.map-editor-page .model-tools .upload-button {
-  display: inline-flex;
-  align-self: end;
-}
-
-.model-upload-status {
-  margin: 0 0 10px;
-  color: #2563a8;
-  font-size: 13px;
-}
-
-.model-upload-status.error {
-  color: #c2413a;
-}
-
-.model-list {
-  display: grid;
-  gap: 8px;
-}
-
-.model-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) repeat(7, minmax(120px, 1fr)) auto;
-  align-items: end;
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid rgba(83, 112, 164, 0.14);
-  border-radius: 8px;
-  background: rgba(246, 249, 255, 0.76);
-}
-
-.model-row__path {
-  align-self: end;
-}
-
-.model-row__actions {
-  display: flex;
-  align-items: end;
-  gap: 8px;
-}
-
-.map-editor-page .model-row button {
-  width: 36px;
-  padding: 0;
 }
 
 .toast-message {
@@ -2707,9 +2637,7 @@ function removeModel(index: number) {
 
   .form-grid,
   .coordinate-grid,
-  .model-add-panel,
   .thumbnail-uploader,
-  .model-row,
   .config-grid,
   .config-layout,
   .rule-list div {

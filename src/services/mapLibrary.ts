@@ -1,13 +1,13 @@
 import floorConfig from '@/assets/config/config.json';
-import type { SceneConfig } from '@/types/scene';
+import type { Point3D, SceneConfig } from '@/types/scene';
 import { toRaw } from 'vue';
-
-export type Point3D = [number, number, number];
 
 export interface MapFloorItem {
   id: string;
   name: string;
   config: SceneConfig;
+  scaleRatio?: number;
+  positioningOrigin?: Point3D;
 }
 
 export interface MapMetadata {
@@ -60,11 +60,13 @@ function createDefaultMetadata(config: SceneConfig, metadata?: Partial<MapMetada
       ? metadataScaleRatio
       : Number.isFinite(configScaleRatio) && configScaleRatio > 1
         ? configScaleRatio
-        : 300;
+        : 100;
   const fallbackFloor: MapFloorItem = {
     id: config.floor.id || `floor-${Date.now()}`,
     name: config.floor.name || '1F',
     config: cloneSceneConfig(config),
+    scaleRatio,
+    positioningOrigin: [...positioningOrigin] as Point3D,
   };
   const floors = Array.isArray(metadata?.floors)
     ? metadata.floors
@@ -73,11 +75,19 @@ function createDefaultMetadata(config: SceneConfig, metadata?: Partial<MapMetada
           id: floor.id,
           name: floor.name || floor.config.floor.name || floor.id,
           config: cloneSceneConfig(floor.config),
+          scaleRatio: floor.scaleRatio,
+          positioningOrigin: floor.positioningOrigin ? ([...floor.positioningOrigin] as Point3D) : undefined,
         }))
     : [];
   const normalizedFloors = floors.length > 0 ? floors : [fallbackFloor];
   normalizedFloors.forEach((floor) => {
-    floor.config.floor.scale = scaleRatio;
+    if (floor.scaleRatio === undefined) {
+      floor.scaleRatio = scaleRatio;
+    }
+    if (floor.positioningOrigin === undefined) {
+      floor.positioningOrigin = [...positioningOrigin] as Point3D;
+    }
+    floor.config.floor.scale = floor.scaleRatio;
   });
   const activeFloorId =
     typeof metadata?.activeFloorId === 'string' && normalizedFloors.some((floor) => floor.id === metadata.activeFloorId)
@@ -115,13 +125,15 @@ function normalizeSavedMap(map: SavedMap): SavedMap {
 
 export function getDefaultMap(): SavedMap {
   const config = cloneSceneConfig(floorConfig as unknown as SceneConfig);
+  const metadata = createDefaultMetadata(config);
+  config.floor.scale = metadata.scaleRatio;
   return {
     id: DEFAULT_MAP_ID,
     name: config.floor.name || '默认办公地图',
     description: '系统内置地图配置',
     updatedAt: new Date().toISOString(),
     config,
-    metadata: createDefaultMetadata(config),
+    metadata,
   };
 }
 

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:zh": "vue-tsc --noEmit && vite build --mode production",
+    "build:en": "vue-tsc --noEmit && vite build --mode production.en",
     "preview": "vite preview"
   },
   "dependencies": {

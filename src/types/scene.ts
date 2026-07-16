@@ -58,7 +58,7 @@ export interface ModelConfig {
   scale: number;
   center: Point3D;
   rotation: [number, number, number];
-  role?: 'base-map' | 'detail';
+  role?: 'base-map';
 }
 
 export interface OverlayConfig {

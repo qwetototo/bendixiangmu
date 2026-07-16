@@ -5,7 +5,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import type { ModelConfig, OverlayConfig, SceneConfig } from '@/types/scene';
 import { SceneBuilder } from '@/three/builders/SceneBuilder';
 
-const modelModules = import.meta.glob('/src/assets/model/**/*.glb', {
+const modelModules = import.meta.glob('/src/assets/model/**/*.{glb,gltf}', {
   eager: true,
   import: 'default',
 }) as Record<string, string>;
@@ -20,7 +20,7 @@ const overlayModules = import.meta.glob('/src/assets/image/**/*.{png,jpg,jpeg,we
 THREE.Cache.enabled = true;
 const sharedGltfLoader = new GLTFLoader();
 const sharedModelTemplateCache = new Map<string, Promise<THREE.Object3D | null>>();
-const DEFAULT_MODEL_SCALE_RATIO = 300;
+const DEFAULT_MODEL_SCALE_RATIO = 100;
 
 export interface PickPointResult {
   scene: {
@@ -770,34 +770,6 @@ export class TwinScene {
     this.scene.add(plane);
   }
 
-  updateOverlayConfig(overlayConfig: OverlayConfig): void {
-    this.applyOverlayConfig(overlayConfig);
-  }
-
-  toggleGround(visible: boolean): void {
-    if (!this.floorGroup) {
-      return;
-    }
-
-    this.floorGroup.traverse((object) => {
-      if (object.name.startsWith('area:')) {
-        object.visible = visible;
-      }
-    });
-  }
-
-  toggleWallTags(visible: boolean): void {
-    if (!this.floorGroup) {
-      return;
-    }
-
-    this.floorGroup.traverse((object) => {
-      if (object.name.startsWith('wall-tag:')) {
-        object.visible = visible;
-      }
-    });
-  }
-
   toggleFences(visible: boolean): void {
     if (!this.floorGroup) {
       return;
@@ -839,10 +811,6 @@ export class TwinScene {
       trail.geometry = new THREE.BufferGeometry();
       trail.visible = false;
     });
-  }
-
-  resetView(): void {
-    this.setCameraView('overview');
   }
 
   setCameraView(view: 'overview' | 'top' | 'side'): void {
@@ -918,12 +886,27 @@ export class TwinScene {
     if (deviceId === this.trackedLivePoseId) {
       this.focusTrackedLivePose(marker);
     }
+
+    // 同步显示该设备的轨迹，确保定位点和轨迹总是一致
+    const trailId = deviceId || 'unknown';
+    const trail = this.livePoseTrails.get(trailId);
+    if (trail) {
+      const position = trail.geometry.getAttribute('position');
+      trail.visible = this.trailsVisible && this.isLivePoseVisible(trailId) && Boolean(position && position.count > 1);
+    }
   }
 
   hideReplayPose(deviceId: string): void {
-    const marker = this.livePoseMarkers.get(deviceId || 'unknown');
+    const markerId = deviceId || 'unknown';
+    const marker = this.livePoseMarkers.get(markerId);
     if (marker) {
       marker.visible = false;
+    }
+
+    // 同步隐藏轨迹，避免出现"有轨迹无定位点"的割裂问题
+    const trail = this.livePoseTrails.get(markerId);
+    if (trail) {
+      trail.visible = false;
     }
   }
 
@@ -1070,6 +1053,10 @@ export class TwinScene {
 
   private resolveModelUrl(modelPath: string): string | null {
     if (/^(data:|blob:|https?:\/\/)/i.test(modelPath)) {
+      return modelPath;
+    }
+
+    if (modelPath.startsWith('/') && !modelPath.startsWith('/src/assets/model/')) {
       return modelPath;
     }
 

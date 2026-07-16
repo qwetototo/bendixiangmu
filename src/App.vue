@@ -67,7 +67,7 @@
         <EventCenterView v-else-if="activePageKey === 'track.events'" :theme-mode="themeMode" />
         <IdentityView v-else-if="activePageKey === 'identity.people-devices'" :theme-mode="themeMode" />
         <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :theme-mode="themeMode" />
-        <ConfigView v-else :page-key="activeSubmenu" />
+        <ConfigView v-else :page-key="activeSubmenu" :edit-map-id="editingMapId" />
       </section>
     </section>
   </main>
@@ -135,7 +135,18 @@ function isValidNavState(state: StoredNavState): state is Required<StoredNavStat
 function getRouteNavState(): StoredNavState {
   const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
   const routeState = routeAliases.get(normalizedPath);
-  return routeState && isValidNavState(routeState) ? routeState : {};
+  if (routeState && isValidNavState(routeState)) {
+    return routeState;
+  }
+  // Parameterized route: /config/map-editor/:mapId
+  const mapEditorMatch = normalizedPath.match(/^\/config\/map-editor\/(.+)$/);
+  if (mapEditorMatch) {
+    const state: StoredNavState = { section: 'config', submenu: 'map-editor' };
+    if (isValidNavState(state)) {
+      return state;
+    }
+  }
+  return {};
 }
 
 function getStoredNavState(): StoredNavState {
@@ -173,6 +184,12 @@ const currentSectionLabel = computed(() => {
 const currentPageTitle = computed(() => {
   const section = findNavSection(activeSection.value);
   return section?.items.find((item) => item.key === activeSubmenu.value)?.label ?? section?.label ?? '';
+});
+
+const editingMapId = computed(() => {
+  if (activeSubmenu.value !== 'map-editor') return '';
+  const match = window.location.pathname.match(/^\/config\/map-editor\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : '';
 });
 
 const activePageKey = computed(() => `${activeSection.value}.${activeSubmenu.value}`);
