@@ -249,11 +249,16 @@
                   <input v-model.number="baseMapModel.rotation[1]" type="range" min="-180" max="180" step="1" @change="sanitizeModelNumberField(baseMapModel!.rotation, 1)" />
                   <input v-model.number="baseMapModel.rotation[1]" type="number" step="1" @change="sanitizeModelNumberField(baseMapModel!.rotation, 1)" />
                 </label>
+                <label class="slider-field map-preview__scale-field">
+                  <span>{{ t('config.modelScale') }}</span>
+                  <input v-model.number="baseMapModel.scale" type="range" min="0.01" max="10" step="0.01" />
+                  <input v-model.number="baseMapModel.scale" type="number" step="0.1" />
+                </label>
               </template>
               <input ref="baseMapFileInput" class="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" @change="importBaseMapFile" />
               <button type="button" class="upload-button" :disabled="baseMapImporting" @click.stop="openBaseMapFilePicker">
                 <UploadOutlined />
-                <span>{{ baseMapImporting ? t('config.uploading') : t('config.uploadBaseMap') }}</span>
+                <span>{{ baseMapImporting ? t('config.uploading') : baseMapModel ? t('config.replaceBaseMap') : t('config.uploadBaseMap') }}</span>
               </button>
             </div>
             <span v-if="!baseMapModel" class="map-preview__empty">
@@ -262,7 +267,7 @@
           </div>
           <div class="preview-stats">
             <span>{{ t('config.floorName', { name: draftMap.config.floor.name }) }}</span>
-            <span>{{ t('config.scaleLabel', { scale: `1:${draftMap.metadata.scaleRatio}` }) }}</span>
+            <span>{{ t('config.scaleLabel', { scale: `1:${getSafeScaleRatio(draftMap)}` }) }}</span>
           </div>
           <div class="pick-actions">
             <button type="button" :class="{ active: pickMode === 'positioning-origin' }" @click="startPick('positioning-origin')">
@@ -355,6 +360,15 @@ import {
   SaveOutlined,
   UploadOutlined,
 } from '@ant-design/icons-vue';
+import {
+  uploadModel as apiUploadModel,
+  fetchModelList as apiFetchModelList,
+  fetchModelDetail as apiFetchModelDetail,
+  saveModelConfig as apiSaveModelConfig,
+  deleteModel as apiDeleteModel,
+  uploadThumbnail as apiUploadThumbnail,
+  type MapModelDetail,
+} from '@/services/mapApi';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { useSceneStore } from '@/stores/scene';
@@ -363,6 +377,7 @@ import {
   DEFAULT_MAP_ID,
   cloneSceneConfig,
   createBlankSceneConfig,
+  createDefaultMetadata,
   createSavedMap,
   getMapLibrary,
   isSceneConfig,
@@ -466,7 +481,7 @@ const modelModules = import.meta.glob('/src/assets/model/**/*.{glb,gltf}', {
   import: 'default',
   query: '?url',
 }) as Record<string, string>;
-const DEFAULT_MODEL_SCALE_RATIO = 100;
+const DEFAULT_MODEL_SCALE_RATIO = 1;
 let previewRenderer: THREE.WebGLRenderer | null = null;
 let previewScene: THREE.Scene | null = null;
 let previewCamera: THREE.PerspectiveCamera | null = null;
@@ -476,6 +491,7 @@ let previewBuildToken = 0;
 let previewHasFramed = false;
 let previewAssetSignature = '';
 let previewLayoutSignature = '';
+let previewScaleSignature = '';
 let previewDragState: PreviewDragState | null = null;
 let previewRestoreView: PreviewViewState | null = null;
 let previewClickBlocked = false;
@@ -536,8 +552,12 @@ function onScaleRatioBlur() {
     updateScaleRatioDisplay();
     return;
   }
-  draftMap.value.metadata.scaleRatio = num;
-  syncScaleRatioToConfig(draftMap.value);
+  const activeFloor = draftMap.value.metadata.floors.find((floor) => floor.id === draftMap.value!.metadata.activeFloorId);
+  if (activeFloor) {
+    activeFloor.scaleRatio = num;
+    activeFloor.config.floor.scale = num;
+    draftMap.value.config.floor.scale = num;
+  }
   scaleRatioDisplay.value = String(num);
 }
 
@@ -561,6 +581,7 @@ function commitPositioningOriginDisplay() {
 }
 watch(() => draftMap.value?.metadata.activeFloorId, syncPositioningOriginDisplay);
 watch(() => draftMap.value, syncPositioningOriginDisplay, { immediate: true });
+watch(() => draftMap.value?.metadata.activeFloorId, updateScaleRatioDisplay);
 watch(() => draftMap.value, updateScaleRatioDisplay, { immediate: true });
 function addAudit(content: string) {
   audits.unshift({ time: t('config.justNow'), content });
@@ -616,13 +637,13 @@ function sanitizeModelNumberField(arr: number[], index: number, fallback = 0) {
 function getPreviewBox(config: SceneConfig) {
   const xs: number[] = [];
   const ys: number[] = [];
-  config.areas.forEach((area) => {
-    area.points.forEach(([x, y]) => {
+  (config.areas ?? []).forEach((area) => {
+    area.points?.forEach(([x, y]) => {
       xs.push(x);
       ys.push(y);
     });
   });
-  config.walls.forEach((wall) => {
+  (config.walls ?? []).forEach((wall) => {
     xs.push(wall.start[0], wall.end[0]);
     ys.push(wall.start[1], wall.end[1]);
   });
@@ -647,7 +668,6 @@ function getSafeScaleRatio(map: SavedMap): number {
 
 function syncScaleRatioToConfig(map: SavedMap) {
   const scaleRatio = getSafeScaleRatio(map);
-  map.metadata.scaleRatio = scaleRatio;
   map.config.floor.scale = scaleRatio;
   // Only sync the active floor — do not overwrite other floors
   const activeFloor = map.metadata.floors.find((floor) => floor.id === map.metadata.activeFloorId);
@@ -949,10 +969,14 @@ function getPreviewAssetSignature(config: SceneConfig): string {
 }
 
 function getPreviewLayoutSignature(config: SceneConfig, origin: [number, number, number]): string {
-  return `${config.floor.width}|${config.floor.height}|${origin[0]}|${origin[1]}|${origin[2]}`;
+  return `${config.floor.width}|${config.floor.height}|${origin[0]}|${origin[1]}|${origin[2]}|${config.floor.scale}`;
 }
 
-function resolveModelUrl(modelPath: string): string | null {
+function resolveModelUrl(modelPath: string | undefined | null): string | null {
+  if (!modelPath) {
+    return null;
+  }
+
   if (/^(data:|blob:|https?:\/\/)/i.test(modelPath)) {
     return modelPath;
   }
@@ -984,10 +1008,12 @@ function applyPreviewModelConfig(model: THREE.Object3D, modelConfig: ModelConfig
   const scaleRatioFactor =
     modelConfig.role !== 'base-map' || !Number.isFinite(floorScaleRatio) || floorScaleRatio <= 0
       ? 1
-      : DEFAULT_MODEL_SCALE_RATIO / floorScaleRatio;
+      : floorScaleRatio / DEFAULT_MODEL_SCALE_RATIO;
 
   const modelScale = Number(scale);
-  model.scale.setScalar((Number.isFinite(modelScale) && modelScale > 0 ? modelScale : 1) * scaleRatioFactor);
+  const finalScale = (Number.isFinite(modelScale) && modelScale > 0 ? modelScale : 1) * scaleRatioFactor;
+  console.log(`[Preview] apply config: modelScale=${modelScale}, floorScaleRatio=${floorScaleRatio}, scaleRatioFactor=${scaleRatioFactor}, finalScale=${finalScale}`);
+  model.scale.setScalar(finalScale);
   model.rotation.set(
     THREE.MathUtils.degToRad(Number.isFinite(Number(rotation[0])) ? Number(rotation[0]) : 0),
     THREE.MathUtils.degToRad(Number.isFinite(Number(rotation[1])) ? Number(rotation[1]) : 0),
@@ -1082,9 +1108,11 @@ function createXDirectionIndicator(config: SceneConfig) {
 }
 
 async function rebuildPreviewScene() {
+  console.log('[Preview] rebuildPreviewScene called, draftMap=', !!draftMap.value, 'previewRenderer=', !!previewRenderer);
   const map = draftMap.value;
   const preview = ensurePreviewRenderer();
   if (!map || !preview?.scene || !preview.camera) {
+    console.warn('[Preview] abort rebuild — missing:', { map: !!map, scene: !!preview?.scene, camera: !!preview?.camera, preview3dRef: !!preview3dRef.value });
     return;
   }
 
@@ -1098,6 +1126,15 @@ async function rebuildPreviewScene() {
   const layoutSignature = getPreviewLayoutSignature(config, positioningOrigin);
   const needsAssetReload = assetSignature !== previewAssetSignature;
   const needsLayoutUpdate = layoutSignature !== previewLayoutSignature || needsAssetReload;
+  // Track model config changes (scale, center, rotation) that affect visual size/position
+  const scaleSignature = config.models.map((m, i) => `${i}:${m.scale}:${m.center?.join(',')}:${m.role}:${config.floor.scale}`).join('|');
+  const needsCameraReframe = scaleSignature !== previewScaleSignature;
+  if (needsCameraReframe) {
+    previewScaleSignature = scaleSignature;
+    previewHasFramed = false;
+  }
+  console.log('[Preview] signatures:', { assetSignature, prevAsset: previewAssetSignature, needsAssetReload, layoutSignature, prevLayout: previewLayoutSignature, needsLayoutUpdate, needsCameraReframe });
+  console.log('[Preview] models:', config.models.map(m => ({ path: m.path, role: m.role })));
   if (needsAssetReload) {
     clearPreviewScene();
     previewAssetSignature = assetSignature;
@@ -1115,18 +1152,23 @@ async function rebuildPreviewScene() {
     const modelKey = getPreviewModelKey(modelConfig, index);
     const cachedModel = previewModelObjects.get(modelKey);
     if (cachedModel) {
+      console.log('[Preview] using cached model', modelKey);
       applyPreviewModelConfig(cachedModel, modelConfig, config);
       loadedModels.push(cachedModel);
       continue;
     }
 
     const modelUrl = resolveModelUrl(modelConfig.path);
+    console.log('[Preview] resolveModelUrl:', { path: modelConfig.path, resolved: modelUrl });
     if (!modelUrl) {
+      console.warn('[Preview] no URL for model:', modelConfig.path);
       continue;
     }
 
     try {
+      console.log('[Preview] loading model from:', modelUrl);
       const gltf = await gltfLoader.loadAsync(modelUrl);
+      console.log('[Preview] load success, scene children:', gltf.scene.children.length);
       if (token !== previewBuildToken) {
         disposePreviewObject(gltf.scene);
         return;
@@ -1140,20 +1182,30 @@ async function rebuildPreviewScene() {
         }
       });
       applyPreviewModelConfig(model, modelConfig, config);
+      const bbox = new THREE.Box3().setFromObject(model);
+      console.log('[Preview] model bbox:', JSON.stringify({
+        min: bbox.min.toArray(), max: bbox.max.toArray(),
+        size: bbox.getSize(new THREE.Vector3()).toArray(),
+        center: bbox.getCenter(new THREE.Vector3()).toArray(),
+        position: model.position.toArray(),
+      }));
       preview.scene.add(model);
       previewModelObjects.set(modelKey, model);
       loadedModels.push(model);
+      console.log('[Preview] model added to scene:', modelKey);
     } catch (error) {
       console.warn(`Failed to load preview model ${modelConfig.path}`, error);
     }
   }
 
   if (!previewHasFramed || pickMode.value) {
+    console.log('[Preview] framing camera, loadedModels:', loadedModels.length);
     framePreviewCamera(loadedModels, config);
     previewHasFramed = true;
   } else {
     updatePreviewCamera();
   }
+  console.log('[Preview] rebuild done, scene children:', preview.scene.children.length);
 }
 
 function framePreviewCamera(models: THREE.Object3D[], config: SceneConfig) {
@@ -1220,7 +1272,65 @@ function syncMaps(nextMaps: SavedMap[]) {
   }
 }
 
+/** Convert a backend MapModelDetail to the local SavedMap format. */
+function modelDetailToSavedMap(detail: MapModelDetail): SavedMap | null {
+  // Backend may return models whose detail doesn't include full config/metadata yet.
+  // Validate required fields and fill defaults before converting.
+  if (!detail.config || !isSceneConfig(detail.config)) {
+    console.warn('[loadMapsFromApi] skipping map with incomplete config:', detail.id, detail.name);
+    return null;
+  }
+  const saved: SavedMap = {
+    id: detail.id,
+    name: detail.name,
+    description: detail.description || '',
+    updatedAt: detail.updatedAt || new Date().toISOString(),
+    config: cloneSceneConfig(detail.config),
+    metadata: createDefaultMetadata(detail.config, detail.metadata),
+  };
+  return saved;
+}
+
+/** Try to load custom maps from the backend API and merge into the local list. */
+async function loadMapsFromApi() {
+  try {
+    const models = await apiFetchModelList();
+    if (!models.length) return;
+
+    // Load full detail for each model (parallel)
+    const details = await Promise.all(
+      models.map((m) => apiFetchModelDetail(m.id).catch(() => null)),
+    );
+
+    const apiMaps: SavedMap[] = details
+      .filter((d): d is MapModelDetail => d !== null)
+      .map(modelDetailToSavedMap)
+      .filter((m): m is SavedMap => m !== null);
+
+    // Merge: replace any existing map with same id, keep the rest
+    const merged = [...maps.value];
+    for (const apiMap of apiMaps) {
+      const idx = merged.findIndex((m) => m.id === apiMap.id);
+      if (idx >= 0) {
+        merged[idx] = apiMap;
+      } else {
+        merged.push(apiMap);
+      }
+    }
+
+    maps.value = merged;
+    saveMapLibrary(merged);
+  } catch {
+    // API not available — keep localStorage data as-is
+  }
+}
+
+// Kick off the API load once the component mounts. The ref is already
+// populated from localStorage so the UI is immediately usable.
+void loadMapsFromApi();
+
 function openEditor(map: SavedMap) {
+  console.log('[openEditor] opening map:', map.id, map.name, 'models:', map.config.models.map(m => ({ path: m.path, role: m.role })));
   previewHasFramed = false;
   previewRestoreView = null;
   previewClickedPoint.value = null;
@@ -1249,7 +1359,6 @@ function closeEditor() {
     console.warn('[MapEditor] closeEditor suppressed — base map upload in progress');
     return;
   }
-  console.log('[MapEditor] closeEditor called, viewMode → list');
   draftMap.value = null;
   viewMode.value = 'list';
   pickMode.value = null;
@@ -1300,6 +1409,20 @@ function saveDraft() {
   if (sceneStore.activeMapId === nextMap.id) {
     sceneStore.setActiveMap(nextMap.id, normalizeClonedSceneConfig(nextMap.config));
   }
+
+  // Persist to backend API (best-effort)
+  if (nextMap.id !== DEFAULT_MAP_ID) {
+    apiSaveModelConfig(nextMap.id, {
+      name: nextMap.name,
+      description: nextMap.description,
+      config: nextMap.config,
+      metadata: nextMap.metadata,
+      thumbnail: nextMap.metadata.thumbnail || undefined,
+    }).catch(() => {
+      // API not available — localStorage fallback is sufficient
+    });
+  }
+
   showMessage(t('config.mapSaved'));
 }
 
@@ -1324,38 +1447,10 @@ async function deleteMap(map: SavedMap) {
 
   const nextMaps = maps.value.filter((item) => item.id !== map.id);
 
-  // Collect uploaded file paths that belong to this map
-  const mapFilePaths: string[] = [];
-  for (const model of map.config.models) {
-    if (model.path && model.path.startsWith('/twintrack/')) {
-      mapFilePaths.push(model.path);
-    }
-  }
-  if (map.metadata.thumbnail && map.metadata.thumbnail.startsWith('/twintrack/')) {
-    mapFilePaths.push(map.metadata.thumbnail);
-  }
-
-  // Only delete files not referenced by other remaining maps
-  const referencedPaths = new Set<string>();
-  for (const m of nextMaps) {
-    for (const model of m.config.models) {
-      if (model.path) referencedPaths.add(model.path);
-    }
-    if (m.metadata.thumbnail) referencedPaths.add(m.metadata.thumbnail);
-  }
-
-  await Promise.all(
-    mapFilePaths
-      .filter((filePath) => !referencedPaths.has(filePath))
-      .map((filePath) =>
-        fetch('/__twintrack/file-delete', {
-          method: 'DELETE',
-          headers: { 'X-File-Path': encodeURIComponent(filePath) },
-        }).catch(() => {
-          // Silently ignore delete errors — map removal is the primary function
-        }),
-      ),
-  );
+  // Delete via backend API (removes model file + config JSON + thumbnail)
+  apiDeleteModel(map.id).catch(() => {
+    // Backend not available — silently ignore; localStorage will be cleaned up.
+  });
 
   syncMaps(nextMaps);
   if (sceneStore.activeMapId === map.id) {
@@ -1376,21 +1471,35 @@ async function importMapFile(event: Event) {
   mapImporting.value = true;
   try {
     if (/\.(glb|gltf)$/i.test(file.name)) {
-      const modelPath = await uploadModelAsset(file, 'maps');
       const mapName = file.name.replace(/\.(glb|gltf)$/i, '');
       const config = createBlankSceneConfig(mapName);
-      const scale = await calculateModelFitScaleFromFile(file, config);
       config.models.push({
-        path: modelPath,
-        scale,
+        path: '', // will be filled from API response
+        scale: 1, // native scale; use 比例尺 to adjust
         center: [0, 0, 0],
         rotation: [0, 0, 0],
         role: 'base-map',
       });
-      const map = createSavedMap(mapName, t('config.importedFrom', { file: file.name }), config);
+
+      // Upload via backend API
+      const detail = await apiUploadModel(file, mapName, t('config.importedFrom', { file: file.name }));
+      console.log('[ImportMap] upload response:', JSON.stringify(detail));
+      // Update model path from the API response
+      config.models[0].path = detail.modelPath;
+
+      // Use the backend-generated ID so the map ID matches the server's
+      // config file name (uploads/configs/{id}.json), enabling future
+      // re-uploads to overwrite the same model file.
+      const map = {
+        ...createSavedMap(mapName, t('config.importedFrom', { file: file.name }), config, detail.metadata),
+        id: detail.id,
+      };
       syncMaps([map, ...maps.value]);
+
+      // Open editor — the deep watcher will trigger rebuildPreviewScene,
+      // which loads the model via URL through the /uploads proxy.
       openEditor(map);
-      showMessage(t('config.mapImportedGLB', { scale }));
+      showMessage(t('config.mapImportedGLB', { scale: 1 }));
       return;
     }
 
@@ -1412,6 +1521,7 @@ async function importMapFile(event: Event) {
     openEditor(map);
     showMessage(t('config.mapSaved'));
   } catch (error) {
+    console.error('[ImportMap] ERROR:', error);
     const errorMessage =
       error instanceof TypeError
         ? t('config.uploadServiceError')
@@ -1441,7 +1551,7 @@ async function importThumbnailFile(event: Event) {
   thumbnailUploading.value = true;
   thumbnailUploadStatus.value = `${t('config.uploading')} ${file.name}...`;
   try {
-    const thumbnailPath = await uploadThumbnailAsset(file);
+    const thumbnailPath = await apiUploadThumbnail(file);
     draftMap.value.metadata.thumbnail = thumbnailPath;
     thumbnailUploadStatus.value = t('config.thumbnailSaved');
     showMessage(thumbnailUploadStatus.value);
@@ -1457,74 +1567,6 @@ async function importThumbnailFile(event: Event) {
   } finally {
     thumbnailUploading.value = false;
   }
-}
-
-async function uploadModelAsset(file: File, directory: string): Promise<string> {
-  const response = await fetch('/__twintrack/model-upload', {
-    method: 'POST',
-    headers: {
-      'X-File-Name': encodeURIComponent(file.name),
-      'X-Model-Directory': encodeURIComponent(directory),
-      'Content-Type': file.type || 'application/octet-stream',
-    },
-    body: file,
-  });
-  const responseText = await response.text();
-  let result: { path?: string; message?: string } = {};
-  try {
-    result = JSON.parse(responseText) as { path?: string; message?: string };
-  } catch {
-    throw new Error(t('config.uploadServiceError'));
-  }
-
-  if (!response.ok || !result.path) {
-    throw new Error(result.message || t('config.modelImportFailed'));
-  }
-
-  return result.path;
-}
-
-async function uploadThumbnailAsset(file: File): Promise<string> {
-  const response = await fetch('/__twintrack/thumbnail-upload', {
-    method: 'POST',
-    headers: {
-      'X-File-Name': encodeURIComponent(file.name),
-      'Content-Type': file.type || 'application/octet-stream',
-    },
-    body: file,
-  });
-  const responseText = await response.text();
-  let result: { path?: string; message?: string } = {};
-  try {
-    result = JSON.parse(responseText) as { path?: string; message?: string };
-  } catch {
-    throw new Error(t('config.thumbnailUploadError'));
-  }
-
-  if (!response.ok || !result.path) {
-    throw new Error(result.message || t('config.thumbnailUploadFailed'));
-  }
-
-  return result.path;
-}
-
-async function calculateModelFitScaleFromFile(file: File, config: SceneConfig): Promise<number> {
-  const buffer = await file.arrayBuffer();
-  const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
-    gltfLoader.parse(buffer, '', resolve, reject);
-  });
-  return calculateModelFitScale(gltf.scene, config);
-}
-
-function calculateModelFitScale(model: THREE.Object3D, config: SceneConfig): number {
-  model.updateMatrixWorld(true);
-  const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
-  const width = Math.max(size.x, 0.0001);
-  const depth = Math.max(size.z, 0.0001);
-  const widthScale = config.floor.width / width;
-  const depthScale = config.floor.height / depth;
-  const fitScale = Math.min(widthScale, depthScale) * 0.8;
-  return Number(THREE.MathUtils.clamp(fitScale, 0.001, 10_000).toFixed(3));
 }
 
 function openMapFilePicker() {
@@ -1644,104 +1686,47 @@ function cancelPick() {
 }
 
 async function importBaseMapFile(event: Event) {
-  const logPrefix = '[importBaseMapFile]';
+  console.log('[BaseMap] upload button clicked');
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
   if (!file || !draftMap.value) {
-    console.warn(logPrefix, 'aborted: no file or no draftMap');
     return;
   }
-  console.log(logPrefix, 'start file=', file.name, 'size=', file.size);
 
   if (!/\.(glb|gltf)$/i.test(file.name)) {
-    console.warn(logPrefix, 'invalid file type:', file.name);
     showMessage(t('config.modelInvalidFile'));
     return;
   }
 
   baseMapImporting.value = true;
-  console.log(logPrefix, 'baseMapImporting=true, viewMode=', viewMode.value);
-
-  // Remember URL before upload to detect unexpected navigation
-  const urlBefore = window.location.pathname;
 
   try {
-    console.log(logPrefix, 'step 1: uploading to server...');
-    const modelPath = await uploadModelAsset(file, 'maps');
-    console.log(logPrefix, 'step 1 done: modelPath=', modelPath);
-
-    console.log(logPrefix, 'step 2: calculating fit scale...');
-    const scale = await calculateModelFitScaleFromFile(file, draftMap.value.config);
-    console.log(logPrefix, 'step 2 done: scale=', scale);
+    // When replacing an existing base map (re-upload), pass the map ID so the
+    // backend overwrites the old file.  For a first-time upload on any floor,
+    // omit the ID so the backend creates a new unique file — otherwise every
+    // floor would share the same model file path.
+    const existingBase = draftMap.value.config.models.find((m) => m.role === 'base-map');
+    const detail = await apiUploadModel(file, undefined, undefined, undefined, existingBase ? draftMap.value.id : undefined);
+    console.log('[importBaseMapFile] upload response:', JSON.stringify(detail));
 
     const baseModel: ModelConfig = {
-      path: modelPath,
-      scale,
+      path: detail.modelPath,
+      scale: 2.5,
       center: [0, 0, 0],
       rotation: [0, 0, 0],
       role: 'base-map',
     };
 
-    // Prevent the deep watcher from rebuilding while we load from local file
-    skipNextWatchRebuild = true;
+    // Force the preview to treat this as a new asset - file content may have changed.
+    previewAssetSignature = '';
+    previewModelObjects.clear();
+
     replaceCurrentFloorBaseMap(baseModel);
     previewHasFramed = false;
-    console.log(logPrefix, 'step 3: config.models set, skipNextWatchRebuild=true');
 
-    // Load directly from the local file buffer into the Three.js scene.
-    // This bypasses Vite's URL resolution for runtime-uploaded assets.
-    console.log(logPrefix, 'step 4: loading model from file buffer into preview...');
-    const preview = ensurePreviewRenderer();
-    if (preview?.scene) {
-      const buffer = await file.arrayBuffer();
-      console.log(logPrefix, '  buffer size:', buffer.byteLength);
-      const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
-        gltfLoader.parse(buffer, '', resolve, reject);
-      });
-      const model = gltf.scene.clone(true);
-      model.traverse((object) => {
-        const mesh = object as THREE.Mesh;
-        if (mesh.isMesh) {
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-        }
-      });
-      applyPreviewModelConfig(model, baseModel, draftMap.value.config);
-
-      previewBuildToken += 1;
-      clearPreviewScene();
-      clearPreviewAuxObjects();
-      addPreviewAuxObject(createPreviewGrid(draftMap.value.config));
-      addPreviewAuxObject(createXDirectionIndicator(draftMap.value.config));
-      const activeFloor = draftMap.value?.metadata.floors.find((f) => f.id === draftMap.value?.metadata.activeFloorId);
-      const origin = (activeFloor?.positioningOrigin
-        ? [...activeFloor.positioningOrigin]
-        : [...draftMap.value.metadata.positioningOrigin]) as [number, number, number];
-      addPreviewAuxObject(createPositioningOriginMarker(origin));
-      const modelKey = `0:base-map:${modelPath}`;
-      previewModelObjects.set(modelKey, model);
-      preview.scene.add(model);
-      console.log(logPrefix, '  model added to scene, key=', modelKey);
-
-      framePreviewCamera([model], draftMap.value.config);
-      console.log(logPrefix, '  camera framed');
-    } else {
-      console.warn(logPrefix, 'ensurePreviewRenderer returned null — preview not available');
-    }
-
-    // Check for unexpected navigation
-    const urlAfter = window.location.pathname;
-    if (urlAfter !== urlBefore) {
-      console.error(logPrefix, 'URL CHANGED during upload!', urlBefore, '→', urlAfter);
-    }
-
-    console.log(logPrefix, 'step 5: done — showing success message');
-    showMessage(t('config.baseMapReady', { path: modelPath, scale }));
+    showMessage(t('config.baseMapReady', { path: detail.modelPath, scale: baseModel.scale }));
   } catch (error) {
-    const urlAfter = window.location.pathname;
-    console.error(logPrefix, 'ERROR caught:', error, 'URL:', urlBefore, '→', urlAfter);
-    console.error(logPrefix, 'viewMode at error:', viewMode.value, 'draftMap:', !!draftMap.value);
     const errorMessage =
       error instanceof TypeError
         ? t('config.modelUploadError')
@@ -1751,11 +1736,6 @@ async function importBaseMapFile(event: Event) {
     showMessage(errorMessage);
   } finally {
     baseMapImporting.value = false;
-    console.log(logPrefix, 'finally: baseMapImporting=false, viewMode=', viewMode.value);
-    if (viewMode.value !== 'edit') {
-      console.error(logPrefix, 'CRITICAL: viewMode changed from "edit" to', viewMode.value,
-        'during upload! Stack:', new Error().stack?.split('\n').slice(2).join('\n'));
-    }
   }
 }
 
@@ -1805,15 +1785,14 @@ watch(
     if (viewMode.value !== 'edit') {
       return;
     }
+    console.log('[Watcher] triggered, skipNextWatchRebuild=', skipNextWatchRebuild,
+      'draftMap.models:', draftMap.value?.config.models.map(m => ({ path: m.path, role: m.role })));
     // When importBaseMapFile has already loaded the model directly into the
     // preview scene, skip the watcher to avoid clearing what was just added.
     if (skipNextWatchRebuild) {
-      console.log('[Watcher] skipNextWatchRebuild=true → skipping rebuild');
       skipNextWatchRebuild = false;
       return;
     }
-
-    console.log('[Watcher] deep change detected → scheduling rebuildPreviewScene');
     void nextTick(() => {
       void rebuildPreviewScene();
     });
@@ -2185,6 +2164,10 @@ onBeforeUnmount(() => {
 
 .map-preview__base-title,
 .map-preview__rotation-field {
+  grid-column: 1 / -1;
+}
+
+.map-preview__scale-field {
   grid-column: 1 / -1;
 }
 

@@ -50,7 +50,7 @@ function normalizePoint3D(value: unknown, fallback: Point3D): Point3D {
   }) as Point3D;
 }
 
-function createDefaultMetadata(config: SceneConfig, metadata?: Partial<MapMetadata>): MapMetadata {
+export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<MapMetadata>): MapMetadata {
   const mapOrigin: Point3D = normalizePoint3D(metadata?.mapOrigin, [0, 0, 0]);
   const positioningOrigin = normalizePoint3D(metadata?.positioningOrigin, mapOrigin);
   const metadataScaleRatio = Number(metadata?.scaleRatio);
@@ -112,7 +112,12 @@ function normalizeSavedMap(map: SavedMap): SavedMap {
   const metadata = createDefaultMetadata(config, map.metadata);
   const activeFloor = metadata.floors.find((floor) => floor.id === metadata.activeFloorId) ?? metadata.floors[0];
   const activeConfig = activeFloor ? cloneSceneConfig(activeFloor.config) : config;
-  activeConfig.floor.scale = metadata.scaleRatio;
+  // Use the active floor's own scaleRatio instead of the global metadata.scaleRatio
+  if (activeFloor && typeof activeFloor.scaleRatio === 'number' && activeFloor.scaleRatio > 0) {
+    activeConfig.floor.scale = activeFloor.scaleRatio;
+  } else {
+    activeConfig.floor.scale = metadata.scaleRatio;
+  }
   return {
     ...map,
     name: map.name || config.floor.name || '未命名地图',
@@ -172,6 +177,26 @@ export function setActiveMapId(mapId: string): void {
 export function getActiveMap(): SavedMap {
   const maps = getMapLibrary();
   return maps.find((item) => item.id === getActiveMapId()) ?? maps[0] ?? getDefaultMap();
+}
+
+/**
+ * Convert a SavedMap to the shape expected by the backend config API.
+ * The backend uses snake_case field names internally.
+ */
+export function savedMapToApiPayload(map: SavedMap): {
+  name: string;
+  description: string;
+  config: SceneConfig;
+  metadata: MapMetadata;
+  thumbnail?: string;
+} {
+  return {
+    name: map.name,
+    description: map.description,
+    config: cloneSceneConfig(map.config),
+    metadata: { ...map.metadata },
+    thumbnail: map.metadata.thumbnail || undefined,
+  };
 }
 
 export function createSavedMap(name: string, description: string, config: SceneConfig, metadata?: Partial<MapMetadata>): SavedMap {

@@ -108,7 +108,7 @@
           <FilterOutlined />
           <span>{{ t('dashboard.deviceFilter') }}</span>
         </button>
-        <button type="button" :class="{ active: isReplayLoaded() }" @click="toggleReplayMode">
+        <button type="button" :class="{ active: replayPanelOpen }" @click="toggleReplayMode">
           <AimOutlined />
           <span>{{ t('dashboard.trackReplay') }}</span>
         </button>
@@ -333,7 +333,7 @@ import { MqttPoseClient, type MqttConnectionError, type MqttConnectionStatus } f
 import { fetchTrajectoryPoints } from '@/services/trajectoryService';
 import { getAllAlertMessage, type AlertEvent } from '@/services/alert';
 import { cloneSceneConfig, getMapLibrary, saveMapLibrary, type SavedMap } from '@/services/mapLibrary';
-import { TwinScene, type LivePose, type PathPoint, type PickPointResult } from '@/three/TwinScene';
+import { TwinScene, clearModelTemplateCache, type LivePose, type PathPoint, type PickPointResult } from '@/three/TwinScene';
 
 const props = defineProps<{
   embedded?: boolean;
@@ -397,8 +397,14 @@ const selectedReplayDevice = ref(ALL_REPLAY_DEVICES);
 const baseDeviceOptions: string[] = [];
 const selectedDevices = ref([...baseDeviceOptions]);
 const replayDate = ref(formatDateOnly(new Date()));
-const replayTimeRange = ref<[number, number]>([0, DAY_SECONDS]);
-const draftReplayTimeRange = ref<[number, number]>([0, DAY_SECONDS]);
+const FIVE_HOURS_SECONDS = 5 * 3600;
+function getLastHoursRange(): [number, number] {
+  const now = new Date();
+  const end = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  return [Math.max(0, end - FIVE_HOURS_SECONDS), end];
+}
+const replayTimeRange = ref<[number, number]>(getLastHoursRange());
+const draftReplayTimeRange = ref<[number, number]>(getLastHoursRange());
 const replayRangePickerOpen = ref(false);
 const replayPoints = ref<ReplayPoint[]>([]);
 const replayFrameTimes = ref<number[]>([]);
@@ -417,7 +423,6 @@ let replayLoadToken = 0;
 let replayLoadCursor = 0;
 let replayScanWindowMs = REPLAY_SCAN_INITIAL_MS;
 let replayResumeAfterBuffer = false;
-const replayHistories = new Map<string, ReplayPoint[]>();
 const replayTracks = new Map<string, ReplayPoint[]>();
 const latestLivePoses = new Map<string, LivePose>();
 const livePoseVersion = ref(0);
@@ -650,21 +655,10 @@ function getReplayDeviceName(): string {
   return selectedReplayDevice.value === ALL_REPLAY_DEVICES ? t('dashboard.allDevices') : selectedReplayDevice.value;
 }
 
-function resolveReplayPointTime(point: PathPoint | LivePose, fallbackTime: number): number {
-  return typeof point.time === 'number' && Number.isFinite(point.time) ? point.time : fallbackTime;
-}
+
 
 function resolveMqttWebSocketUrl(): string {
-  const configuredUrl = import.meta.env.VITE_MQTT_WS_URL?.trim();
-  const resolvedUrl = configuredUrl || 'ws://user.deepfusionrobotics.cn:8080';
-  // const resolvedUrl = configuredUrl || 'wss://user.deepfusionrobotics.com/ws';
-  console.log('[TwinScreen MQTT] resolve websocket url', {
-    configuredUrl,
-    resolvedUrl,
-  });
-  return resolvedUrl;
-  // return configuredUrl || 'ws://test.deepfusionrobotics.cn:8080';
-  // return configuredUrl || 'ws://localhost:8080';
+  return import.meta.env.VITE_MQTT_WS_URL?.trim() || 'ws://user.deepfusionrobotics.cn:8080';
 }
 
 function createAreaChartOption(): EChartsOption {
@@ -780,8 +774,10 @@ function applyCameraMode() {
 
 function applyViewMode() {
   if (viewMode.value === 'replay') {
-    if (!isReplayLoaded() && !replayPanelOpen.value) {
-      void startReplay();
+    if (!replayPanelOpen.value) {
+      replayPanelOpen.value = true;
+      replaySearchAttempted.value = false;
+      replayError.value = '';
     }
     return;
   }
@@ -861,8 +857,9 @@ function confirmReplayRangePicker() {
 }
 
 function searchReplayForSelectedTime() {
-  replaySearchAttempted.value = true;
-  void startReplay({ autoPlay: false });
+  // 选择时间范围后不自动加载，等待用户点击"开始回放"
+  replaySearchAttempted.value = false;
+  replayError.value = '';
 }
 
 function setDraftReplayRange(start: number, end: number) {
@@ -950,6 +947,9 @@ function createTwinScene() {
     return;
   }
 
+  // Clear model cache so switching maps picks up fresh geometry
+  clearModelTemplateCache();
+
   twinScene?.destroy();
   twinScene = new TwinScene(
     sceneContainer.value,
@@ -974,18 +974,10 @@ function createTwinScene() {
 function clearTrails() {
   const previousReplayDeviceIds = getReplayDeviceIds();
   resetReplayState();
-  replayHistories.clear();
   clearReplayScene(previousReplayDeviceIds);
   if (!replayPanelOpen.value) {
     restoreLivePoseView();
   }
-}
-
-function appendReplayHistory(deviceId: string, points: ReplayPoint[]) {
-  const history = replayHistories.get(deviceId) ?? [];
-  history.push(...points);
-  history.sort((left, right) => left.time - right.time);
-  replayHistories.set(deviceId, history.slice(-5000));
 }
 
 function getReplayRange(): { start: number; end: number } {
@@ -1302,114 +1294,43 @@ function getFenceForPoint(point: { x: number; y: number }): { id: string; name: 
   return null;
 }
 
-/**
- * 计算并更新区域统计
- */
-function updateAreaStats(): void {
-  // 回放模式下不更新实时概览，避免覆盖回放数据
-  if (replayPanelOpen.value) {
-    return;
-  }
+function updateAreaStats(time?: number): void {
+  // 回放模式下不更新实时概览
+  if (time === undefined && replayPanelOpen.value) return;
 
-  const fenceCounts = new Map<string, { name: string; color: string; count: number }>();
+  const positions = time !== undefined
+    ? getReplayPositionsAtTime(time)
+    : [...latestLivePoses.values()];
+  const total = time !== undefined ? Math.max(positions.length, 1) : (onlineDevices.value || 1);
 
-  // 初始化所有围栏
+  const fenceCounts = new Map<string, { name: string; count: number; color: string }>();
   sceneStore.config.fences.forEach((fence) => {
-    fenceCounts.set(fence.id, {
-      name: fence.name,
-      color: fence.color,
-      count: 0,
-    });
+    fenceCounts.set(fence.id, { name: fence.name, color: fence.color, count: 0 });
   });
 
   let otherCount = 0;
-
-  // 统计每个围栏内的设备数
-  latestLivePoses.forEach((pose) => {
-    const fence = getFenceForPoint(pose);
-    if (fence) {
-      const stat = fenceCounts.get(fence.id);
-      if (stat) {
-        stat.count += 1;
-      }
-    } else {
-      otherCount += 1;
-    }
-  });
-
-  // 计算百分比并转换为数组（保留所有区域，包括计数为0的，保证饼图动画平滑）
-  const totalOnline = onlineDevices.value || 1;
-  const result: Array<{ name: string; count: number; percent: number; color: string }> = [
-    ...fenceCounts.entries(),
-  ].map(([, stat]) => ({
-    name: stat.name,
-    count: stat.count,
-    percent: Number(((stat.count / totalOnline) * 100).toFixed(1)),
-    color: stat.color,
-  }));
-
-  // 始终添加"其他"分类（未知区域），保证饼图始终完整
-  result.push({
-    name: t('dashboard.areaOther'),
-    count: otherCount,
-    percent: Number(((otherCount / totalOnline) * 100).toFixed(1)),
-    color: '#a0a0a0',
-  });
-
-  areaStats.value = result.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/**
- * 更新回放时的区域统计
- */
-function updateReplayAreaStats(time: number): void {
-  const fenceCounts = new Map<string, { name: string; color: string; count: number }>();
-
-  // 初始化所有围栏
-  sceneStore.config.fences.forEach((fence) => {
-    fenceCounts.set(fence.id, {
-      name: fence.name,
-      color: fence.color,
-      count: 0,
-    });
-  });
-
-  // 获取当前时间的所有定位点
-  const positions = getReplayPositionsAtTime(time);
-  let otherCount = 0;
-
-  positions.forEach((point) => {
+  (positions as Array<{ x: number; y: number }>).forEach((point) => {
     const fence = getFenceForPoint(point);
     if (fence) {
       const stat = fenceCounts.get(fence.id);
-      if (stat) {
-        stat.count += 1;
-      }
+      if (stat) stat.count += 1;
     } else {
       otherCount += 1;
     }
   });
 
-  // 计算百分比并转换为数组（保留所有区域，包括计数为0的，保证饼图动画平滑）
-  const totalOnline = Math.max(positions.length, 1);
-  const result: Array<{ name: string; count: number; percent: number; color: string }> = [
-    ...fenceCounts.entries(),
-  ].map(([, stat]) => ({
-    name: stat.name,
-    count: stat.count,
-    percent: Number(((stat.count / totalOnline) * 100).toFixed(1)),
-    color: stat.color,
-  }));
-
-  // 始终添加"其他"分类（未知区域），保证饼图始终完整
-  result.push({
-    name: t('dashboard.areaOther'),
-    count: otherCount,
-    percent: Number(((otherCount / totalOnline) * 100).toFixed(1)),
-    color: '#a0a0a0',
-  });
-
-  areaStats.value = result.sort((a, b) => a.name.localeCompare(b.name));
+  areaStats.value = [...fenceCounts.entries()]
+    .map(([, stat]) => ({
+      name: stat.name, count: stat.count,
+      percent: Number(((stat.count / total) * 100).toFixed(1)),
+      color: stat.color,
+    }))
+    .concat({
+      name: t('dashboard.areaOther'), count: otherCount,
+      percent: Number(((otherCount / total) * 100).toFixed(1)),
+      color: '#a0a0a0',
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function getReplayClustersAtTime(time: number): Array<{ area: string; count: number }> {
@@ -1447,7 +1368,7 @@ function applyReplayTime(time: number) {
     });
     replayOnlineCount.value = visibleCount;
     // 更新回放时的区域统计
-    updateReplayAreaStats(time);
+    updateAreaStats(time);
     return;
   }
 
@@ -1455,11 +1376,11 @@ function applyReplayTime(time: number) {
   if (point) {
     twinScene?.updateReplayPose(point.deviceId, point, point.theta ?? 0);
     replayOnlineCount.value = 1;
-    updateReplayAreaStats(time);
+    updateAreaStats(time);
   } else if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
     twinScene?.hideReplayPose(selectedReplayDevice.value);
     replayOnlineCount.value = 0;
-    updateReplayAreaStats(time);
+    updateAreaStats(time);
   }
 }
 
@@ -1589,7 +1510,7 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
     replayProgress.value = 0;
     replayFrameIndex.value = 0;
     replayCurrentTime.value = 0;
-    updateReplayAreaStats(0);
+    updateAreaStats(0);
     return;
   }
 
@@ -1623,12 +1544,15 @@ function exitReplayMode() {
 }
 
 function toggleReplayMode() {
-  if (isReplayLoaded() || replayPanelOpen.value) {
+  if (replayPanelOpen.value) {
     exitReplayMode();
     return;
   }
 
-  startReplay();
+  replayPanelOpen.value = true;
+  viewMode.value = 'replay';
+  replaySearchAttempted.value = false;
+  replayError.value = '';
 }
 
 function toggleReplayPlaying() {
@@ -1710,14 +1634,8 @@ async function loadAlertEvents() {
 }
 
 onMounted(() => {
-  console.log('[TwinScreen MQTT] mounted', {
-    hasSceneContainer: Boolean(sceneContainer.value),
-    embedded: props.embedded,
-    themeMode: props.themeMode,
-  });
   void loadAlertEvents();
 
-  // 初始化区域统计
   updateAreaStats();
 
   clockTimer = window.setInterval(() => {
@@ -1734,73 +1652,29 @@ onMounted(() => {
   createTwinScene();
 
   const mqttUrl = resolveMqttWebSocketUrl();
-  console.log('[TwinScreen MQTT] creating mqtt client', { mqttUrl });
   mqttClient = new MqttPoseClient({
     url: mqttUrl,
     onPose: (pose) => {
-      if (pose.deviceId.includes('95')) {
-        console.log('[TwinScreen MQTT] onPose callback', {
-          deviceId: pose.deviceId,
-          x: pose.x,
-          y: pose.y,
-          z: pose.z,
-          theta: pose.theta,
-          time: pose.time,
-          receivedAt: pose.receivedAt,
-        });
-      }
-      
       livePose.value = pose;
       latestLivePoses.set(pose.deviceId, pose);
       livePoseVersion.value += 1;
       onlineDeviceCount.value = latestLivePoses.size;
       if (!replayPanelOpen.value) {
         updateAreaStats();
-      }
-      appendReplayHistory(pose.deviceId, [
-        {
-          deviceId: pose.deviceId,
-          x: pose.x,
-          y: pose.y,
-          z: pose.z,
-          theta: pose.theta,
-          time: resolveReplayPointTime(pose, pose.receivedAt ? Date.parse(pose.receivedAt) || Date.now() : Date.now()),
-        },
-      ]);
-      if (!replayPanelOpen.value) {
         twinScene?.updateLivePose(pose);
       }
     },
     onPath: (deviceId, points) => {
-      console.log('[TwinScreen MQTT] onPath callback', {
-        deviceId,
-        pointCount: points.length,
-        firstPoint: points[0],
-        lastPoint: points[points.length - 1],
-      });
-      const endTime = Date.now();
-      const fallbackStartTime = endTime - Math.max(0, points.length - 1) * 1000;
-      appendReplayHistory(
-        deviceId,
-        points.map((point, index) => ({
-          deviceId,
-          ...point,
-          time: resolveReplayPointTime(point, fallbackStartTime + index * 1000),
-        })),
-      );
       if (!replayPanelOpen.value) {
         twinScene?.setDevicePath(deviceId, points);
       }
     },
     onDeviceDisconnect: (deviceId) => {
-      console.log('[TwinScreen MQTT] onDeviceDisconnect callback', { deviceId });
       latestLivePoses.delete(deviceId);
       livePoseVersion.value += 1;
       onlineDeviceCount.value = latestLivePoses.size;
       if (!replayPanelOpen.value) {
         updateAreaStats();
-      }
-      if (!replayPanelOpen.value) {
         twinScene?.clearDeviceLivePose(deviceId);
       }
       if (livePose.value?.deviceId === deviceId) {
@@ -1808,7 +1682,6 @@ onMounted(() => {
       }
     },
     onStatusChange: (status) => {
-      console.log('[TwinScreen MQTT] status changed', { status });
       mqttStatus.value = status;
     },
     onError: (error) => {
@@ -1816,12 +1689,10 @@ onMounted(() => {
       mqttError.value = error;
     },
   });
-  console.log('[TwinScreen MQTT] connecting mqtt client', { mqttUrl });
   mqttClient.connect();
 });
 
 onBeforeUnmount(() => {
-  console.log('[TwinScreen MQTT] before unmount: disconnect mqtt client');
   window.clearInterval(clockTimer);
   stopReplayTimer();
   stopReplayNudge();

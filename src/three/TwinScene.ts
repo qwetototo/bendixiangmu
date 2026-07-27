@@ -19,8 +19,14 @@ const overlayModules = import.meta.glob('/src/assets/image/**/*.{png,jpg,jpeg,we
 // Repeated scene instances and repeated furniture entries then share the same assets.
 THREE.Cache.enabled = true;
 const sharedGltfLoader = new GLTFLoader();
-const sharedModelTemplateCache = new Map<string, Promise<THREE.Object3D | null>>();
-const DEFAULT_MODEL_SCALE_RATIO = 100;
+let sharedModelTemplateCache = new Map<string, Promise<THREE.Object3D | null>>();
+const DEFAULT_MODEL_SCALE_RATIO = 1;
+
+/** Clear the model template cache. Call when switching maps to avoid stale geometry. */
+export function clearModelTemplateCache() {
+  sharedModelTemplateCache = new Map();
+  THREE.Cache.clear();
+}
 
 export interface PickPointResult {
   scene: {
@@ -1084,7 +1090,7 @@ export class TwinScene {
     const scaleRatioFactor =
       modelConfig.role !== 'base-map' || !Number.isFinite(floorScaleRatio) || floorScaleRatio <= 0
         ? 1
-        : DEFAULT_MODEL_SCALE_RATIO / floorScaleRatio;
+        : floorScaleRatio / DEFAULT_MODEL_SCALE_RATIO;
 
     const modelScale = Number(scale);
     model.scale.setScalar((Number.isFinite(modelScale) && modelScale > 0 ? modelScale : 1) * scaleRatioFactor);

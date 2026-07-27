@@ -12,6 +12,7 @@ dist
 dist.zip
 dist-ssr
 *.local
+skills-lock.json
 
 # Editor directories and files
 .vscode/*
@@ -23,3 +24,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.agents/*
+.claude/*
+.codex/*
