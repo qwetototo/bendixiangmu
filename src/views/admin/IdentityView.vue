@@ -1,975 +1,375 @@
 <template>
-  <section :class="['identity-page', `identity-page--${themeMode}`]">
-    <section class="identity-command">
-      <div class="command-copy">
-        <span class="eyebrow">{{ t('identity.center') }}</span>
-        <h2>{{ t('identity.title') }}</h2>
-        <div class="command-actions">
-          <button type="button">{{ t('identity.addBinding') }}</button>
-          <button class="secondary" type="button">{{ t('common.import') }}</button>
-        </div>
+  <section :class="['management-page', `management-page--${themeMode}`]">
+    <header class="management-toolbar">
+      <div>
+        <h2>人员信息管理</h2>
+        <p>统一维护人员档案与部门组织信息</p>
       </div>
-
-      <div class="command-side">
-        <div class="sync-card">
-          <span>{{ t('identity.lastSync') }}</span>
-          <strong>10:45:18</strong>
-        </div>
-        
+      <div class="management-actions">
+        <button class="primary" type="button" @click="openEditor()">新增{{ activeView === 'people' ? '人员' : '部门' }}</button>
+        <button type="button" @click="openImport">批量导入</button>
+        <button type="button" @click="exportOpen = true">批量导出</button>
       </div>
+    </header>
+
+    <section class="management-panel">
+      <div class="management-panel-title">
+        <div class="view-switch">
+          <button type="button" :class="{ active: activeView === 'people' }" @click="switchView('people')">人员信息表</button>
+          <button type="button" :class="{ active: activeView === 'departments' }" @click="switchView('departments')">部门信息表</button>
+        </div>
+        <span>共 {{ total }} 条记录</span>
+      </div>
+      <div class="management-filters">
+        <input v-model="keyword" class="search-input" :placeholder="activeView === 'people' ? '搜索编号、姓名或部门' : '搜索部门编号或名称'" @keyup.enter="load" />
+        <select v-if="activeView === 'people'" v-model="bindingFilter" @change="load">
+          <option value="">全部状态</option>
+          <option value="bound">已绑定设备</option>
+          <option value="unbound">未绑定</option>
+        </select>
+        <button type="button" @click="load">查询</button>
+        <button type="button" @click="resetFilters">重置</button>
+      </div>
+      <div class="management-table-wrap">
+        <table v-if="activeView === 'people'" class="management-table">
+          <thead><tr><th>编号</th><th>姓名</th><th>部门</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="person in people" :key="person.personId">
+              <td>{{ person.personId }}</td>
+              <td>{{ person.personName || person.name }}</td>
+              <td>{{ person.departmentName || '无' }}</td>
+              <td><span :class="['status-chip', person.bindingStatus]">{{ person.bindingStatus === 'bound' ? '已绑定设备' : '未绑定' }}</span></td>
+              <td><div class="row-actions">
+                <button type="button" @click="openEditor(person)">编辑</button>
+                <button class="danger" type="button" @click="deleteTarget = person">删除</button>
+              </div></td>
+            </tr>
+            <tr v-if="!loading && people.length === 0"><td class="empty-row" colspan="5">暂无符合条件的人员</td></tr>
+            <tr v-if="loading"><td class="empty-row" colspan="5">正在加载…</td></tr>
+          </tbody>
+        </table>
+        <table v-else class="management-table">
+          <thead><tr><th>部门编号 / ID</th><th>部门名称</th><th>部门人数</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="department in departments" :key="department.code">
+              <td>{{ department.code }}</td><td>{{ department.name }}</td><td>{{ department.personnelCount }}</td>
+              <td><div class="row-actions">
+                <button type="button" @click="openEditor(department)">编辑</button>
+                <button class="danger" type="button" @click="deleteTarget = department">删除</button>
+              </div></td>
+            </tr>
+            <tr v-if="!loading && departments.length === 0"><td class="empty-row" colspan="4">暂无符合条件的部门</td></tr>
+            <tr v-if="loading"><td class="empty-row" colspan="4">正在加载…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="feedback" class="management-feedback">{{ feedback }}</div>
     </section>
 
-    <section class="summary-grid">
-      <article v-for="item in summaryCards" :key="item.label" :class="['summary-card', item.tone]">
-        <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
-        <small>{{ item.note }}</small>
-      </article>
-    </section>
+    <BaseModal :open="editorOpen" :title="editorTitle" :eyebrow="activeView === 'people' ? '人员信息' : '部门信息'" @close="closeEditor">
+      <div v-if="activeView === 'people'" class="form-grid">
+        <label>人员编号<input v-model.trim="personForm.personId" maxlength="20" placeholder="例如 P-001" /></label>
+        <label>姓名<input v-model.trim="personForm.name" maxlength="50" placeholder="请输入姓名" /></label>
+        <label class="full">部门
+          <button class="picker-button" type="button" @click="openDepartmentPicker">
+            <span>{{ selectedDepartmentName }}</span><span>选择 ›</span>
+          </button>
+        </label>
+        <label class="full">状态
+          <input :value="editingPerson?.bindingStatus === 'bound' ? '已绑定设备' : '未绑定'" disabled />
+        </label>
+      </div>
+      <div v-else class="form-grid">
+        <label>部门编号 / ID<input v-model.trim="departmentForm.code" maxlength="20" placeholder="例如 deptRD" /></label>
+        <label>部门名称<input v-model.trim="departmentForm.name" maxlength="50" placeholder="例如 研发部" /></label>
+        <label v-if="editingDepartment" class="full">部门人数<input :value="editingDepartment.personnelCount" disabled /></label>
+      </div>
+      <p v-if="formError" class="form-error">{{ formError }}</p>
+      <template #footer>
+        <button type="button" :disabled="saving" @click="closeEditor">取消</button>
+        <button class="primary" type="button" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+      </template>
+    </BaseModal>
 
-    <section class="identity-workspace">
-      <section class="binding-board">
-        <div class="board-header">
-          <div>
-            <h3>{{ panelTitle }}</h3>
-            <span>{{ panelSubtitle }}</span>
-          </div>
-          <div class="board-actions">
-            <button type="button" :class="{ active: abnormalOnly }" @click="abnormalOnly = !abnormalOnly">{{ t('identity.onlyAbnormal') }}</button>
-            <button type="button">{{ t('common.export') }}</button>
-          </div>
-        </div>
+    <BaseModal :open="departmentPickerOpen" title="选择部门" eyebrow="支持搜索" @close="departmentPickerOpen = false">
+      <input v-model="departmentKeyword" class="search-input" placeholder="搜索部门编号或名称" />
+      <div class="picker-list">
+        <button type="button" @click="chooseDepartment(null)"><span>无</span><small>不设置部门</small></button>
+        <button v-for="department in filteredDepartments" :key="department.code" type="button" @click="chooseDepartment(department)">
+          <span>{{ department.name }}</span><small>{{ department.code }} · {{ department.personnelCount }} 人</small>
+        </button>
+      </div>
+    </BaseModal>
 
-        <div class="filter-strip">
-          <input v-model="keyword" class="search-box" :placeholder="t('identity.searchPlaceholder')" />
-          <div class="segment-tabs">
-            <button
-              v-for="tab in bindingTabs"
-              :key="tab.key"
-              type="button"
-              :class="{ active: activeFilter === tab.key }"
-              @click="activeFilter = tab.key"
-            >
-              {{ tab.label }}
-            </button>
-          </div>
-        </div>
+    <BaseModal :open="deleteTarget !== null" title="确认删除" eyebrow="危险操作" @close="deleteTarget = null">
+      <p>确认删除“{{ deleteTargetLabel }}”吗？删除后无法恢复。</p>
+      <p v-if="activeView === 'departments'" class="import-hint">删除部门后，该部门下人员的部门字段将变为“无”。</p>
+      <template #footer>
+        <button type="button" @click="deleteTarget = null">取消</button>
+        <button class="danger" type="button" :disabled="saving" @click="remove">确认删除</button>
+      </template>
+    </BaseModal>
 
-        <div class="binding-table">
-          <div class="table-head">
-            <span>{{ t('identity.personInfo') }}</span>
-            <span>{{ t('identity.deviceInfo') }}</span>
-            <span>{{ t('identity.permissionArea') }}</span>
-            <span>{{ t('identity.status') }}</span>
-            <span>{{ t('identity.action') }}</span>
-          </div>
+    <BaseModal :open="importOpen" :title="`批量导入${activeView === 'people' ? '人员' : '部门'}`" eyebrow="CSV 文件" @close="importOpen = false">
+      <p class="import-hint">{{ importHint }}</p>
+      <input ref="fileInput" type="file" accept=".csv,text/csv" @change="importCsv" />
+      <p v-if="formError" class="form-error">{{ formError }}</p>
+    </BaseModal>
 
-          <article
-            v-for="row in visibleBindings"
-            :key="row.personId"
-            :class="['binding-row', { active: selectedBindingId === row.personId }]"
-            @click="selectBinding(row.personId)"
-          >
-            <div class="person-cell">
-              <span class="avatar">{{ row.personName.slice(0, 1) }}</span>
-              <div>
-                <strong>{{ row.personName }}</strong>
-                <small>{{ row.personId }} / {{ row.department }} / {{ row.role }}</small>
-              </div>
-            </div>
-
-            <div class="device-cell">
-              <strong>{{ row.deviceId || t('identity.awaitingDevice') }}</strong>
-              <small>{{ row.deviceType }} · {{ row.protocol }} · {{ row.firmware }}</small>
-              <div class="battery-track">
-                <span :style="{ width: row.battery === '-' ? '0%' : row.battery }"></span>
-              </div>
-            </div>
-
-            <div class="area-cell">
-              <strong>{{ row.area }}</strong>
-              <small>{{ row.permission }}</small>
-            </div>
-
-            <small :class="['status-pill', row.status]">{{ row.statusText }}</small>
-            <button type="button" @click.stop="toggleBinding(row.personId)">{{ row.deviceId ? t('identity.swapBind') : t('identity.bind') }}</button>
-          </article>
-
-          <div v-if="visibleBindings.length === 0" class="empty-state">{{ t('identity.noMatch') }}</div>
-        </div>
-      </section>
-
-      <aside class="insight-panel">
-        <div class="selected-card">
-          <span class="eyebrow">{{ t('identity.currentSelected') }}</span>
-          <h3>{{ featuredBinding.personName }}</h3>
-          <p>{{ featuredBinding.personId }} / {{ featuredBinding.department }} / {{ featuredBinding.role }}</p>
-          <div class="link-line">
-            <span>{{ t('identity.person') }}</span>
-            <strong>{{ featuredBinding.deviceId || t('identity.unbound') }}</strong>
-            <span>{{ t('identity.device') }}</span>
-          </div>
-        </div>
-
-        <div class="field-card">
-          <h4>{{ t('identity.personFields') }}</h4>
-          <div v-for="item in personFields" :key="item.label">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
-        </div>
-
-        <div class="field-card device-card">
-          <h4>{{ t('identity.deviceFields') }}</h4>
-          <div v-for="item in deviceFields" :key="item.label">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
-        </div>
-
-        <div class="rule-card">
-          <h4>{{ t('identity.bindingRules') }}</h4>
-          <ul>
-            <li>{{ t('identity.rule1') }}</li>
-            <li>{{ t('identity.rule2') }}</li>
-            <li>{{ t('identity.rule3') }}</li>
-          </ul>
-        </div>
-      </aside>
-    </section>
+    <BaseModal :open="exportOpen" :title="`导出${activeView === 'people' ? '人员' : '部门'}`" eyebrow="CSV 文件" @close="exportOpen = false">
+      <div class="export-options">
+        <label><input v-model="exportAll" type="radio" :value="true" /> 导出所有数据</label>
+        <label><input v-model="exportAll" type="radio" :value="false" /> 导出前 <input v-model.number="exportCount" type="number" min="1" :max="total || 1" /> 条</label>
+      </div>
+      <template #footer>
+        <button type="button" @click="exportOpen = false">取消</button>
+        <button class="primary" type="button" @click="exportCsv">导出</button>
+      </template>
+    </BaseModal>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useI18n } from 'vue-i18n';
+import { computed, onMounted, reactive, ref } from 'vue';
+import BaseModal from '@/components/BaseModal.vue';
+import {
+  createDepartment, createPersonnel, deleteDepartment, deletePersonnel, fetchDepartments, fetchPersonnel,
+  updateDepartment, updatePersonnel, type DepartmentVO, type PersonnelVO,
+} from '@/services/adminApi';
+import { downloadCsv, parseCsv, readCsvValue } from '@/services/csvTransfer';
+import '@/styles/management.css';
 
-const { t } = useI18n();
+defineProps<{ themeMode: 'dark' | 'light' }>();
 
-defineProps<{
-  themeMode: 'dark' | 'light';
-}>();
+type ViewMode = 'people' | 'departments';
+type DeleteTarget = PersonnelVO | DepartmentVO;
 
-type BindingStatus = 'online' | 'idle' | 'warn' | 'offline';
-type BindingFilter = 'all' | 'bound' | 'pending';
-
-interface BindingRow {
-  personId: string;
-  personName: string;
-  department: string;
-  role: string;
-  deviceId: string;
-  deviceType: string;
-  protocol: string;
-  battery: string;
-  firmware: string;
-  area: string;
-  permission: string;
-  status: BindingStatus;
-  statusText: string;
-}
-
-interface RawBinding {
-  personId: string;
-  personName: string;
-  departmentKey: string;
-  roleKey: string;
-  deviceId: string;
-  deviceTypeKey: string;
-  protocol: string;
-  battery: string;
-  firmware: string;
-  areaKey: string;
-  permissionKey: string;
-  status: BindingStatus;
-  statusTextKey: string;
-}
-
-const departmentMap: Record<string, string> = {
-  deptRD: 'identity.deptRD',
-  deptOps: 'identity.deptOps',
-  deptSecurity: 'identity.deptSecurity',
-  deptProduction: 'identity.deptProduction',
-  deptVisitor: 'identity.deptVisitor',
-};
-
-const roleMap: Record<string, string> = {
-  roleAdmin: 'identity.roleAdmin',
-  roleOperator: 'identity.roleOperator',
-  roleAuditor: 'identity.roleAuditor',
-  roleUser: 'identity.roleUser',
-  roleVisitor: 'identity.roleVisitor',
-};
-
-const deviceTypeMap: Record<string, string> = {
-  deviceTag: 'identity.deviceTag',
-  deviceWristband: 'identity.deviceWristband',
-  deviceUnassigned: 'identity.deviceUnassigned',
-};
-
-const areaMap: Record<string, string> = {
-  areaOffice: 'identity.areaOffice',
-  areaEquipment: 'identity.areaEquipment',
-  areaLab: 'identity.areaLab',
-  areaMeeting: 'identity.areaMeeting',
-  areaProduction: 'identity.areaProduction',
-};
-
-const permissionMap: Record<string, string> = {
-  permissionAll: 'identity.permissionAll',
-  permissionDuty: 'identity.permissionDuty',
-  permissionKey: 'identity.permissionKey',
-  permissionExpiring: 'identity.permissionExpiring',
-  permissionPending: 'identity.permissionPending',
-};
-
-const statusTextMap: Record<string, string> = {
-  online: 'identity.online',
-  lowBattery: 'identity.lowBattery',
-  temp: 'identity.temp',
-  unbound: 'identity.unbound',
-};
-
-const rawBindings = ref<RawBinding[]>([
-  {
-    personId: 'P-001', personName: '张工', departmentKey: 'deptRD', roleKey: 'roleAdmin',
-    deviceId: 'TAG-10086', deviceTypeKey: 'deviceTag', protocol: 'UWB', battery: '86%', firmware: 'v2.4.1',
-    areaKey: 'areaOffice', permissionKey: 'permissionAll', status: 'online', statusTextKey: 'online',
-  },
-  {
-    personId: 'P-002', personName: '李工', departmentKey: 'deptOps', roleKey: 'roleOperator',
-    deviceId: 'TAG-10015', deviceTypeKey: 'deviceWristband', protocol: 'UWB', battery: '18%', firmware: 'v2.3.8',
-    areaKey: 'areaEquipment', permissionKey: 'permissionDuty', status: 'warn', statusTextKey: 'lowBattery',
-  },
-  {
-    personId: 'P-003', personName: '王工', departmentKey: 'deptSecurity', roleKey: 'roleAuditor',
-    deviceId: 'TAG-10003', deviceTypeKey: 'deviceTag', protocol: 'BLE', battery: '72%', firmware: 'v2.4.0',
-    areaKey: 'areaLab', permissionKey: 'permissionKey', status: 'online', statusTextKey: 'online',
-  },
-  {
-    personId: 'P-004', personName: '访客 A', departmentKey: 'deptVisitor', roleKey: 'roleVisitor',
-    deviceId: 'TAG-10021', deviceTypeKey: 'deviceTag', protocol: 'UWB', battery: '61%', firmware: 'v2.4.1',
-    areaKey: 'areaMeeting', permissionKey: 'permissionExpiring', status: 'idle', statusTextKey: 'temp',
-  },
-  {
-    personId: 'P-005', personName: '赵工', departmentKey: 'deptProduction', roleKey: 'roleUser',
-    deviceId: '', deviceTypeKey: 'deviceUnassigned', protocol: '-', battery: '-', firmware: '-',
-    areaKey: 'areaProduction', permissionKey: 'permissionPending', status: 'offline', statusTextKey: 'unbound',
-  },
-]);
-
-const bindings = computed<BindingRow[]>(() =>
-  rawBindings.value.map((raw) => ({
-    personId: raw.personId,
-    personName: raw.personName,
-    department: t(departmentMap[raw.departmentKey] ?? 'identity.deptRD'),
-    role: t(roleMap[raw.roleKey] ?? 'identity.roleUser'),
-    deviceId: raw.deviceId,
-    deviceType: t(deviceTypeMap[raw.deviceTypeKey] ?? 'identity.deviceUnassigned'),
-    protocol: raw.protocol,
-    battery: raw.battery,
-    firmware: raw.firmware,
-    area: t(areaMap[raw.areaKey] ?? 'identity.areaOffice'),
-    permission: t(permissionMap[raw.permissionKey] ?? 'identity.permissionPending'),
-    status: raw.status,
-    statusText: t(statusTextMap[raw.statusTextKey] ?? 'identity.online'),
-  })),
-);
-
-const bindingTabs = computed<{ key: BindingFilter; label: string }[]>(() => [
-  { key: 'all', label: t('identity.tabAll') },
-  { key: 'bound', label: t('identity.tabBound') },
-  { key: 'pending', label: t('identity.tabPending') },
-]);
-
+const activeView = ref<ViewMode>('people');
+const people = ref<PersonnelVO[]>([]);
+const departments = ref<DepartmentVO[]>([]);
+const total = ref(0);
+const loading = ref(false);
+const saving = ref(false);
 const keyword = ref('');
-const activeFilter = ref<BindingFilter>('all');
-const abnormalOnly = ref(false);
-const selectedBindingId = ref(rawBindings.value[0]?.personId ?? '');
+const bindingFilter = ref('');
+const feedback = ref('');
+const editorOpen = ref(false);
+const departmentPickerOpen = ref(false);
+const departmentKeyword = ref('');
+const editingPerson = ref<PersonnelVO | null>(null);
+const editingDepartment = ref<DepartmentVO | null>(null);
+const deleteTarget = ref<DeleteTarget | null>(null);
+const importOpen = ref(false);
+const exportOpen = ref(false);
+const exportAll = ref(true);
+const exportCount = ref(10);
+const fileInput = ref<HTMLInputElement>();
+const formError = ref('');
+const personForm = reactive({ personId: '', name: '', departmentCode: null as string | null });
+const departmentForm = reactive({ code: '', name: '' });
 
-const summaryCards = computed(() => [
-  { label: t('identity.totalPersonnel'), value: '248', note: t('identity.unifiedEntry'), tone: 'blue' },
-  { label: t('identity.boundCount'), value: '214', note: t('identity.coverageRate', { rate: 86 }), tone: 'green' },
-  { label: t('identity.pendingBind'), value: '34', note: t('identity.needAssignDevice'), tone: 'amber' },
-  { label: t('identity.stockDevices'), value: '18', note: t('identity.canBindNow'), tone: 'violet' },
-]);
-
-const panelTitle = computed(() => t('identity.bindingLedger'));
-
-const panelSubtitle = computed(() => t('identity.bindingLedgerDesc'));
-
-const visibleBindings = computed(() => {
-  const normalizedKeyword = keyword.value.trim().toLowerCase();
-  return bindings.value.filter((row) => {
-    const keywordMatched = !normalizedKeyword
-      || `${row.personId} ${row.personName} ${row.department} ${row.role} ${row.deviceId} ${row.area}`.toLowerCase().includes(normalizedKeyword);
-    const tabMatched = activeFilter.value === 'all'
-      || (activeFilter.value === 'bound' && Boolean(row.deviceId))
-      || (activeFilter.value === 'pending' && !row.deviceId);
-    const abnormalMatched = !abnormalOnly.value || row.status === 'warn' || row.status === 'offline';
-    return keywordMatched && tabMatched && abnormalMatched;
-  });
+const editorTitle = computed(() => {
+  if (activeView.value === 'people') return editingPerson.value ? '编辑人员' : '新增人员';
+  return editingDepartment.value ? '编辑部门' : '新增部门';
 });
-
-const featuredBinding = computed(() => {
-  return visibleBindings.value.find((row) => row.personId === selectedBindingId.value) ?? visibleBindings.value[0] ?? bindings.value[0];
+const selectedDepartmentName = computed(() => departments.value.find((item) => item.code === personForm.departmentCode)?.name ?? '无');
+const filteredDepartments = computed(() => {
+  const value = departmentKeyword.value.trim().toLowerCase();
+  return departments.value.filter((item) => !value || `${item.code} ${item.name}`.toLowerCase().includes(value));
 });
+const deleteTargetLabel = computed(() => {
+  const target = deleteTarget.value;
+  if (!target) return '';
+  return 'personId' in target ? `${target.personName || target.name}（${target.personId}）` : `${target.name}（${target.code}）`;
+});
+const importHint = computed(() => activeView.value === 'people'
+  ? '表头支持：编号、姓名、部门编号。部门编号允许留空，状态由设备绑定关系自动计算，无需导入。'
+  : '表头支持：部门编号、部门名称。部门人数由人员关系自动统计，无需导入。');
 
-function selectBinding(personId: string) {
-  selectedBindingId.value = personId;
+async function load() {
+  loading.value = true;
+  try {
+    if (activeView.value === 'people') {
+      const page = await fetchPersonnel({ page: 1, pageSize: 100, keyword: keyword.value || undefined, bindingStatus: bindingFilter.value || undefined });
+      people.value = page.records;
+      total.value = page.total;
+    } else {
+      const page = await fetchDepartments({ page: 1, pageSize: 100, keyword: keyword.value || undefined });
+      departments.value = page.records;
+      total.value = page.total;
+    }
+  } catch (error) {
+    feedback.value = error instanceof Error ? error.message : '加载数据失败';
+  } finally {
+    loading.value = false;
+  }
 }
 
-function toggleBinding(personId: string) {
-  const raw = rawBindings.value.find((item) => item.personId === personId);
-  if (!raw) {
-    return;
-  }
-
-  selectedBindingId.value = personId;
-  if (raw.deviceId) {
-    raw.deviceId = '';
-    raw.deviceTypeKey = 'deviceUnassigned';
-    raw.protocol = '-';
-    raw.battery = '-';
-    raw.firmware = '-';
-    raw.status = 'offline';
-    raw.statusTextKey = 'unbound';
-    return;
-  }
-
-  raw.deviceId = `TAG-${Math.floor(10000 + Math.random() * 89999)}`;
-  raw.deviceTypeKey = 'deviceTag';
-  raw.protocol = 'UWB';
-  raw.battery = '100%';
-  raw.firmware = 'v2.4.1';
-  raw.status = 'online';
-  raw.statusTextKey = 'online';
+function switchView(view: ViewMode) {
+  activeView.value = view;
+  keyword.value = '';
+  bindingFilter.value = '';
+  feedback.value = '';
+  void load();
 }
 
-const personFields = computed(() => [
-  { label: t('identity.personId'), value: featuredBinding.value.personId },
-  { label: t('identity.deptRole'), value: `${featuredBinding.value.department} / ${featuredBinding.value.role}` },
-  { label: t('identity.authScope'), value: featuredBinding.value.permission },
-  { label: t('identity.residentArea'), value: featuredBinding.value.area },
-]);
+function resetFilters() {
+  keyword.value = ''; bindingFilter.value = ''; void load();
+}
 
-const deviceFields = computed(() => [
-  { label: t('identity.deviceId'), value: featuredBinding.value.deviceId || t('identity.unbound') },
-  { label: t('identity.typeProtocol'), value: `${featuredBinding.value.deviceType} / ${featuredBinding.value.protocol}` },
-  { label: t('identity.battery'), value: featuredBinding.value.battery },
-  { label: t('identity.firmwareVersion'), value: featuredBinding.value.firmware },
-]);
+async function ensureDepartments() {
+  if (departments.value.length) return;
+  departments.value = (await fetchDepartments({ page: 1, pageSize: 1000 })).records;
+}
+
+function openEditor(target?: DeleteTarget) {
+  formError.value = '';
+  if (activeView.value === 'people') {
+    const person = target as PersonnelVO | undefined;
+    editingPerson.value = person ?? null;
+    personForm.personId = person?.personId ?? '';
+    personForm.name = person?.personName || person?.name || '';
+    personForm.departmentCode = person?.departmentCode ?? null;
+    void ensureDepartments().catch((error) => { formError.value = error instanceof Error ? error.message : '加载部门失败'; });
+  } else {
+    const department = target as DepartmentVO | undefined;
+    editingDepartment.value = department ?? null;
+    departmentForm.code = department?.code ?? '';
+    departmentForm.name = department?.name ?? '';
+  }
+  editorOpen.value = true;
+}
+
+function closeEditor() {
+  if (!saving.value) editorOpen.value = false;
+}
+
+async function openDepartmentPicker() {
+  departmentKeyword.value = '';
+  departmentPickerOpen.value = true;
+  try {
+    await ensureDepartments();
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : '加载部门失败';
+  }
+}
+
+function chooseDepartment(department: DepartmentVO | null) {
+  personForm.departmentCode = department?.code ?? null;
+  departmentPickerOpen.value = false;
+}
+
+async function save() {
+  formError.value = '';
+  saving.value = true;
+  try {
+    if (activeView.value === 'people') {
+      if (!personForm.personId || !personForm.name) throw new Error('人员编号和姓名不能为空');
+      if (!editingPerson.value && people.value.some((item) => item.personId.toLowerCase() === personForm.personId.toLowerCase())) {
+        throw new Error('人员编号已存在');
+      }
+      const payload = { ...personForm };
+      if (editingPerson.value) await updatePersonnel(editingPerson.value.personId, payload);
+      else await createPersonnel(payload);
+      feedback.value = editingPerson.value ? '人员信息已更新' : '人员已新增';
+    } else {
+      if (!departmentForm.code || !departmentForm.name) throw new Error('部门编号和部门名称不能为空');
+      if (!editingDepartment.value && departments.value.some((item) => item.code.toLowerCase() === departmentForm.code.toLowerCase())) {
+        throw new Error('部门编号已存在');
+      }
+      const payload = { ...departmentForm };
+      if (editingDepartment.value) await updateDepartment(editingDepartment.value.code, payload);
+      else await createDepartment(payload);
+      feedback.value = editingDepartment.value ? '部门信息已更新' : '部门已新增';
+    }
+    editorOpen.value = false;
+    await load();
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : '保存失败';
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function remove() {
+  const target = deleteTarget.value;
+  if (!target) return;
+  saving.value = true;
+  try {
+    if ('personId' in target) await deletePersonnel(target.personId);
+    else await deleteDepartment(target.code);
+    deleteTarget.value = null;
+    feedback.value = '记录已删除';
+    await load();
+  } catch (error) {
+    feedback.value = error instanceof Error ? error.message : '删除失败';
+  } finally {
+    saving.value = false;
+  }
+}
+
+function openImport() {
+  formError.value = '';
+  importOpen.value = true;
+  if (fileInput.value) fileInput.value.value = '';
+}
+
+async function importCsv(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  formError.value = '';
+  try {
+    const rows = parseCsv(await file.text());
+    if (!rows.length) throw new Error('CSV 文件没有可导入的数据');
+    const seen = new Set<string>();
+    if (activeView.value === 'people') {
+      const payloads = rows.map((row, index) => {
+        const personId = readCsvValue(row, '编号', '人员编号', 'personId');
+        const name = readCsvValue(row, '姓名', 'name');
+        if (!personId || !name) throw new Error(`第 ${index + 2} 行编号和姓名不能为空`);
+        if (seen.has(personId.toLowerCase())) throw new Error(`第 ${index + 2} 行人员编号重复`);
+        seen.add(personId.toLowerCase());
+        return { personId, name, departmentCode: readCsvValue(row, '部门编号', '部门', 'departmentCode') || null };
+      });
+      await Promise.all(payloads.map(createPersonnel));
+      feedback.value = `成功导入 ${payloads.length} 条人员记录`;
+    } else {
+      const payloads = rows.map((row, index) => {
+        const code = readCsvValue(row, '部门编号', '部门编号/ID', 'code');
+        const name = readCsvValue(row, '部门名称', 'name');
+        if (!code || !name) throw new Error(`第 ${index + 2} 行部门编号和名称不能为空`);
+        if (seen.has(code.toLowerCase())) throw new Error(`第 ${index + 2} 行部门编号重复`);
+        seen.add(code.toLowerCase());
+        return { code, name };
+      });
+      await Promise.all(payloads.map(createDepartment));
+      feedback.value = `成功导入 ${payloads.length} 条部门记录`;
+    }
+    importOpen.value = false;
+    await load();
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : '导入失败';
+  }
+}
+
+async function exportCsv() {
+  try {
+    const limit = exportAll.value ? Math.max(total.value, 1) : Math.max(1, exportCount.value);
+    if (activeView.value === 'people') {
+      const rows = (await fetchPersonnel({ page: 1, pageSize: limit })).records.slice(0, limit);
+      downloadCsv('人员信息.csv', ['编号', '姓名', '部门编号', '部门名称', '状态'], rows.map((item) => [
+        item.personId, item.personName || item.name, item.departmentCode ?? '', item.departmentName ?? '',
+        item.bindingStatus === 'bound' ? '已绑定设备' : '未绑定',
+      ]));
+    } else {
+      const rows = (await fetchDepartments({ page: 1, pageSize: limit })).records.slice(0, limit);
+      downloadCsv('部门信息.csv', ['部门编号', '部门名称', '部门人数'], rows.map((item) => [item.code, item.name, item.personnelCount]));
+    }
+    exportOpen.value = false;
+  } catch (error) {
+    feedback.value = error instanceof Error ? error.message : '导出失败';
+  }
+}
+
+onMounted(load);
 </script>
-
-<style scoped>
-.identity-page {
-  display: grid;
-  gap: 16px;
-}
-
-.identity-command,
-.summary-card,
-.binding-board,
-.insight-panel {
-  border: 1px solid rgba(118, 148, 212, 0.18);
-  border-radius: 8px;
-  background: rgba(14, 18, 29, 0.9);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-.identity-command {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 24px;
-  background:
-    linear-gradient(135deg, rgba(29, 45, 68, 0.96), rgba(14, 18, 29, 0.94)),
-    rgba(14, 18, 29, 0.9);
-}
-
-.command-copy {
-  min-width: 0;
-}
-
-.eyebrow,
-.identity-command p,
-.sync-card span,
-.sync-card small,
-.summary-card span,
-.summary-card small,
-.board-header span,
-.search-box,
-.binding-row small,
-.area-cell small,
-.selected-card p,
-.field-card span,
-.rule-card li {
-  color: rgba(224, 235, 255, 0.64);
-  font-size: 13px;
-}
-
-.eyebrow {
-  color: #91b8ff;
-  font-weight: 800;
-}
-
-.identity-command h2,
-.sync-card strong,
-.summary-card strong,
-.board-header h3,
-.binding-row strong,
-.selected-card h3,
-.link-line strong,
-.field-card h4,
-.field-card strong,
-.rule-card h4 {
-  color: #fff;
-}
-
-.identity-command h2 {
-  margin: 6px 0 0;
-  font-size: 28px;
-  letter-spacing: 0;
-}
-
-.identity-command p {
-  max-width: 780px;
-  margin: 9px 0 0;
-  line-height: 1.75;
-}
-
-.command-side {
-  display: grid;
-  justify-items: end;
-  gap: 12px;
-  min-width: 260px;
-}
-
-.sync-card {
-  display: grid;
-  gap: 5px;
-  width: 100%;
-  padding: 13px 14px;
-  border: 1px solid rgba(118, 148, 212, 0.16);
-  border-radius: 8px;
-  background: rgba(5, 9, 16, 0.34);
-}
-
-.sync-card strong {
-  font-size: 20px;
-}
-
-.command-actions,
-.board-actions,
-.segment-tabs {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.command-actions button,
-.board-actions button,
-.segment-tabs button,
-.binding-row button {
-  height: 34px;
-  padding: 0 14px;
-  border: 1px solid rgba(95, 137, 215, 0.36);
-  border-radius: 6px;
-  background: rgba(57, 95, 178, 0.28);
-  color: #fff;
-  cursor: pointer;
-  font-weight: 700;
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
-}
-
-.command-actions button:hover,
-.board-actions button:hover,
-.segment-tabs button:hover,
-.binding-row button:hover {
-  border-color: rgba(134, 170, 255, 0.64);
-  background: rgba(70, 111, 205, 0.38);
-  transform: translateY(-1px);
-}
-
-.command-actions button.secondary,
-.board-actions button,
-.segment-tabs button {
-  background: rgba(6, 10, 18, 0.34);
-  color: rgba(226, 237, 255, 0.84);
-}
-
-.segment-tabs button.active {
-  border-color: rgba(100, 181, 246, 0.5);
-  background: rgba(46, 112, 210, 0.34);
-  color: #fff;
-}
-
-.board-actions button.active {
-  border-color: rgba(100, 181, 246, 0.5);
-  background: rgba(46, 112, 210, 0.34);
-  color: #fff;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.summary-card {
-  position: relative;
-  display: grid;
-  gap: 8px;
-  min-height: 118px;
-  padding: 16px;
-  overflow: hidden;
-}
-
-.summary-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: var(--accent);
-}
-
-.summary-card.blue {
-  --accent: #70a5ff;
-}
-
-.summary-card.green {
-  --accent: #46e39c;
-}
-
-.summary-card.amber {
-  --accent: #ffcf75;
-}
-
-.summary-card.violet {
-  --accent: #b7a4ff;
-}
-
-.summary-card strong {
-  font-size: 31px;
-  line-height: 1;
-}
-
-.identity-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 16px;
-}
-
-.binding-board {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.board-header,
-.filter-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-}
-
-.board-header {
-  border-bottom: 1px solid rgba(118, 148, 212, 0.12);
-}
-
-.board-header h3 {
-  margin: 0 0 5px;
-  font-size: 18px;
-}
-
-.filter-strip {
-  border-bottom: 1px solid rgba(118, 148, 212, 0.1);
-  background: rgba(5, 9, 16, 0.2);
-}
-
-.search-box {
-  flex: 1;
-  min-width: 220px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  border: 1px solid rgba(118, 148, 212, 0.16);
-  border-radius: 6px;
-  background: rgba(6, 10, 18, 0.36);
-  color: rgba(224, 235, 255, 0.84);
-}
-
-.search-box::placeholder {
-  color: rgba(224, 235, 255, 0.46);
-}
-
-.binding-table {
-  min-width: 820px;
-  padding: 0 12px 12px;
-}
-
-.table-head,
-.binding-row {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(210px, 1fr) minmax(150px, 0.8fr) 92px 76px;
-  align-items: center;
-  gap: 14px;
-}
-
-.table-head {
-  padding: 12px 6px;
-  color: rgba(224, 235, 255, 0.46);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.binding-row {
-  min-height: 82px;
-  margin-bottom: 10px;
-  padding: 12px 14px;
-  border: 1px solid rgba(118, 148, 212, 0.12);
-  border-radius: 8px;
-  background: rgba(9, 14, 24, 0.5);
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
-}
-
-.binding-row:hover {
-  border-color: rgba(115, 151, 235, 0.34);
-  background: rgba(28, 42, 68, 0.52);
-  transform: translateY(-1px);
-}
-
-.binding-row.active {
-  border-color: rgba(100, 181, 246, 0.62);
-  background: rgba(46, 112, 210, 0.2);
-}
-
-.empty-state {
-  padding: 28px 12px 34px;
-  color: rgba(224, 235, 255, 0.56);
-  font-size: 13px;
-  text-align: center;
-}
-
-.person-cell {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.avatar {
-  display: inline-flex;
-  flex: 0 0 38px;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(74, 119, 220, 0.38), rgba(39, 213, 125, 0.16));
-  color: #f5f9ff;
-  font-weight: 900;
-}
-
-.person-cell strong,
-.device-cell strong,
-.area-cell strong {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 15px;
-}
-
-.battery-track {
-  width: 108px;
-  height: 5px;
-  margin-top: 8px;
-  border-radius: 999px;
-  background: rgba(118, 148, 212, 0.16);
-  overflow: hidden;
-}
-
-.battery-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #ffcf75, #46e39c);
-}
-
-.status-pill {
-  justify-self: start;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.status-pill.online {
-  color: #46e39c;
-  background: rgba(39, 213, 125, 0.14);
-}
-
-.status-pill.idle {
-  color: #c4d0e4;
-  background: rgba(113, 128, 160, 0.18);
-}
-
-.status-pill.warn {
-  color: #ffcf75;
-  background: rgba(255, 189, 91, 0.14);
-}
-
-.status-pill.offline {
-  color: #ff9a9a;
-  background: rgba(255, 103, 103, 0.12);
-}
-
-.insight-panel {
-  display: grid;
-  align-content: start;
-  gap: 14px;
-  padding: 16px;
-}
-
-.selected-card,
-.field-card,
-.rule-card {
-  border: 1px solid rgba(118, 148, 212, 0.14);
-  border-radius: 8px;
-  background: rgba(5, 9, 16, 0.3);
-}
-
-.selected-card {
-  display: grid;
-  gap: 9px;
-  padding: 16px;
-  background:
-    linear-gradient(180deg, rgba(39, 64, 102, 0.58), rgba(5, 9, 16, 0.34)),
-    rgba(5, 9, 16, 0.3);
-}
-
-.selected-card h3 {
-  margin: 0;
-  font-size: 24px;
-}
-
-.selected-card p {
-  margin: 0;
-}
-
-.link-line {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 9px 10px;
-  border-radius: 6px;
-  background: rgba(6, 10, 18, 0.42);
-  color: rgba(224, 235, 255, 0.6);
-  font-size: 12px;
-  text-align: center;
-}
-
-.field-card,
-.rule-card {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-}
-
-.field-card h4,
-.rule-card h4 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.field-card div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(118, 148, 212, 0.1);
-}
-
-.field-card div:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-
-.field-card strong {
-  font-size: 13px;
-  text-align: right;
-}
-
-.device-card {
-  border-color: rgba(74, 119, 220, 0.26);
-}
-
-.rule-card ul {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.rule-card li {
-  position: relative;
-  padding-left: 14px;
-  line-height: 1.5;
-}
-
-.rule-card li::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: #70a5ff;
-}
-
-.identity-page--light .identity-command,
-.identity-page--light .summary-card,
-.identity-page--light .binding-board,
-.identity-page--light .insight-panel {
-  border-color: rgba(78, 101, 140, 0.16);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 16px 36px rgba(38, 52, 82, 0.08);
-}
-
-.identity-page--light .identity-command {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 244, 252, 0.94));
-}
-
-.identity-page--light .identity-command h2,
-.identity-page--light .sync-card strong,
-.identity-page--light .summary-card strong,
-.identity-page--light .board-header h3,
-.identity-page--light .binding-row strong,
-.identity-page--light .selected-card h3,
-.identity-page--light .link-line strong,
-.identity-page--light .field-card h4,
-.identity-page--light .field-card strong,
-.identity-page--light .rule-card h4 {
-  color: #172033;
-}
-
-.identity-page--light .identity-command p,
-.identity-page--light .sync-card span,
-.identity-page--light .sync-card small,
-.identity-page--light .summary-card span,
-.identity-page--light .summary-card small,
-.identity-page--light .board-header span,
-.identity-page--light .search-box,
-.identity-page--light .binding-row small,
-.identity-page--light .area-cell small,
-.identity-page--light .selected-card p,
-.identity-page--light .field-card span,
-.identity-page--light .rule-card li {
-  color: rgba(52, 65, 89, 0.68);
-}
-
-.identity-page--light .sync-card,
-.identity-page--light .filter-strip,
-.identity-page--light .search-box,
-.identity-page--light .selected-card,
-.identity-page--light .field-card,
-.identity-page--light .rule-card,
-.identity-page--light .link-line {
-  border-color: rgba(78, 101, 140, 0.12);
-  background: rgba(246, 249, 253, 0.8);
-}
-
-.identity-page--light .table-head {
-  color: rgba(52, 65, 89, 0.58);
-}
-
-.identity-page--light .binding-row {
-  border-color: rgba(78, 101, 140, 0.12);
-  background: rgba(255, 255, 255, 0.76);
-}
-
-.identity-page--light .binding-row:hover {
-  background: rgba(62, 120, 255, 0.07);
-}
-
-.identity-page--light .binding-row.active {
-  border-color: rgba(37, 99, 235, 0.36);
-  background: rgba(37, 99, 235, 0.1);
-}
-
-.identity-page--light .empty-state {
-  color: rgba(52, 65, 89, 0.56);
-}
-
-.identity-page--light .field-card div {
-  border-color: rgba(78, 101, 140, 0.1);
-}
-
-.identity-page--light .avatar {
-  background: linear-gradient(135deg, rgba(62, 120, 255, 0.14), rgba(16, 185, 129, 0.12));
-  color: #1d4ed8;
-}
-
-.identity-page--light .command-actions button,
-.identity-page--light .board-actions button,
-.identity-page--light .segment-tabs button,
-.identity-page--light .binding-row button {
-  border-color: rgba(62, 120, 255, 0.32);
-  background: rgba(62, 120, 255, 0.1);
-  color: #1d4ed8;
-}
-
-.identity-page--light .segment-tabs button.active {
-  background: rgba(37, 99, 235, 0.14);
-}
-
-.identity-page--light .search-box {
-  color: #172033;
-}
-
-.identity-page--light .search-box::placeholder {
-  color: rgba(52, 65, 89, 0.44);
-}
-
-.identity-page--light .board-actions button.active {
-  background: rgba(37, 99, 235, 0.14);
-}
-
-@media (max-width: 1240px) {
-  .identity-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .binding-board {
-    overflow-x: auto;
-  }
-}
-
-@media (max-width: 980px) {
-  .identity-command,
-  .filter-strip,
-  .board-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .command-side {
-    justify-items: stretch;
-  }
-
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

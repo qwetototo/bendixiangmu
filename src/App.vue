@@ -3,7 +3,9 @@
 
   <main v-else :class="['admin-shell', `admin-shell--${themeMode}`]">
     <header class="admin-topbar" @mouseleave="closeMenu">
-      <button class="brand-button" type="button" @click="selectNav('home', 'overview')">deepfusion</button>
+      <button class="brand-button" type="button" @click="selectNav('home', 'overview')">
+        <img style="height: 60px;" src="@/assets/image/favicon.svg" alt="DeepFusion" />
+      </button>
       <nav class="primary-nav">
         <button
           v-for="section in navSections"
@@ -57,19 +59,31 @@
             <span>{{ currentSectionLabel }}</span>
             <h1>{{ currentPageTitle }}</h1>
           </div>
-          <button class="outline-action" type="button">
+          <button class="outline-action" type="button" @click="pageRefreshKey += 1">
             <ReloadOutlined />
             <span>{{ t('common.refresh') }}</span>
           </button>
         </div>
 
-        <HomeView v-if="activePageKey === 'home.overview'" @navigate="selectNav" />
-        <EventCenterView v-else-if="activePageKey === 'track.events'" :theme-mode="themeMode" />
-        <IdentityView v-else-if="activePageKey === 'identity.people-devices'" :theme-mode="themeMode" />
-        <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :theme-mode="themeMode" />
-        <ConfigView v-else :page-key="activeSubmenu" :edit-map-id="editingMapId" />
+        <HomeView v-if="activePageKey === 'home.overview'" :key="pageRefreshKey" @navigate="selectNav" />
+        <EventCenterView v-else-if="activePageKey === 'track.events'" :key="pageRefreshKey" :theme-mode="themeMode" />
+        <DeviceManagementView v-else-if="activePageKey === 'identity.devices'" :key="pageRefreshKey" :theme-mode="themeMode" />
+        <IdentityView v-else-if="activePageKey === 'identity.personnel'" :key="pageRefreshKey" :theme-mode="themeMode" />
+        <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :key="pageRefreshKey" :theme-mode="themeMode" />
+        <ConfigView v-else :key="pageRefreshKey" :page-key="activeSubmenu" :edit-map-id="editingMapId" />
       </section>
     </section>
+
+    <TransitionGroup name="sos-notice" tag="section" class="sos-notice-stack" aria-live="assertive">
+      <article v-for="notice in sosNotices" :key="notice.id" class="sos-notice">
+        <span class="sos-notice-icon">SOS</span>
+        <div>
+          <strong>设备紧急告警</strong>
+          <p>{{ notice.deviceId }} 已进入 SOS 状态<span v-if="notice.personId"> · 人员 {{ notice.personId }}</span></p>
+        </div>
+        <button type="button" aria-label="关闭通知" @click="removeSosNotice(notice.id)">×</button>
+      </article>
+    </TransitionGroup>
   </main>
 </template>
 
@@ -79,6 +93,7 @@ import { useI18n } from 'vue-i18n';
 import { BellOutlined, BgColorsOutlined, LogoutOutlined, ReloadOutlined } from '@ant-design/icons-vue';
 import BeaconDeviceView from '@/views/admin/BeaconDeviceView.vue';
 import ConfigView from '@/views/admin/ConfigView.vue';
+import DeviceManagementView from '@/views/admin/DeviceManagementView.vue';
 import EventCenterView from '@/views/admin/EventCenterView.vue';
 import HomeView from '@/views/admin/HomeView.vue';
 import IdentityView from '@/views/admin/IdentityView.vue';
@@ -86,6 +101,7 @@ import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
 import { useNavigation, type SectionKey } from '@/services/navigation';
 import { useLanguageStore } from '@/stores/language';
+import { fetchDevices, type DeviceStatus, type DeviceVO } from '@/services/adminApi';
 
 const { t, locale } = useI18n();
 const languageStore = useLanguageStore();
@@ -119,8 +135,10 @@ const routeAliases = new Map<string, StoredNavState>([
   ['/track', { section: 'track', submenu: 'live' }],
   ['/track/live', { section: 'track', submenu: 'live' }],
   ['/track/events', { section: 'track', submenu: 'events' }],
-  ['/identity', { section: 'identity', submenu: 'people-devices' }],
-  ['/identity/people-devices', { section: 'identity', submenu: 'people-devices' }],
+  ['/identity', { section: 'identity', submenu: 'devices' }],
+  ['/identity/devices', { section: 'identity', submenu: 'devices' }],
+  ['/identity/personnel', { section: 'identity', submenu: 'personnel' }],
+  ['/identity/people-devices', { section: 'identity', submenu: 'personnel' }],
   ['/identity/beacons', { section: 'identity', submenu: 'beacons' }],
   ['/config', { section: 'config', submenu: 'scene' }],
   ['/config/scene', { section: 'config', submenu: 'scene' }],
@@ -169,9 +187,14 @@ const activeSection = ref<SectionKey>(storedNavState.section && findNavSection(s
 const openedSection = ref<SectionKey | null>(null);
 const activeSubmenu = ref(storedNavState.submenu || getDefaultSubmenu(activeSection.value));
 const themeMode = ref<'dark' | 'light'>('light');
+const pageRefreshKey = ref(0);
 const navButtonRefs = new Map<SectionKey, HTMLElement>();
 const submenuLeft = ref(0);
 const submenuWidth = ref(0);
+const deviceStatuses = new Map<string, DeviceStatus>();
+const sosNotices = ref<Array<{ id: string; deviceId: string; personId?: string | null }>>([]);
+let devicePollingInitialized = false;
+let devicePollingTimer: number | undefined;
 
 const activeSubmenus = computed(() => {
   return openedSection.value ? findNavSection(openedSection.value)?.items ?? [] : [];
@@ -252,6 +275,43 @@ function handleLogout() {
   localStorage.removeItem(NAV_STORAGE_KEY);
 }
 
+function removeSosNotice(id: string) {
+  sosNotices.value = sosNotices.value.filter((notice) => notice.id !== id);
+}
+
+async function handleSosTransition(device: DeviceVO) {
+  const noticeId = `${device.deviceId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  sosNotices.value.push({ id: noticeId, deviceId: device.deviceId, personId: device.boundPersonId });
+  window.setTimeout(() => removeSosNotice(noticeId), 3000);
+}
+
+async function pollDeviceStatuses() {
+  if (!isAuthed.value) return;
+  try {
+    const page = await fetchDevices({ page: 1, pageSize: 10000 });
+    for (const device of page.records) {
+      const previous = deviceStatuses.get(device.deviceId);
+      if (devicePollingInitialized && previous !== 'SOS' && device.status === 'SOS') {
+        void handleSosTransition(device);
+      }
+      deviceStatuses.set(device.deviceId, device.status);
+    }
+    devicePollingInitialized = true;
+  } catch (error) {
+    console.error('设备 SOS 状态轮询失败', error);
+  }
+}
+
+function handleDeviceStatusEvent(event: Event) {
+  const detail = (event as CustomEvent<{ device: DeviceVO; previousStatus?: DeviceStatus }>).detail;
+  if (!detail?.device) return;
+  const previous = detail.previousStatus ?? deviceStatuses.get(detail.device.deviceId);
+  deviceStatuses.set(detail.device.deviceId, detail.device.status);
+  if (previous !== 'SOS' && detail.device.status === 'SOS') {
+    void handleSosTransition(detail.device);
+  }
+}
+
 function getPathForNav(sectionKey: SectionKey, submenuKey: string) {
   if (sectionKey === 'home') {
     return '/home/overview';
@@ -313,10 +373,15 @@ watch(
 onMounted(() => {
   syncNavFromRoute();
   window.addEventListener('popstate', syncNavFromRoute);
+  window.addEventListener('twintrack:device-status', handleDeviceStatusEvent);
+  void pollDeviceStatuses();
+  devicePollingTimer = window.setInterval(pollDeviceStatuses, 5000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('popstate', syncNavFromRoute);
+  window.removeEventListener('twintrack:device-status', handleDeviceStatusEvent);
+  if (devicePollingTimer) window.clearInterval(devicePollingTimer);
 });
 </script>
 
@@ -813,6 +878,81 @@ onUnmounted(() => {
 .admin-shell--light :deep(.data-row > small.offline) {
   color: #2563eb;
   background: rgba(37, 99, 235, 0.1);
+}
+
+.sos-notice-stack {
+  position: fixed;
+  z-index: 1500;
+  top: 84px;
+  right: 18px;
+  display: grid;
+  width: min(390px, calc(100vw - 36px));
+  gap: 10px;
+  pointer-events: none;
+}
+
+.sos-notice {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid rgba(255, 112, 112, 0.45);
+  border-radius: 10px;
+  background: rgba(43, 12, 18, 0.97);
+  color: #fff;
+  box-shadow: 0 18px 42px rgba(41, 5, 12, 0.34);
+  pointer-events: auto;
+}
+
+.sos-notice-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 34px;
+  border-radius: 7px;
+  background: #dc2626;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.sos-notice strong {
+  font-size: 14px;
+}
+
+.sos-notice p {
+  margin: 4px 0 0;
+  color: rgba(255, 235, 238, 0.76);
+  font-size: 12px;
+}
+
+.sos-notice button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.sos-notice-enter-active,
+.sos-notice-leave-active,
+.sos-notice-move {
+  transition: opacity 280ms ease, transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sos-notice-enter-from,
+.sos-notice-leave-to {
+  opacity: 0;
+  transform: translateX(110%);
+}
+
+.sos-notice-leave-active {
+  position: absolute;
+  width: 100%;
 }
 
 @keyframes dropdown {

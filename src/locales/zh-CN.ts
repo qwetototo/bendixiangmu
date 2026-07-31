@@ -1,6 +1,7 @@
 export default {
   siteTitle: '3D 孪生平台',
   common: {
+    maintain: '维护',
     save: '保存',
     cancel: '取消',
     confirm: '确定',
@@ -41,10 +42,12 @@ export default {
     eventCenter: '事件中心',
     eventCenterDesc: '集中处理告警事件、筛选与操作记录',
     personDevice: '人员设备中心',
-    personDeviceMgmt: '人员设备管理',
-    personDeviceMgmtDesc: '一人一设备绑定关系与在线状态',
+    deviceMgmt: '定位设备管理',
+    deviceMgmtDesc: '定位设备台账、人员绑定与运行状态',
+    personnelMgmt: '人员信息管理',
+    personnelMgmtDesc: '人员档案、设备绑定状态与部门信息',
     beaconMgmt: '信标设备管理',
-    beaconMgmtDesc: '信标设备库存、区域与运行状态',
+    beaconMgmtDesc: '信标设备坐标、电量与运行状态',
     configCenter: '配置中心',
     sceneConfig: '场景配置',
     sceneConfigDesc: '区域、围栏、楼层与模型配置',

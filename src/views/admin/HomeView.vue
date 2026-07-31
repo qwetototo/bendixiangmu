@@ -43,9 +43,9 @@
         <div class="activity-list">
           <div
             v-for="event in events"
-            :key="event.time"
-            :class="{ active: selectedEventTime === event.time }"
-            @click="selectedEventTime = event.time"
+            :key="event.id"
+            :class="{ active: selectedEventTime === event.id }"
+            @click="selectedEventTime = event.id"
           >
             <time>{{ event.time }}</time>
             <span>{{ event.content }}</span>
@@ -54,7 +54,7 @@
         </div>
         <div class="activity-detail">
           <span>{{ t('home.currentEvents') }}</span>
-          <strong>{{ selectedEvent.content }}</strong>
+          <strong>{{ selectedEvent?.content || '--' }}</strong>
         </div>
       </article>
 
@@ -76,9 +76,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useNavigation, type SectionKey } from '@/services/navigation';
+import { fetchAlertEvents, fetchDashboardSummary, type DashboardSummaryVO } from '@/services/adminApi';
 
 const { t, tm } = useI18n();
 const { guideItems } = useNavigation();
@@ -87,11 +88,13 @@ defineEmits<{
   navigate: [sectionKey: SectionKey, submenuKey: string];
 }>();
 
+const dashboard = ref<DashboardSummaryVO | null>(null);
+
 const summaryMetrics = computed(() => [
-  { label: t('home.onlinePersonnel'), value: '112', trend: '+8 较昨日', trendType: 'up' },
-  { label: t('home.boundDevices'), value: '156', trend: '96% 可用', trendType: 'normal' },
-  { label: t('home.todayTrajectories'), value: '2,438', trend: '+12.4%', trendType: 'up' },
-  { label: t('home.unresolvedAlerts'), value: '7', trend: '3 项高优先级', trendType: 'warn' },
+  { label: t('home.onlinePersonnel'), value: String(dashboard.value?.activePersonnel ?? '--'), trend: `${dashboard.value?.totalPersonnel ?? '--'} ${t('identity.totalPersonnel')}`, trendType: 'up' },
+  { label: t('home.boundDevices'), value: String(dashboard.value?.onlineDevices ?? '--'), trend: `${dashboard.value?.lowBatteryDevices ?? '--'} ${t('identity.lowBattery')}`, trendType: 'normal' },
+  { label: t('home.todayTrajectories'), value: '--', trend: t('home.trajectoryArchive'), trendType: 'up' },
+  { label: t('home.unresolvedAlerts'), value: String(dashboard.value?.pendingAlertCount ?? '--'), trend: `${dashboard.value?.processingAlertCount ?? '--'} ${t('events.statusProcessing')}`, trendType: 'warn' },
 ]);
 
 const statusItems = computed(() => [
@@ -101,24 +104,52 @@ const statusItems = computed(() => [
   { label: t('home.dataRetention'), value: '30天' },
 ]);
 
-const events = [
-  { time: '10:42:31', content: 'TAG-10086 进入办公区 A', level: 'info', levelText: '记录' },
-  { time: '10:39:12', content: '会议室 2 出现人员聚集', level: 'warn', levelText: '关注' },
-  { time: '10:31:08', content: 'TAG-10042 电量低于 20%', level: 'alarm', levelText: '告警' },
-  { time: '10:28:44', content: '访客 A 离开授权区域', level: 'warn', levelText: '越界' },
-];
+interface ActivityEvent {
+  id: string;
+  time: string;
+  content: string;
+  level: 'info' | 'warn' | 'alarm';
+  levelText: string;
+}
+
+const events = ref<ActivityEvent[]>([]);
 
 const tasks = computed<string[]>(() => tm('home.tasks') as string[]);
 
-const selectedEventTime = ref(events[0]?.time ?? '');
+const selectedEventTime = ref('');
 const completedTasks = ref<string[]>([]);
 
 const selectedEvent = computed(() => {
-  return events.find((event) => event.time === selectedEventTime.value) ?? events[0];
+  return events.value.find((event) => event.id === selectedEventTime.value) ?? events.value[0];
 });
 
 const completedTaskCount = computed(() => completedTasks.value.length);
 const taskProgress = computed(() => Math.round((completedTaskCount.value / tasks.value.length) * 100));
+
+onMounted(async () => {
+  try {
+    const [summary, page] = await Promise.all([
+      fetchDashboardSummary(),
+      fetchAlertEvents({ page: 1, pageSize: 4 }),
+    ]);
+    dashboard.value = summary;
+    events.value = page.records.map((event) => ({
+      id: event.eventId,
+      time: formatEventTime(event.occurredAt),
+      content: event.title,
+      level: event.alertLevel === 'normal' ? 'info' : event.alertLevel,
+      levelText: event.alertLevel === 'alarm' ? '告警' : event.alertLevel === 'warn' ? '关注' : '记录',
+    }));
+    selectedEventTime.value = events.value[0]?.id ?? '';
+  } catch {
+    // 首页其他模块不依赖接口数据；请求失败时保持空状态，避免展示过期模拟数据。
+  }
+});
+
+function formatEventTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 </script>
 
 <style scoped>

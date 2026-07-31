@@ -31,6 +31,7 @@
               <option value="聚集">{{ t('events.typeGather') }}</option>
               <option value="低电量">{{ t('events.typeLowBattery') }}</option>
               <option value="离线">{{ t('events.typeOffline') }}</option>
+              <option value="SOS 紧急告警">SOS 紧急告警</option>
             </select>
           </label>
           <label>
@@ -93,8 +94,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { fetchAlertEvents, updateAlertEvent, type AlertEventVO } from '@/services/adminApi';
 
 const { t } = useI18n();
 
@@ -124,31 +126,65 @@ interface EventRow {
   remark: string;
 }
 
-const events = reactive<EventRow[]>([
-  { id: 'E-1028', title: '访客 A 离开授权区域', area: '会议区', device: 'TAG-10021', time: '10:48:12', type: '越界', level: 'alarm', levelText: '高', status: '待处理', statusTone: 'open', remark: '等待安保复核' },
-  { id: 'E-1027', title: '会议室 2 出现人员聚集', area: '会议区', device: 'AREA-Meeting-02', time: '10:39:12', type: '聚集', level: 'warn', levelText: '中', status: '处理中', statusTone: 'running', remark: '已通知现场管理员' },
-  { id: 'E-1026', title: 'TAG-10042 电量低于 20%', area: '办公区 A', device: 'TAG-10042', time: '10:31:08', type: '低电量', level: 'warn', levelText: '中', status: '待处理', statusTone: 'open', remark: '待更换标签电池' },
-  { id: 'E-1025', title: 'TAG-10003 超过 3 分钟未上报', area: '实验区', device: 'TAG-10003', time: '10:18:44', type: '离线', level: 'normal', levelText: '低', status: '已关闭', statusTone: 'done', remark: '设备已恢复上报' },
-]);
+const eventTypeLabel: Record<AlertEventVO['eventType'], string> = {
+  crossing: '越界',
+  gather: '聚集',
+  low_battery: '低电量',
+  offline: '离线',
+  sos: 'SOS 紧急告警',
+};
 
-const selectedEventId = ref(events[0]?.id ?? '');
+const eventStatusLabel: Record<AlertEventVO['status'], string> = {
+  pending: '待处理',
+  processing: '处理中',
+  closed: '已关闭',
+};
+
+const eventStatusTone: Record<AlertEventVO['status'], EventStatusTone> = {
+  pending: 'open',
+  processing: 'running',
+  closed: 'done',
+};
+
+const eventLevelLabel: Record<AlertEventVO['alertLevel'], string> = {
+  alarm: '高',
+  warn: '中',
+  normal: '低',
+};
+
+const eventSource = ref<AlertEventVO[]>([]);
+const events = computed<EventRow[]>(() => eventSource.value.map((event) => ({
+  id: event.eventId,
+  title: event.title,
+  area: event.area || '--',
+  device: event.deviceId || '--',
+  time: formatEventTime(event.occurredAt),
+  type: eventTypeLabel[event.eventType],
+  level: event.alertLevel,
+  levelText: eventLevelLabel[event.alertLevel],
+  status: eventStatusLabel[event.status],
+  statusTone: eventStatusTone[event.status],
+  remark: event.remark || '--',
+})));
+
+const selectedEventId = ref('');
 const toastMessage = ref('');
 
 const eventStats = computed(() => [
-  { label: t('events.todayEvents'), value: '42', note: '较昨日 +6' },
-  { label: t('events.pending'), value: '7', note: t('events.highPriority') + ' 3 项' },
-  { label: t('events.processing'), value: '12', note: t('events.avgMinutes', { min: 18 }) },
-  { label: t('events.closed'), value: '23', note: t('events.closureRate', { rate: 84 }) },
+  { label: t('events.todayEvents'), value: String(events.value.length), note: '当前筛选结果' },
+  { label: t('events.pending'), value: String(eventSource.value.filter((event) => event.status === 'pending').length), note: t('events.highPriority') },
+  { label: t('events.processing'), value: String(eventSource.value.filter((event) => event.status === 'processing').length), note: t('events.avgMinutes', { min: 18 }) },
+  { label: t('events.closed'), value: String(eventSource.value.filter((event) => event.status === 'closed').length), note: t('events.closureRate', { rate: 84 }) },
 ]);
 
-const filteredEvents = computed(() => events.filter((event) => {
+const filteredEvents = computed(() => events.value.filter((event) => {
   const typeMatched = filters.type === 'all' || event.type === filters.type;
   const statusMatched = filters.status === 'all' || event.status === filters.status;
   return typeMatched && statusMatched;
 }));
 
 const selectedEvent = computed(() => {
-  return filteredEvents.value.find((event) => event.id === selectedEventId.value) ?? filteredEvents.value[0] ?? events[0];
+  return filteredEvents.value.find((event) => event.id === selectedEventId.value) ?? filteredEvents.value[0] ?? events.value[0];
 });
 
 const detailItems = computed(() => [
@@ -159,33 +195,59 @@ const detailItems = computed(() => [
   { label: t('common.remark'), value: selectedEvent.value?.remark ?? '-' },
 ]);
 
-function addRemark(eventId: string) {
-  const event = events.find((item) => item.id === eventId);
+async function addRemark(eventId: string) {
+  const event = eventSource.value.find((item) => item.eventId === eventId);
   if (!event) {
     return;
   }
 
   selectedEventId.value = eventId;
-  event.remark = event.remark === '已追加备注' ? '等待进一步复核' : '已追加备注';
-  toastMessage.value = t('events.remarkUpdated', { id: event.id });
+  try {
+    const remark = event.remark === '已追加备注' ? '等待进一步复核' : '已追加备注';
+    const updated = await updateAlertEvent(eventId, { remark });
+    replaceEvent(updated);
+    toastMessage.value = t('events.remarkUpdated', { id: eventId });
+  } catch (error) {
+    toastMessage.value = error instanceof Error ? error.message : '更新备注失败';
+  }
 }
 
-function processEvent(eventId: string) {
-  const event = events.find((item) => item.id === eventId);
+async function processEvent(eventId: string) {
+  const event = eventSource.value.find((item) => item.eventId === eventId);
   if (!event) {
     return;
   }
 
   selectedEventId.value = eventId;
-  if (event.statusTone === 'open') {
-    event.status = t('events.statusProcessing');
-    event.statusTone = 'running';
-  } else {
-    event.status = t('events.statusClosed');
-    event.statusTone = 'done';
+  try {
+    const status = event.status === 'pending' ? 'processing' : 'closed';
+    const updated = await updateAlertEvent(eventId, { status });
+    replaceEvent(updated);
+    toastMessage.value = t('events.statusUpdated', { id: eventId, status: eventStatusLabel[updated.status] });
+  } catch (error) {
+    toastMessage.value = error instanceof Error ? error.message : '更新事件失败';
   }
-  toastMessage.value = t('events.statusUpdated', { id: event.id, status: event.status });
 }
+
+function formatEventTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function replaceEvent(updated: AlertEventVO) {
+  const index = eventSource.value.findIndex((event) => event.eventId === updated.eventId);
+  if (index >= 0) eventSource.value.splice(index, 1, updated);
+}
+
+onMounted(async () => {
+  try {
+    const page = await fetchAlertEvents({ page: 1, pageSize: 100 });
+    eventSource.value = page.records;
+    selectedEventId.value = page.records[0]?.eventId ?? '';
+  } catch (error) {
+    toastMessage.value = error instanceof Error ? error.message : '加载事件失败';
+  }
+});
 
 function createTicket() {
   if (!selectedEvent.value) {

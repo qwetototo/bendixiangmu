@@ -42,10 +42,13 @@ async function handleResponse<T>(response: Response, errorLabel: string): Promis
     throw new Error((body.message as string) || `${errorLabel}: 请求失败 (${response.status})`);
   }
 
-  // Backend wraps all responses in { data: ..., message, status } envelope.
-  // Unwrap so callers get the actual payload directly.
-  const payload = 'data' in body ? body.data : body;
-  return payload as T;
+  // Backend wraps every response in Result<T>. HTTP 2xx alone does not mean
+  // that the business operation succeeded, so validate the envelope status.
+  if (body.status !== 200) {
+    throw new Error((body.message as string) || `${errorLabel}: 请求失败`);
+  }
+
+  return body.data as T;
 }
 
 /* ------------------------------------------------------------------ */

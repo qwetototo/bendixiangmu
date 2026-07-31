@@ -51,7 +51,8 @@ export function useNavigation() {
       label: t('nav.personDevice'),
       icon: TeamOutlined,
       items: [
-        { key: 'people-devices', label: t('nav.personDeviceMgmt'), description: t('nav.personDeviceMgmtDesc') },
+        { key: 'devices', label: t('nav.deviceMgmt'), description: t('nav.deviceMgmtDesc') },
+        { key: 'personnel', label: t('nav.personnelMgmt'), description: t('nav.personnelMgmtDesc') },
         { key: 'beacons', label: t('nav.beaconMgmt'), description: t('nav.beaconMgmtDesc') },
       ],
     },

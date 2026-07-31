@@ -1,6 +1,7 @@
 export default {
   siteTitle: '3D Twin Platform',
   common: {
+    maintain: 'maintain',
     save: 'Save',
     cancel: 'Cancel',
     confirm: 'Confirm',
@@ -41,10 +42,12 @@ export default {
     eventCenter: 'Event Center',
     eventCenterDesc: 'Manage alerts, filtering & action history',
     personDevice: 'Personnel & Devices',
-    personDeviceMgmt: 'Person-Device Binding',
-    personDeviceMgmtDesc: 'One-to-one device binding & online status',
+    deviceMgmt: 'Location Devices',
+    deviceMgmtDesc: 'Location device inventory, personnel binding & status',
+    personnelMgmt: 'Personnel Information',
+    personnelMgmtDesc: 'Personnel records, binding status & departments',
     beaconMgmt: 'Beacon Management',
-    beaconMgmtDesc: 'Beacon inventory, zones & operational status',
+    beaconMgmtDesc: 'Beacon coordinates, battery & operational status',
     configCenter: 'Configuration',
     sceneConfig: 'Scene Config',
     sceneConfigDesc: 'Areas, fences, floors & model configuration',

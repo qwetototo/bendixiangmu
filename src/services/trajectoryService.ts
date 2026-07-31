@@ -27,6 +27,8 @@ interface TrajectoryPointVO {
 }
 
 interface TrajectoryResponseVO {
+  status?: number;
+  message?: string;
   data?: TrajectoryPointVO[];
 }
 
@@ -36,7 +38,7 @@ const STORED_THETA_SCALE = 1000;
 
 export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<TrajectoryReplayPoint[]> {
   const endpoint = import.meta.env.VITE_TRAJECTORY_API_URL?.trim() || DEFAULT_TRAJECTORY_API_URL;
-  const response = await axios.get<TrajectoryPointVO[] | TrajectoryResponseVO>(endpoint, {
+  const response = await axios.get<TrajectoryResponseVO>(endpoint, {
     params: {
       deviceId: query.deviceId || undefined,
       startTime: query.startTime,
@@ -45,7 +47,11 @@ export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<Tra
     },
   });
 
-  const points = Array.isArray(response.data) ? response.data : response.data.data ?? [];
+  if (response.data.status !== 200) {
+    throw new Error(response.data.message || '获取轨迹数据失败');
+  }
+
+  const points = response.data.data ?? [];
 
   return points
     .map(normalizeTrajectoryPoint)
