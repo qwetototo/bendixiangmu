@@ -89,15 +89,15 @@
       </div>
 
       <div class="map-controls">
-        <button type="button" :title="t('dashboard.compass')" @click="twinScene?.setCameraView('overview')">
+        <button type="button" :title="t('dashboard.compass')" @click="setCameraMode('overview')">
           <CompassOutlined />
         </button>
         <button type="button" :title="t('dashboard.top2D')" @click="setCameraMode('top')">2D</button>
         <div class="zoom-box">
-          <button type="button" :title="t('dashboard.zoomIn')" @click="twinScene?.zoom(1)">
+          <button type="button" :title="t('dashboard.zoomIn')" @click="zoomScene(1)">
             <PlusOutlined />
           </button>
-          <button type="button" :title="t('dashboard.zoomOut')" @click="twinScene?.zoom(-1)">
+          <button type="button" :title="t('dashboard.zoomOut')" @click="zoomScene(-1)">
             <MinusOutlined />
           </button>
         </div>
@@ -116,14 +116,14 @@
           <HeatMapOutlined />
           <span>{{ t('dashboard.heatmap') }}</span>
         </button>
-        <button type="button" :class="{ active: fencesVisible }" @click="fencesVisible = !fencesVisible; twinScene?.toggleFences(fencesVisible)">
+        <button type="button" :class="{ active: fencesVisible }" @click="toggleFences">
           <BorderOuterOutlined />
           <span>{{ t('dashboard.fence') }}</span>
         </button>
         <button
           type="button"
           :class="{ active: livePoseLabelsVisible }"
-          @click="livePoseLabelsVisible = !livePoseLabelsVisible; twinScene?.toggleLivePoseLabels(livePoseLabelsVisible)"
+          @click="toggleLivePoseLabels"
         >
           <TagsOutlined />
           <span>{{ t('dashboard.poseLabels') }}</span>
@@ -131,7 +131,7 @@
         <button
           type="button"
           :class="{ active: trailsVisible }"
-          @click="trailsVisible = !trailsVisible; twinScene?.setTrailsVisible(trailsVisible)"
+          @click="toggleTrails"
         >
           <DeploymentUnitOutlined />
           <span>{{ t('dashboard.trailDisplay') }}</span>
@@ -438,10 +438,16 @@ const filteredDeviceOptions = computed(() => {
   if (!keyword) return deviceOptions.value;
   return deviceOptions.value.filter((device) => device.toLowerCase().includes(keyword));
 });
-const replayDeviceOptions = computed(() => [
-  { label: t('dashboard.allDevices'), value: ALL_REPLAY_DEVICES },
-  ...deviceOptions.value.map((device) => ({ label: device, value: device })),
-]);
+const replayDeviceOptions = computed(() => {
+  const historyDeviceIds = replayPoints.value.map((point) => point.deviceId);
+  if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
+    historyDeviceIds.push(selectedReplayDevice.value);
+  }
+  return [
+    { label: t('dashboard.allDevices'), value: ALL_REPLAY_DEVICES },
+    ...[...new Set(historyDeviceIds)].map((deviceId) => ({ label: deviceId, value: deviceId })),
+  ];
+});
 const activeSavedMap = computed<SavedMap | null>(() => {
   sceneStore.activeMapId;
   return getMapLibrary().find((map) => map.id === sceneStore.activeMapId) ?? null;
@@ -770,6 +776,25 @@ function resizeAreaChart() {
 
 function applyCameraMode() {
   twinScene?.setCameraView(cameraMode.value);
+}
+
+function zoomScene(delta: number) {
+  twinScene?.zoom(delta);
+}
+
+function toggleFences() {
+  fencesVisible.value = !fencesVisible.value;
+  twinScene?.toggleFences(fencesVisible.value);
+}
+
+function toggleLivePoseLabels() {
+  livePoseLabelsVisible.value = !livePoseLabelsVisible.value;
+  twinScene?.toggleLivePoseLabels(livePoseLabelsVisible.value);
+}
+
+function toggleTrails() {
+  trailsVisible.value = !trailsVisible.value;
+  twinScene?.setTrailsVisible(trailsVisible.value);
 }
 
 function applyViewMode() {
@@ -1518,10 +1543,15 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
     const devicePoints = replayTracks.get(deviceId) ?? [];
     twinScene?.setDevicePath(deviceId, devicePoints);
   });
+  if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
+    // 实时监控可能保留空的设备筛选集合；全部回放必须显式解除该过滤。
+    twinScene?.setVisibleLivePoses(null);
+  } else {
+    twinScene?.setVisibleLivePoses([selectedReplayDevice.value]);
+  }
   setReplayIndex(0);
   if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
     twinScene?.focusLivePose(selectedReplayDevice.value);
-    twinScene?.setVisibleLivePoses([selectedReplayDevice.value]);
   }
   if (autoPlay) {
     replayPlaying.value = true;

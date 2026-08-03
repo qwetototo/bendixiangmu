@@ -38,9 +38,10 @@
             <span>{{ t('events.processStatus') }}</span>
             <select v-model="filters.status">
               <option value="all">{{ t('events.allStatus') }}</option>
-              <option value="待处理">{{ t('events.statusPending') }}</option>
+              <option value="未解决">未解决</option>
               <option value="处理中">{{ t('events.statusProcessing') }}</option>
-              <option value="已关闭">{{ t('events.statusClosed') }}</option>
+              <option value="已解决">已解决</option>
+              <option value="已忽略">已忽略</option>
             </select>
           </label>
         </div>
@@ -52,6 +53,7 @@
             <span>{{ t('events.type') }}</span>
             <span>{{ t('events.level') }}</span>
             <span>{{ t('events.status') }}</span>
+            <span>最后处理时间</span>
             <span>{{ t('events.action') }}</span>
           </div>
 
@@ -69,10 +71,9 @@
             <span>{{ event.type }}</span>
             <small :class="['level-pill', event.level]">{{ event.levelText }}</small>
             <small :class="['status-pill', event.statusTone]">{{ event.status }}</small>
+            <span class="processed-time">{{ event.processedAt }}</span>
             <div class="row-actions">
-              <button type="button" @click.stop="addRemark(event.id)">{{ t('common.remark') }}</button>
-              <button type="button" @click.stop="selectedEventId = event.id">{{ t('common.detail') }}</button>
-              <button type="button" @click.stop="processEvent(event.id)">{{ t('common.process') }}</button>
+              <button type="button" @click.stop="openProcessDialog(event.id)">{{ t('common.process') }}</button>
             </div>
           </article>
 
@@ -86,16 +87,45 @@
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
         </div>
-        <button type="button" @click="createTicket">{{ t('events.createTicket') }}</button>
         <small v-if="toastMessage" class="toast-line">{{ toastMessage }}</small>
       </aside>
     </section>
+
+    <BaseModal :open="processingEventId !== ''" title="处理告警" eyebrow="更新处置结果" :theme-mode="themeMode" @close="closeProcessDialog">
+      <div class="process-form">
+        <label>处理状态
+          <select v-model="processForm.status">
+            <option value="pending">未解决</option>
+            <option value="processing">处理中</option>
+            <option value="closed">已解决</option>
+            <option value="ignored">已忽略</option>
+          </select>
+        </label>
+        <label>报警等级
+          <select v-model="processForm.alertLevel">
+            <option value="alarm">高</option>
+            <option value="warn">中</option>
+            <option value="normal">低</option>
+          </select>
+        </label>
+        <label class="process-form__remark">处置备注
+          <textarea v-model.trim="processForm.remark" maxlength="500" placeholder="填写处理过程、结果或交接说明" />
+        </label>
+      </div>
+      <template #footer>
+        <button type="button" :disabled="processingSaving" @click="closeProcessDialog">取消</button>
+        <button class="primary" type="button" :disabled="processingSaving" @click="saveProcessDialog">
+          {{ processingSaving ? '保存中…' : '保存处理结果' }}
+        </button>
+      </template>
+    </BaseModal>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import BaseModal from '@/components/BaseModal.vue';
 import { fetchAlertEvents, updateAlertEvent, type AlertEventVO } from '@/services/adminApi';
 
 const { t } = useI18n();
@@ -110,7 +140,7 @@ const filters = reactive({
   status: 'all',
 });
 
-type EventStatusTone = 'open' | 'running' | 'done';
+type EventStatusTone = 'open' | 'running' | 'done' | 'ignored';
 
 interface EventRow {
   id: string;
@@ -124,6 +154,7 @@ interface EventRow {
   status: string;
   statusTone: EventStatusTone;
   remark: string;
+  processedAt: string;
 }
 
 const eventTypeLabel: Record<AlertEventVO['eventType'], string> = {
@@ -135,15 +166,17 @@ const eventTypeLabel: Record<AlertEventVO['eventType'], string> = {
 };
 
 const eventStatusLabel: Record<AlertEventVO['status'], string> = {
-  pending: '待处理',
+  pending: '未解决',
   processing: '处理中',
-  closed: '已关闭',
+  closed: '已解决',
+  ignored: '已忽略',
 };
 
 const eventStatusTone: Record<AlertEventVO['status'], EventStatusTone> = {
   pending: 'open',
   processing: 'running',
   closed: 'done',
+  ignored: 'ignored',
 };
 
 const eventLevelLabel: Record<AlertEventVO['alertLevel'], string> = {
@@ -165,10 +198,18 @@ const events = computed<EventRow[]>(() => eventSource.value.map((event) => ({
   status: eventStatusLabel[event.status],
   statusTone: eventStatusTone[event.status],
   remark: event.remark || '--',
+  processedAt: event.processedAt ? formatEventDateTime(event.processedAt) : '未处理',
 })));
 
 const selectedEventId = ref('');
 const toastMessage = ref('');
+const processingEventId = ref('');
+const processingSaving = ref(false);
+const processForm = reactive({
+  status: 'pending' as AlertEventVO['status'],
+  alertLevel: 'warn' as AlertEventVO['alertLevel'],
+  remark: '',
+});
 
 const eventStats = computed(() => [
   { label: t('events.todayEvents'), value: String(events.value.length), note: '当前筛选结果' },
@@ -192,46 +233,49 @@ const detailItems = computed(() => [
   { label: t('events.eventLocation'), value: selectedEvent.value?.area ?? '-' },
   { label: t('events.associatedDevice'), value: selectedEvent.value?.device ?? '-' },
   { label: t('events.processStatus'), value: selectedEvent.value?.status ?? '-' },
+  { label: '最后处理时间', value: selectedEvent.value?.processedAt ?? '-' },
   { label: t('common.remark'), value: selectedEvent.value?.remark ?? '-' },
 ]);
 
-async function addRemark(eventId: string) {
+function openProcessDialog(eventId: string) {
   const event = eventSource.value.find((item) => item.eventId === eventId);
-  if (!event) {
-    return;
-  }
-
+  if (!event) return;
   selectedEventId.value = eventId;
-  try {
-    const remark = event.remark === '已追加备注' ? '等待进一步复核' : '已追加备注';
-    const updated = await updateAlertEvent(eventId, { remark });
-    replaceEvent(updated);
-    toastMessage.value = t('events.remarkUpdated', { id: eventId });
-  } catch (error) {
-    toastMessage.value = error instanceof Error ? error.message : '更新备注失败';
-  }
+  processingEventId.value = eventId;
+  processForm.status = event.status;
+  processForm.alertLevel = event.alertLevel;
+  processForm.remark = event.remark ?? '';
 }
 
-async function processEvent(eventId: string) {
-  const event = eventSource.value.find((item) => item.eventId === eventId);
-  if (!event) {
-    return;
-  }
+function closeProcessDialog() {
+  if (!processingSaving.value) processingEventId.value = '';
+}
 
-  selectedEventId.value = eventId;
+async function saveProcessDialog() {
+  if (!processingEventId.value) return;
+  processingSaving.value = true;
   try {
-    const status = event.status === 'pending' ? 'processing' : 'closed';
-    const updated = await updateAlertEvent(eventId, { status });
+    const updated = await updateAlertEvent(processingEventId.value, { ...processForm });
     replaceEvent(updated);
-    toastMessage.value = t('events.statusUpdated', { id: eventId, status: eventStatusLabel[updated.status] });
+    toastMessage.value = `告警 ${updated.eventId} 已更新为${eventStatusLabel[updated.status]}`;
+    processingEventId.value = '';
   } catch (error) {
     toastMessage.value = error instanceof Error ? error.message : '更新事件失败';
+  } finally {
+    processingSaving.value = false;
   }
 }
 
 function formatEventTime(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatEventDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function replaceEvent(updated: AlertEventVO) {
@@ -241,7 +285,7 @@ function replaceEvent(updated: AlertEventVO) {
 
 onMounted(async () => {
   try {
-    const page = await fetchAlertEvents({ page: 1, pageSize: 100 });
+    const page = await fetchAlertEvents({ page: 1, pageSize: 20 });
     eventSource.value = page.records;
     selectedEventId.value = page.records[0]?.eventId ?? '';
   } catch (error) {
@@ -249,13 +293,6 @@ onMounted(async () => {
   }
 });
 
-function createTicket() {
-  if (!selectedEvent.value) {
-    return;
-  }
-
-  toastMessage.value = t('events.ticketCreated', { id: selectedEvent.value.id });
-}
 </script>
 
 <style scoped>
@@ -371,14 +408,14 @@ function createTicket() {
 }
 
 .event-table {
-  min-width: 960px;
+  min-width: 1100px;
   padding: 0 12px 12px;
 }
 
 .event-table-head,
 .event-table article {
   display: grid;
-  grid-template-columns: minmax(260px, 1.4fr) 120px 86px 72px 86px 190px;
+  grid-template-columns: minmax(240px, 1.35fr) 96px 82px 64px 78px 142px 76px;
   align-items: center;
   gap: 14px;
 }
@@ -412,6 +449,11 @@ function createTicket() {
   display: block;
 }
 
+.processed-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .level-pill,
 .status-pill {
   justify-self: start;
@@ -438,6 +480,11 @@ function createTicket() {
   background: rgba(39, 213, 125, 0.14);
 }
 
+.status-pill.ignored {
+  color: #aeb9ce;
+  background: rgba(174, 185, 206, 0.14);
+}
+
 .row-actions {
   display: flex;
   gap: 8px;
@@ -456,6 +503,46 @@ function createTicket() {
   gap: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid rgba(118, 148, 212, 0.12);
+}
+
+.process-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.process-form label {
+  display: grid;
+  gap: 6px;
+  color: #3d4a61;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.process-form select,
+.process-form textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #172033;
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.process-form textarea {
+  min-height: 108px;
+  resize: vertical;
+}
+
+.process-form select:focus-visible,
+.process-form textarea:focus-visible {
+  outline: 3px solid rgba(47, 111, 255, 0.2);
+  border-color: #2f6fff;
+}
+
+.process-form__remark {
+  grid-column: 1 / -1;
 }
 
 .empty-state,
@@ -518,6 +605,23 @@ function createTicket() {
 .event-page--light .event-filter select {
   color: #172033;
   background: #fff;
+}
+
+:global(.management-modal-mask--dark) .process-form label {
+  color: #d5deec;
+}
+
+:global(.management-modal-mask--dark) .process-form select,
+:global(.management-modal-mask--dark) .process-form textarea {
+  border-color: #3b4a63;
+  background: #111a29;
+  color: #f2f6ff;
+}
+
+:global(.management-modal-mask--dark) .process-form select:focus-visible,
+:global(.management-modal-mask--dark) .process-form textarea:focus-visible {
+  outline-color: rgba(104, 161, 255, 0.28);
+  border-color: #68a1ff;
 }
 
 .event-page--light .event-filter input::placeholder {

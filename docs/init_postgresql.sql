@@ -60,7 +60,7 @@ CREATE INDEX idx_personnel_department_id ON personnel (department_id);
 
 -- ----------------------------------------------------------------------------
 -- 3. 定位设备
---    device_id 保存页面中的 MAC 地址。
+--    device_id 保存定位设备唯一编号，可使用 MAC、IMEI、序列号或自定义编号，不限制格式。
 --    personnel_id 可空且唯一，因此同一人员最多绑定一台设备。
 -- ----------------------------------------------------------------------------
 CREATE TABLE device (
@@ -125,8 +125,9 @@ CREATE TABLE alert_event (
     alert_level VARCHAR(10)  NOT NULL DEFAULT 'warn'
         CHECK (alert_level IN ('alarm', 'warn', 'normal')),
     status      VARCHAR(20)  NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'processing', 'closed')),
+        CHECK (status IN ('pending', 'processing', 'closed', 'ignored')),
     remark      VARCHAR(500),
+    processed_at TIMESTAMP WITH TIME ZONE,
     occurred_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

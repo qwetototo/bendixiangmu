@@ -3,7 +3,7 @@
     <header class="management-toolbar">
       <div>
         <h2>信标设备管理</h2>
-        <p>维护信标 MAC 地址、三维坐标、电量与预留状态</p>
+        <p>维护信标编号、三维坐标、电量与预留状态；编号格式不受限</p>
       </div>
       <div class="management-actions">
         <button class="primary" type="button" @click="openEditor()">新增信标</button>
@@ -15,14 +15,14 @@
     <section class="management-panel">
       <div class="management-panel-title"><div><h3>信标列表</h3><p>共 {{ total }} 条记录</p></div></div>
       <div class="management-filters">
-        <input v-model="keyword" class="search-input" placeholder="搜索 MAC 地址、坐标或状态" @keyup.enter="load" />
+        <input v-model="keyword" class="search-input" placeholder="搜索信标编号、坐标或状态" @keyup.enter="load" />
         <input v-model="statusFilter" placeholder="筛选状态" @keyup.enter="load" />
         <button type="button" @click="load">查询</button>
         <button type="button" @click="resetFilters">重置</button>
       </div>
       <div class="management-table-wrap">
         <table class="management-table">
-          <thead><tr><th>MAC 地址</th><th>坐标（X, Y, Z）</th><th>电量</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>信标编号</th><th>坐标（X, Y, Z）</th><th>电量</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="beacon in beacons" :key="beacon.beaconId">
               <td>{{ beacon.beaconId }}</td>
@@ -49,12 +49,12 @@
 
     <BaseModal :open="editorOpen" :title="editingId ? '编辑信标' : '新增信标'" eyebrow="信标信息" @close="closeEditor">
       <div class="form-grid">
-        <label class="full">MAC 地址<input v-model.trim="form.beaconId" maxlength="50" placeholder="例如 AA:BB:CC:DD:EE:FF" /></label>
+        <label>信标编号<input v-model.trim="form.beaconId" maxlength="64" placeholder="例如 BEACON-001" /></label>
+        <label>状态<input v-model.trim="form.status" maxlength="10" placeholder="最多 10 个字符" /></label>
         <label>X 坐标<input v-model.number="form.x" type="number" step="any" /></label>
         <label>Y 坐标<input v-model.number="form.y" type="number" step="any" /></label>
         <label>Z 坐标<input v-model.number="form.z" type="number" step="any" /></label>
         <label>电量（%）<input v-model.number="form.battery" type="number" min="0" max="100" /></label>
-        <label class="full">状态<input v-model.trim="form.status" maxlength="10" placeholder="预留状态，最多 10 个字符" /></label>
       </div>
       <p v-if="formError" class="form-error">{{ formError }}</p>
       <template #footer>
@@ -72,7 +72,7 @@
     </BaseModal>
 
     <BaseModal :open="importOpen" title="批量导入信标" eyebrow="CSV 文件" @close="importOpen = false">
-      <p class="import-hint">表头支持：MAC地址、X坐标、Y坐标、Z坐标、电量、状态。除 MAC 地址外，其余字段默认值为 0、0、0、80 和 offline。</p>
+      <p class="import-hint">表头支持：信标编号、X坐标、Y坐标、Z坐标、电量、状态。编号只要求唯一且不限定格式；旧“MAC地址”表头仍兼容。</p>
       <input ref="fileInput" type="file" accept=".csv,text/csv" @change="importCsv" />
       <p v-if="formError" class="form-error">{{ formError }}</p>
     </BaseModal>
@@ -155,7 +155,7 @@ function closeEditor() {
 }
 
 function getPayload() {
-  if (!form.beaconId) throw new Error('MAC 地址不能为空');
+  if (!form.beaconId) throw new Error('信标编号不能为空');
   if (form.status.length > 10) throw new Error('状态最多允许 10 个字符');
   return {
     beaconId: form.beaconId,
@@ -172,7 +172,7 @@ async function save() {
   try {
     const payload = getPayload();
     if (!editingId.value && beacons.value.some((item) => item.beaconId.toLowerCase() === payload.beaconId.toLowerCase())) {
-      throw new Error('MAC 地址已存在');
+      throw new Error('信标编号已存在');
     }
     saving.value = true;
     if (editingId.value) await updateBeacon(editingId.value, payload);
@@ -217,9 +217,9 @@ async function importCsv(event: Event) {
     if (!rows.length) throw new Error('CSV 文件没有可导入的数据');
     const seen = new Set<string>();
     const payloads = rows.map((row, index) => {
-      const beaconId = readCsvValue(row, 'MAC地址', 'mac', 'beaconId');
-      if (!beaconId) throw new Error(`第 ${index + 2} 行 MAC 地址不能为空`);
-      if (seen.has(beaconId.toLowerCase())) throw new Error(`第 ${index + 2} 行 MAC 地址重复`);
+      const beaconId = readCsvValue(row, '信标编号', '设备编号', 'beaconId', 'MAC地址', 'mac');
+      if (!beaconId) throw new Error(`第 ${index + 2} 行信标编号不能为空`);
+      if (seen.has(beaconId.toLowerCase())) throw new Error(`第 ${index + 2} 行信标编号重复`);
       seen.add(beaconId.toLowerCase());
       const status = readCsvValue(row, '状态', 'status') || 'offline';
       if (status.length > 10) throw new Error(`第 ${index + 2} 行状态超过 10 个字符`);
@@ -245,7 +245,7 @@ async function exportCsv() {
   try {
     const limit = exportAll.value ? Math.max(total.value, 1) : Math.max(1, exportCount.value);
     const rows = (await fetchBeacons({ page: 1, pageSize: limit })).records.slice(0, limit);
-    downloadCsv('信标设备.csv', ['MAC地址', 'X坐标', 'Y坐标', 'Z坐标', '电量', '状态'], rows.map((item) => [
+    downloadCsv('信标设备.csv', ['信标编号', 'X坐标', 'Y坐标', 'Z坐标', '电量', '状态'], rows.map((item) => [
       item.beaconId, item.x, item.y, item.z, item.battery, item.status,
     ]));
     exportOpen.value = false;

@@ -75,19 +75,20 @@ GROUP BY d.id, d.code, d.name;
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
 | `id` | BIGINT | PK, IDENTITY | 内部关联主键 |
-| `device_id` | VARCHAR(64) | UNIQUE, NOT NULL | 定位设备 MAC 地址 |
+| `device_id` | VARCHAR(64) | UNIQUE, NOT NULL | 定位设备唯一编号 |
 | `personnel_id` | BIGINT | UNIQUE, FK, NULL | 当前绑定人员 |
 | `battery` | SMALLINT | NOT NULL, DEFAULT 80, 0–100 | 电量百分比 |
 | `status` | VARCHAR(10) | NOT NULL, DEFAULT `offline` | `online`、`offline`、`SOS` |
 
-`device_id` 同时是轨迹数据中的设备业务编号。
+`device_id` 同时是轨迹数据中的设备业务编号。它只要求非空且唯一，不限制为
+MAC 地址，可保存 MAC、IMEI、序列号或 `860000000000022` 这类自定义编号。
 
 ### 3.4 `beacon`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
 | `id` | BIGINT | PK, IDENTITY | 内部关联主键 |
-| `beacon_id` | VARCHAR(64) | UNIQUE, NOT NULL | 信标 MAC 地址 |
+| `beacon_id` | VARCHAR(64) | UNIQUE, NOT NULL | 信标唯一编号 |
 | `x` | DOUBLE PRECISION | NOT NULL, DEFAULT 0 | X 坐标 |
 | `y` | DOUBLE PRECISION | NOT NULL, DEFAULT 0 | Y 坐标 |
 | `z` | DOUBLE PRECISION | NOT NULL, DEFAULT 0 | Z 坐标 |
@@ -127,7 +128,7 @@ GROUP BY d.id, d.code, d.name;
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
 | `id` | BIGINT | IDENTITY | 轨迹记录编号 |
-| `device_id` | VARCHAR(64) | FK, NOT NULL | 定位设备 MAC |
+| `device_id` | VARCHAR(64) | FK, NOT NULL | 定位设备唯一编号 |
 | `server_ts` | TIMESTAMPTZ | 分区键, NOT NULL | 服务端时间 |
 | `x_mm` | INTEGER | NOT NULL | X 坐标，毫米 |
 | `y_mm` | INTEGER | NOT NULL | Y 坐标，毫米 |
@@ -172,25 +173,46 @@ title       = 定位设备 SOS 告警
 | `person_device_binding` 表 | 页面只需要当前绑定，改由 `device.personnel_id` 直接维护 |
 | 人员 `role/phone/email/status/remark` | 当前人员管理页面不采集、不展示 |
 | 设备 `device_type/protocol/firmware_version/last_report_time/remark` | 当前定位设备管理页面不采集、不展示 |
-| 信标 `model/firmware_version/protocol/area/last_calibrated_at/remark` | 当前信标页面只管理 MAC、坐标、电量、状态 |
+| 信标 `model/firmware_version/protocol/area/last_calibrated_at/remark` | 当前信标页面只管理编号、坐标、电量、状态 |
 | 各管理表 `created_at/updated_at` | 当前业务没有审计时间需求 |
 | 绑定的 `area/permission/permission_expires_at/unbound_at` | 不再保存绑定历史和权限 |
 | 轨迹 `created_at/trajectory_id/quality_flag/sample_type` | 当前 `TrajectoryMapper` 不读写 |
 | 初始化演示数据 | 全量部署应生成空业务库 |
 | 旧表迁移和 `ALTER TABLE` 逻辑 | 当前脚本只用于从零重建 |
 
-## 7. 后端必须同步的查询
+## 7. 后端接口同步结果
 
-当前旧版 `dfmotion/ManagementMapper.xml` 仍引用已删除字段，部署新数据库前必须同步：
+后端管理接口已按 2.0.0 数据库结构完成以下同步：
 
 1. 人员、设备查询改为 `device.personnel_id = personnel.id`，删除 `person_device_binding` JOIN。
 2. 人员 DTO 只保留 `personId`、`name`、`departmentCode`。
 3. 设备 DTO 只保留 `deviceId`、`boundPersonId`、`battery`、`status`。
 4. 设备写入时将 `boundPersonId` 查询并转换成 `personnel.id`。
 5. 信标 DTO/VO 只保留 `beaconId`、`x`、`y`、`z`、`battery`、`status`。
-6. 增加部门 CRUD 和部门人数统计查询。
+6. 增加部门 CRUD 和实时部门人数统计查询。
 7. 首页活跃人员数改为人员总数；低电量设备使用 `battery < 20`。
-8. SOS 告警由数据库触发器生成，设备更新接口不要重复插入。
+8. SOS 告警由数据库触发器生成，设备更新接口不再重复插入。
+
+管理接口继续使用不带 `/api` 的后端路由；部署环境由反向代理添加 `/api` 前缀。
+列表接口统一返回 `Result<PageResult<T>>`，新增、修改和删除接口统一返回 `Result<T>`。
+
+### 7.1 未知轨迹设备自动注册
+
+后端可在轨迹批量写入前自动补录 `device` 表中不存在的设备编号：
+
+```yaml
+dfmotion:
+  trajectory:
+    auto-register-unknown-devices: true
+```
+
+启用时，自动注册与本批轨迹写入处于同一事务。新设备默认未绑定人员，电量为 `80`，
+状态为 `online`；设备编号采用轨迹上报的 `deviceId` 原值。并发首次上报通过
+`ON CONFLICT (device_id) DO NOTHING` 保持幂等。
+
+设置为 `false` 后不再补录设备，未知设备的轨迹会继续被
+`device_location_history.device_id` 外键拒绝。部署时也可通过环境变量
+`DFMOTION_TRAJECTORY_AUTO_REGISTER_UNKNOWN_DEVICES` 覆盖该配置。
 
 ## 8. 全量部署
 
@@ -257,14 +279,14 @@ alert
 ### 8.5 验证 SOS
 
 ```sql
-INSERT INTO device (device_id) VALUES ('AA:BB:CC:DD:EE:FF');
+INSERT INTO device (device_id) VALUES ('860000000000022');
 UPDATE device
 SET status = 'SOS'
-WHERE device_id = 'AA:BB:CC:DD:EE:FF';
+WHERE device_id = '860000000000022';
 
 SELECT event_id, device_id, event_type, alert_level, status
 FROM alert_event
-WHERE device_id = 'AA:BB:CC:DD:EE:FF';
+WHERE device_id = '860000000000022';
 ```
 
 应只新增一条 `event_type = 'sos'` 的告警。重复执行同一条 `UPDATE ... SET status = 'SOS'` 不应新增告警。

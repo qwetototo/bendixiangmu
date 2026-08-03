@@ -70,19 +70,19 @@
       <div v-if="activeView === 'people'" class="form-grid">
         <label>人员编号<input v-model.trim="personForm.personId" maxlength="20" placeholder="例如 P-001" /></label>
         <label>姓名<input v-model.trim="personForm.name" maxlength="50" placeholder="请输入姓名" /></label>
-        <label class="full">部门
+        <label>部门
           <button class="picker-button" type="button" @click="openDepartmentPicker">
             <span>{{ selectedDepartmentName }}</span><span>选择 ›</span>
           </button>
         </label>
-        <label class="full">状态
+        <label>状态
           <input :value="editingPerson?.bindingStatus === 'bound' ? '已绑定设备' : '未绑定'" disabled />
         </label>
       </div>
       <div v-else class="form-grid">
         <label>部门编号 / ID<input v-model.trim="departmentForm.code" maxlength="20" placeholder="例如 deptRD" /></label>
         <label>部门名称<input v-model.trim="departmentForm.name" maxlength="50" placeholder="例如 研发部" /></label>
-        <label v-if="editingDepartment" class="full">部门人数<input :value="editingDepartment.personnelCount" disabled /></label>
+        <label v-if="editingDepartment">部门人数<input :value="editingDepartment.personnelCount" disabled /></label>
       </div>
       <p v-if="formError" class="form-error">{{ formError }}</p>
       <template #footer>

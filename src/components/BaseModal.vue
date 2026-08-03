@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" class="management-modal-mask" @click.self="$emit('close')">
+    <div v-if="open" :class="['management-modal-mask', `management-modal-mask--${themeMode}`]" @click.self="$emit('close')">
       <section class="management-modal" role="dialog" aria-modal="true" :aria-labelledby="titleId">
         <header>
           <div>
@@ -19,11 +19,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   open: boolean;
   title: string;
   eyebrow?: string;
-}>();
+  themeMode?: 'dark' | 'light';
+}>(), {
+  themeMode: 'light',
+});
 
 defineEmits<{ close: [] }>();
 

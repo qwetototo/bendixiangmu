@@ -65,12 +65,12 @@
           </button>
         </div>
 
-        <HomeView v-if="activePageKey === 'home.overview'" :key="pageRefreshKey" @navigate="selectNav" />
-        <EventCenterView v-else-if="activePageKey === 'track.events'" :key="pageRefreshKey" :theme-mode="themeMode" />
-        <DeviceManagementView v-else-if="activePageKey === 'identity.devices'" :key="pageRefreshKey" :theme-mode="themeMode" />
-        <IdentityView v-else-if="activePageKey === 'identity.personnel'" :key="pageRefreshKey" :theme-mode="themeMode" />
-        <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :key="pageRefreshKey" :theme-mode="themeMode" />
-        <ConfigView v-else :key="pageRefreshKey" :page-key="activeSubmenu" :edit-map-id="editingMapId" />
+        <HomeView v-if="activePageKey === 'home.overview'" :key="`home-${pageRefreshKey}`" @navigate="selectNav" />
+        <EventCenterView v-else-if="activePageKey === 'track.events'" :key="`events-${pageRefreshKey}`" :theme-mode="themeMode" />
+        <DeviceManagementView v-else-if="activePageKey === 'identity.devices'" :key="`devices-${pageRefreshKey}`" :theme-mode="themeMode" />
+        <IdentityView v-else-if="activePageKey === 'identity.personnel'" :key="`personnel-${pageRefreshKey}`" :theme-mode="themeMode" />
+        <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :key="`beacons-${pageRefreshKey}`" :theme-mode="themeMode" />
+        <ConfigView v-else :key="`config-${activeSubmenu}-${editingMapId}-${pageRefreshKey}`" :page-key="activeSubmenu" :edit-map-id="editingMapId" />
       </section>
     </section>
 
@@ -101,7 +101,7 @@ import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
 import { useNavigation, type SectionKey } from '@/services/navigation';
 import { useLanguageStore } from '@/stores/language';
-import { fetchDevices, type DeviceStatus, type DeviceVO } from '@/services/adminApi';
+import { fetchAlertEvents, type DeviceStatus, type DeviceVO } from '@/services/adminApi';
 
 const { t, locale } = useI18n();
 const languageStore = useLanguageStore();
@@ -191,10 +191,11 @@ const pageRefreshKey = ref(0);
 const navButtonRefs = new Map<SectionKey, HTMLElement>();
 const submenuLeft = ref(0);
 const submenuWidth = ref(0);
-const deviceStatuses = new Map<string, DeviceStatus>();
+const seenSosEventIds = new Set<string>();
+const lastSosNoticeAt = new Map<string, number>();
 const sosNotices = ref<Array<{ id: string; deviceId: string; personId?: string | null }>>([]);
-let devicePollingInitialized = false;
-let devicePollingTimer: number | undefined;
+let sosPollingInitialized = false;
+let sosPollingTimer: number | undefined;
 
 const activeSubmenus = computed(() => {
   return openedSection.value ? findNavSection(openedSection.value)?.items ?? [] : [];
@@ -279,36 +280,44 @@ function removeSosNotice(id: string) {
   sosNotices.value = sosNotices.value.filter((notice) => notice.id !== id);
 }
 
-async function handleSosTransition(device: DeviceVO) {
-  const noticeId = `${device.deviceId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  sosNotices.value.push({ id: noticeId, deviceId: device.deviceId, personId: device.boundPersonId });
+function handleSosTransition(deviceId: string, personId?: string | null) {
+  const now = Date.now();
+  const previousNoticeAt = lastSosNoticeAt.get(deviceId) ?? 0;
+  if (now - previousNoticeAt < 10_000) return;
+  lastSosNoticeAt.set(deviceId, now);
+  const noticeId = `${deviceId}-${now}-${Math.random().toString(36).slice(2, 7)}`;
+  sosNotices.value.push({ id: noticeId, deviceId, personId });
   window.setTimeout(() => removeSosNotice(noticeId), 3000);
 }
 
-async function pollDeviceStatuses() {
+async function pollSosEvents() {
   if (!isAuthed.value) return;
   try {
-    const page = await fetchDevices({ page: 1, pageSize: 10000 });
-    for (const device of page.records) {
-      const previous = deviceStatuses.get(device.deviceId);
-      if (devicePollingInitialized && previous !== 'SOS' && device.status === 'SOS') {
-        void handleSosTransition(device);
-      }
-      deviceStatuses.set(device.deviceId, device.status);
+    const page = await fetchAlertEvents({ page: 1, pageSize: 100, eventType: 'sos' });
+    const newEvents = sosPollingInitialized
+      ? page.records
+          .filter((event) => !seenSosEventIds.has(event.eventId))
+          .sort((left, right) => Date.parse(left.occurredAt) - Date.parse(right.occurredAt))
+      : [];
+    page.records.forEach((event) => seenSosEventIds.add(event.eventId));
+    newEvents.forEach((event) => {
+      if (event.deviceId) handleSosTransition(event.deviceId, event.personId);
+    });
+    if (seenSosEventIds.size > 1000) {
+      seenSosEventIds.clear();
+      page.records.forEach((event) => seenSosEventIds.add(event.eventId));
     }
-    devicePollingInitialized = true;
+    sosPollingInitialized = true;
   } catch (error) {
-    console.error('设备 SOS 状态轮询失败', error);
+    console.error('SOS 告警轮询失败', error);
   }
 }
 
 function handleDeviceStatusEvent(event: Event) {
   const detail = (event as CustomEvent<{ device: DeviceVO; previousStatus?: DeviceStatus }>).detail;
   if (!detail?.device) return;
-  const previous = detail.previousStatus ?? deviceStatuses.get(detail.device.deviceId);
-  deviceStatuses.set(detail.device.deviceId, detail.device.status);
-  if (previous !== 'SOS' && detail.device.status === 'SOS') {
-    void handleSosTransition(detail.device);
+  if (detail.previousStatus !== 'SOS' && detail.device.status === 'SOS') {
+    handleSosTransition(detail.device.deviceId, detail.device.boundPersonId);
   }
 }
 
@@ -374,14 +383,14 @@ onMounted(() => {
   syncNavFromRoute();
   window.addEventListener('popstate', syncNavFromRoute);
   window.addEventListener('twintrack:device-status', handleDeviceStatusEvent);
-  void pollDeviceStatuses();
-  devicePollingTimer = window.setInterval(pollDeviceStatuses, 5000);
+  void pollSosEvents();
+  sosPollingTimer = window.setInterval(pollSosEvents, 5000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('popstate', syncNavFromRoute);
   window.removeEventListener('twintrack:device-status', handleDeviceStatusEvent);
-  if (devicePollingTimer) window.clearInterval(devicePollingTimer);
+  if (sosPollingTimer) window.clearInterval(sosPollingTimer);
 });
 </script>
 

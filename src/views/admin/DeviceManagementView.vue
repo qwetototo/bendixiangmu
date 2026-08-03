@@ -3,7 +3,7 @@
     <header class="management-toolbar">
       <div>
         <h2>定位设备管理</h2>
-        <p>维护定位设备、人员绑定、电量与运行状态</p>
+        <p>维护定位设备编号、人员绑定、电量与运行状态；编号格式不受限</p>
       </div>
       <div class="management-actions">
         <button class="primary" type="button" @click="openEditor()">新增设备</button>
@@ -20,7 +20,7 @@
         </div>
       </div>
       <div class="management-filters">
-        <input v-model="keyword" class="search-input" placeholder="搜索 MAC 地址或绑定人员" @keyup.enter="load" />
+        <input v-model="keyword" class="search-input" placeholder="搜索设备编号或绑定人员" @keyup.enter="load" />
         <select v-model="statusFilter" @change="load">
           <option value="">全部状态</option>
           <option value="online">在线</option>
@@ -38,7 +38,7 @@
       <div class="management-table-wrap">
         <table class="management-table">
           <thead>
-            <tr><th>MAC 地址</th><th>绑定人编号</th><th>电量</th><th>状态</th><th>操作</th></tr>
+            <tr><th>设备编号</th><th>绑定人编号</th><th>电量</th><th>状态</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="device in devices" :key="device.deviceId">
@@ -68,15 +68,15 @@
 
     <BaseModal :open="editorOpen" :title="editingId ? '编辑定位设备' : '新增定位设备'" eyebrow="设备信息" @close="closeEditor">
       <div class="form-grid">
-        <label class="full">MAC 地址
-          <input v-model.trim="form.deviceId" maxlength="64" placeholder="例如 AA:BB:CC:DD:EE:FF" />
+        <label>设备编号
+          <input v-model.trim="form.deviceId" maxlength="64" placeholder="例如 860000000000022" />
         </label>
-        <label class="full">绑定人编号
+        <label>电量（%）<input v-model.number="form.battery" type="number" min="0" max="100" /></label>
+        <label>绑定人编号
           <button class="picker-button" type="button" @click="openPersonPicker">
             <span>{{ form.boundPersonId || '未绑定' }}</span><span>选择 ›</span>
           </button>
         </label>
-        <label>电量（%）<input v-model.number="form.battery" type="number" min="0" max="100" /></label>
         <label>状态
           <select v-model="form.status">
             <option value="online">在线</option><option value="offline">离线</option><option value="SOS">SOS</option>
@@ -112,7 +112,7 @@
     </BaseModal>
 
     <BaseModal :open="importOpen" title="批量导入设备" eyebrow="CSV 文件" @close="importOpen = false">
-      <p class="import-hint">表头支持：MAC地址、绑定人编号、电量、状态。绑定人编号可留空，状态可填在线、离线或 SOS。</p>
+      <p class="import-hint">表头支持：设备编号、绑定人编号、电量、状态。设备编号只要求唯一，可使用 MAC、IMEI、序列号或自定义编号；旧“MAC地址”表头仍兼容。</p>
       <input ref="fileInput" type="file" accept=".csv,text/csv" @change="importCsv" />
       <p v-if="formError" class="form-error">{{ formError }}</p>
     </BaseModal>
@@ -226,9 +226,9 @@ function choosePerson(person: PersonnelVO | null) {
 async function save() {
   formError.value = '';
   try {
-    if (!form.deviceId) throw new Error('MAC 地址不能为空');
+    if (!form.deviceId) throw new Error('设备编号不能为空');
     if (!editingId.value && devices.value.some((item) => item.deviceId.toLowerCase() === form.deviceId.toLowerCase())) {
-      throw new Error('MAC 地址已存在');
+      throw new Error('设备编号已存在');
     }
     const payload = { ...form, battery: assertBattery(form.battery) };
     saving.value = true;
@@ -289,10 +289,10 @@ async function importCsv(event: Event) {
     if (!rows.length) throw new Error('CSV 文件没有可导入的数据');
     const seen = new Set<string>();
     const payloads = rows.map((row, index) => {
-      const deviceId = readCsvValue(row, 'MAC地址', 'mac', 'deviceId');
-      if (!deviceId) throw new Error(`第 ${index + 2} 行 MAC 地址不能为空`);
+      const deviceId = readCsvValue(row, '设备编号', '定位设备编号', 'deviceId', 'MAC地址', 'mac');
+      if (!deviceId) throw new Error(`第 ${index + 2} 行设备编号不能为空`);
       const key = deviceId.toLowerCase();
-      if (seen.has(key)) throw new Error(`第 ${index + 2} 行 MAC 地址重复`);
+      if (seen.has(key)) throw new Error(`第 ${index + 2} 行设备编号重复`);
       seen.add(key);
       return {
         deviceId,
@@ -315,7 +315,7 @@ async function exportCsv() {
     const limit = exportAll.value ? Math.max(total.value, 1) : Math.max(1, exportCount.value);
     const page = await fetchDevices({ page: 1, pageSize: limit });
     const rows = exportAll.value ? page.records : page.records.slice(0, limit);
-    downloadCsv('定位设备.csv', ['MAC地址', '绑定人编号', '电量', '状态'], rows.map((item) => [
+    downloadCsv('定位设备.csv', ['设备编号', '绑定人编号', '电量', '状态'], rows.map((item) => [
       item.deviceId, item.boundPersonId ?? '', item.battery, item.status,
     ]));
     exportOpen.value = false;

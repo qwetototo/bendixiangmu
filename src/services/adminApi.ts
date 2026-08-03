@@ -83,9 +83,10 @@ export interface AlertEventVO {
   area?: string | null;
   eventType: 'crossing' | 'gather' | 'low_battery' | 'offline' | 'sos';
   alertLevel: 'alarm' | 'warn' | 'normal';
-  status: 'pending' | 'processing' | 'closed';
+  status: 'pending' | 'processing' | 'closed' | 'ignored';
   remark?: string | null;
   occurredAt: string;
+  processedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -200,7 +201,7 @@ export function createAlertEvent(data: AlertEventVO) {
   return request<AlertEventVO>('post', '/api/alert-events', { data });
 }
 
-export function updateAlertEvent(eventId: string, data: Partial<Pick<AlertEventVO, 'status' | 'remark'>>) {
+export function updateAlertEvent(eventId: string, data: Partial<Pick<AlertEventVO, 'status' | 'alertLevel' | 'remark'>>) {
   return request<AlertEventVO>('put', `/api/alert-events/${encodeURIComponent(eventId)}`, { data });
 }
 
