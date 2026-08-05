@@ -75,18 +75,18 @@
     <template v-if="viewMode === 'list'">
       <section class="map-toolbar">
         <div>
-          <h2>{{ t('config.mapEditor') }}</h2>
-          <p>{{ t('config.mapEditorDesc') }}</p>
+          <h2>{{ t('config.modelEditorTitle') }}</h2>
+          <p>{{ t('config.modelEditorDescription') }}</p>
         </div>
         <div class="toolbar-actions">
           <input ref="mapFileInput" class="model-file-input" type="file" @change="importMapFile" />
           <button type="button" class="upload-button" :disabled="mapImporting" @click="openMapFilePicker">
             <UploadOutlined />
-            <span>{{ mapImporting ? t('config.importing') : t('config.importMap') }}</span>
+            <span>{{ mapImporting ? t('config.importing') : '导入模型' }}</span>
           </button>
           <button type="button" class="primary-button" @click="createBlankMap">
             <PlusOutlined />
-            <span>{{ t('config.createMap') }}</span>
+            <span>新建模型</span>
           </button>
         </div>
       </section>
@@ -155,7 +155,7 @@
         </button>
         <div>
           <h2>{{ draftMap.name }}</h2>
-          <p>{{ t('config.editorDesc') }}</p>
+          <p>{{ t('config.editModelDescription') }}</p>
         </div>
         <div class="toolbar-actions">
           <button type="button" class="ghost-button" @click="applyDraft">
@@ -174,30 +174,11 @@
         <article class="preview-panel">
           <div class="panel-heading">
             <div>
-              <h3>{{ t('config.mapPreview') }}</h3>
+              <h3>{{ t('config.modelPreview') }}</h3>
               <p>{{ pickMode ? t('config.pickModeActive', { target: pickModeLabel }) : t('config.pickModeIdle') }}</p>
             </div>
             <button v-if="pickMode" type="button" class="ghost-button" @click="cancelPick">
               <span>{{ t('common.cancel') }}</span>
-            </button>
-          </div>
-          <div class="floor-tabs">
-            <button
-              v-for="floor in draftMap.metadata.floors"
-              :key="floor.id"
-              type="button"
-              :class="{ active: floor.id === draftMap.metadata.activeFloorId }"
-              @click="switchFloor(floor.id)"
-            >
-              <span>{{ floor.name }}</span>
-            </button>
-            <button type="button" @click="addFloor">
-              <PlusOutlined />
-              <span>{{ t('config.addFloor') }}</span>
-            </button>
-            <button type="button" :disabled="draftMap.metadata.floors.length <= 1" @click="removeCurrentFloor">
-              <DeleteOutlined />
-              <span>{{ t('config.removeFloor') }}</span>
             </button>
           </div>
           <div
@@ -228,7 +209,7 @@
                 <span>{{ baseMapModel ? baseMapModel.path : t('config.noBaseMap') }}</span>
               </div>
               <label>
-                <span>{{ t('config.scaleRatio') }}</span>
+                <span>{{ t('config.adjustModelScale') }}</span>
                 <input :value="scaleRatioDisplay" type="number" min="0" step="1" @input="onScaleRatioInput" @blur="onScaleRatioBlur" />
               </label>
               <template v-if="baseMapModel">
@@ -249,11 +230,6 @@
                   <input v-model.number="baseMapModel.rotation[1]" type="range" min="-180" max="180" step="1" @change="sanitizeModelNumberField(baseMapModel!.rotation, 1)" />
                   <input v-model.number="baseMapModel.rotation[1]" type="number" step="1" @change="sanitizeModelNumberField(baseMapModel!.rotation, 1)" />
                 </label>
-                <label class="slider-field map-preview__scale-field">
-                  <span>{{ t('config.modelScale') }}</span>
-                  <input v-model.number="baseMapModel.scale" type="range" min="0.01" max="10" step="0.01" />
-                  <input v-model.number="baseMapModel.scale" type="number" step="0.1" />
-                </label>
               </template>
               <input ref="baseMapFileInput" class="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" @change="importBaseMapFile" />
               <button type="button" class="upload-button" :disabled="baseMapImporting" @click.stop="openBaseMapFilePicker">
@@ -266,13 +242,16 @@
             </span>
           </div>
           <div class="preview-stats">
-            <span>{{ t('config.floorName', { name: draftMap.config.floor.name }) }}</span>
+            <span>{{ t('config.currentFloor', { name: draftMap.config.floor.name }) }}</span>
             <span>{{ t('config.scaleLabel', { scale: `1:${getSafeScaleRatio(draftMap)}` }) }}</span>
           </div>
-          <div class="pick-actions">
+          <div class="pick-actions origin-editor">
             <button type="button" :class="{ active: pickMode === 'positioning-origin' }" @click="startPick('positioning-origin')">
-              <span>{{ t('config.pickPositioningOrigin') }}</span>
+              <span>{{ t('config.selectPositioningOrigin') }}</span>
             </button>
+            <label><span>X</span><input v-model.number="positioningOriginDisplay[0]" type="number" @change="commitPositioningOriginDisplay" /></label>
+            <label><span>Y</span><input v-model.number="positioningOriginDisplay[1]" type="number" @change="commitPositioningOriginDisplay" /></label>
+            <label><span>Z</span><input v-model.number="positioningOriginDisplay[2]" type="number" @change="commitPositioningOriginDisplay" /></label>
           </div>
         </article>
 
@@ -280,12 +259,8 @@
           <h3>{{ t('config.basicInfo') }}</h3>
           <div class="form-grid">
             <label>
-              <span>{{ t('config.mapName') }}</span>
+              <span>{{ t('config.buildingName') }}</span>
               <input v-model.trim="draftMap.name" type="text" />
-            </label>
-            <label>
-              <span>{{ t('config.floorNameLabel') }}</span>
-              <input v-model.trim="draftMap.config.floor.name" type="text" @input="updateCurrentFloorName" />
             </label>
 <label>
               <span>{{ t('config.region') }}</span>
@@ -303,38 +278,41 @@
           <div class="thumbnail-uploader">
             <div class="thumbnail-uploader__preview">
               <img v-if="draftMap.metadata.thumbnail" :src="draftMap.metadata.thumbnail" :alt="draftMap.name" />
-              <span v-else>{{ t('config.noThumbnail') }}</span>
+              <span v-else>{{ t('config.noCover') }}</span>
             </div>
             <div class="thumbnail-uploader__actions">
-              <span>{{ t('config.thumbnail') }}</span>
+              <span>封面</span>
               <input ref="thumbnailFileInput" class="model-file-input" type="file" accept=".png,.jpg,.jpeg,.webp" @change="importThumbnailFile" />
               <button type="button" class="upload-button" :disabled="thumbnailUploading" @click="openThumbnailFilePicker">
                 <UploadOutlined />
-                <span>{{ thumbnailUploading ? t('config.uploading') : t('config.uploadThumbnail') }}</span>
+                <span>{{ thumbnailUploading ? t('config.uploading') : t('config.uploadCover') }}</span>
               </button>
               <button v-if="draftMap.metadata.thumbnail" type="button" @click="clearThumbnail">
                 <DeleteOutlined />
-                <span>{{ t('config.clearThumbnail') }}</span>
+                <span>{{ t('config.clearCover') }}</span>
               </button>
-              <small>{{ thumbnailUploadStatus || t('config.thumbnailUploadHint') }}</small>
+              <small>{{ thumbnailUploadStatus || t('config.coverUploadHint') }}</small>
             </div>
           </div>
         </article>
 
         <article class="form-panel">
-          <h3>{{ t('config.coordinateSetup') }}</h3>
-          <div class="form-grid coordinate-grid">
+          <h3>{{ t('config.floorManagement') }}</h3>
+          <div class="floor-management-actions">
+            <select :value="draftMap.metadata.activeFloorId" @change="handleFloorSelect">
+              <option v-for="floor in draftMap.metadata.floors" :key="floor.id" :value="floor.id">{{ floor.name }}</option>
+            </select>
+            <button type="button" @click="addFloor"><PlusOutlined />新增楼层</button>
+            <button type="button" :disabled="draftMap.metadata.floors.length <= 1" @click="removeCurrentFloor"><DeleteOutlined />删除楼层</button>
+          </div>
+          <div class="form-grid">
             <label>
-              <span>{{ t('config.positioningOriginX') }}</span>
-              <input v-model.number="positioningOriginDisplay[0]" type="number" @change="commitPositioningOriginDisplay" />
+              <span>楼层名称</span>
+              <input v-model.trim="draftMap.config.floor.name" type="text" @input="updateCurrentFloorName" />
             </label>
-            <label>
-              <span>{{ t('config.positioningOriginY') }}</span>
-              <input v-model.number="positioningOriginDisplay[1]" type="number" @change="commitPositioningOriginDisplay" />
-            </label>
-            <label>
-              <span>{{ t('config.positioningOriginZ') }}</span>
-              <input v-model.number="positioningOriginDisplay[2]" type="number" @change="commitPositioningOriginDisplay" />
+            <label class="wide">
+              <span>{{ t('config.floorDescription') }}</span>
+              <textarea v-model.trim="currentFloorDescription" rows="3" />
             </label>
           </div>
         </article>
@@ -521,6 +499,12 @@ const currentFloor = computed(() => {
 
   return draftMap.value.metadata.floors.find((floor) => floor.id === draftMap.value?.metadata.activeFloorId) ?? draftMap.value.metadata.floors[0] ?? null;
 });
+const currentFloorDescription = computed({
+  get: () => currentFloor.value?.description ?? '',
+  set: (value: string) => {
+    if (currentFloor.value) currentFloor.value.description = value;
+  },
+});
 const baseMapModel = computed(() => draftMap.value?.config.models.find((model) => model.role === 'base-map') ?? null);
 const transformRange = computed(() => {
   const floor = draftMap.value?.config.floor;
@@ -539,7 +523,22 @@ function updateScaleRatioDisplay() {
 }
 function onScaleRatioInput(event: Event) {
   scaleRatioDisplay.value = (event.target as HTMLInputElement).value;
+  const value = Number(scaleRatioDisplay.value);
+  if (Number.isFinite(value) && value > 0) {
+    setScaleRatio(value);
+  }
 }
+
+function setScaleRatio(value: number) {
+  if (!draftMap.value || !Number.isFinite(value) || value <= 0) return;
+  const activeFloor = draftMap.value.metadata.floors.find((floor) => floor.id === draftMap.value!.metadata.activeFloorId);
+  if (activeFloor) {
+    activeFloor.scaleRatio = value;
+    activeFloor.config.floor.scale = value;
+    draftMap.value.config.floor.scale = value;
+  }
+}
+
 function onScaleRatioBlur() {
   if (!draftMap.value) return;
   const raw = scaleRatioDisplay.value.trim();
@@ -552,12 +551,7 @@ function onScaleRatioBlur() {
     updateScaleRatioDisplay();
     return;
   }
-  const activeFloor = draftMap.value.metadata.floors.find((floor) => floor.id === draftMap.value!.metadata.activeFloorId);
-  if (activeFloor) {
-    activeFloor.scaleRatio = num;
-    activeFloor.config.floor.scale = num;
-    draftMap.value.config.floor.scale = num;
-  }
+  setScaleRatio(num);
   scaleRatioDisplay.value = String(num);
 }
 
@@ -755,6 +749,10 @@ function switchFloor(floorId: string) {
   previewClickedPoint.value = null;
 }
 
+function handleFloorSelect(event: Event) {
+  switchFloor((event.target as HTMLSelectElement).value);
+}
+
 function addFloor() {
   if (!draftMap.value) {
     return;
@@ -775,6 +773,10 @@ function addFloor() {
 
 function removeCurrentFloor() {
   if (!draftMap.value || draftMap.value.metadata.floors.length <= 1) {
+    return;
+  }
+
+  if (!window.confirm(t('config.confirmDeleteFloor', { name: draftMap.value.config.floor.name }))) {
     return;
   }
 
@@ -1445,6 +1447,10 @@ async function deleteMap(map: SavedMap) {
     return;
   }
 
+  if (!window.confirm(t('config.confirmDeleteModel', { name: map.name }))) {
+    return;
+  }
+
   const nextMaps = maps.value.filter((item) => item.id !== map.id);
 
   // Delete via backend API (removes model file + config JSON + thumbnail)
@@ -1543,7 +1549,7 @@ async function importThumbnailFile(event: Event) {
   }
 
   if (!/\.(png|jpe?g|webp)$/i.test(file.name)) {
-    thumbnailUploadStatus.value = t('config.thumbnailInvalidFile');
+    thumbnailUploadStatus.value = t('config.coverInvalidFile');
     showMessage(thumbnailUploadStatus.value);
     return;
   }
@@ -1553,15 +1559,15 @@ async function importThumbnailFile(event: Event) {
   try {
     const thumbnailPath = await apiUploadThumbnail(file);
     draftMap.value.metadata.thumbnail = thumbnailPath;
-    thumbnailUploadStatus.value = t('config.thumbnailSaved');
+    thumbnailUploadStatus.value = t('config.coverSaved');
     showMessage(thumbnailUploadStatus.value);
   } catch (error) {
     const errorMessage =
       error instanceof TypeError
-        ? t('config.thumbnailUploadError')
+        ? t('config.coverUploadError')
         : error instanceof Error
           ? error.message
-          : t('config.thumbnailUploadFailed');
+          : t('config.coverUploadFailed');
     thumbnailUploadStatus.value = errorMessage;
     showMessage(errorMessage);
   } finally {
@@ -1593,6 +1599,10 @@ function openThumbnailFilePicker() {
 
 function clearThumbnail() {
   if (!draftMap.value) {
+    return;
+  }
+
+  if (!window.confirm(t('config.confirmDeleteCover'))) {
     return;
   }
 
@@ -1889,6 +1899,38 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.floor-management-actions,
+.origin-editor {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.floor-management-actions select,
+.floor-management-actions button,
+.origin-editor input {
+  min-height: 34px;
+}
+
+.origin-editor {
+  padding: 10px 0 0;
+}
+
+.origin-editor label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(47, 63, 89, 0.76);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.origin-editor input {
+  width: 88px;
+  padding: 0 8px;
 }
 
 .map-editor-page button,

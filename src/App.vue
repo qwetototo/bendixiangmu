@@ -4,7 +4,7 @@
   <main v-else :class="['admin-shell', `admin-shell--${themeMode}`]">
     <header class="admin-topbar" @mouseleave="closeMenu">
       <button class="brand-button" type="button" @click="selectNav('home', 'overview')">
-        <img style="height: 60px;" src="@/assets/image/favicon.svg" alt="DeepFusion" />
+        <img src="@/assets/image/favicon2.0.svg" alt="DeepFusion" />
       </button>
       <nav class="primary-nav">
         <button

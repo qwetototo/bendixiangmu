@@ -2,64 +2,64 @@
   <section :class="['management-page', `management-page--${themeMode}`]">
     <header class="management-toolbar">
       <div>
-        <h2>人员信息管理</h2>
-        <p>统一维护人员档案与部门组织信息</p>
+        <h2>{{ t('nav.personnelMgmt') }}</h2>
+        <p>{{ t('nav.personnelMgmtDesc') }}</p>
       </div>
       <div class="management-actions">
         <button class="primary" type="button" @click="openEditor()">新增{{ activeView === 'people' ? '人员' : '部门' }}</button>
-        <button type="button" @click="openImport">批量导入</button>
-        <button type="button" @click="exportOpen = true">批量导出</button>
+        <button type="button" @click="openImport">{{ t('common.import') }}</button>
+        <button type="button" @click="exportOpen = true">{{ t('common.export') }}</button>
       </div>
     </header>
 
     <section class="management-panel">
       <div class="management-panel-title">
         <div class="view-switch">
-          <button type="button" :class="{ active: activeView === 'people' }" @click="switchView('people')">人员信息表</button>
-          <button type="button" :class="{ active: activeView === 'departments' }" @click="switchView('departments')">部门信息表</button>
+          <button type="button" :class="{ active: activeView === 'people' }" @click="switchView('people')">{{ t('management.personnelTable') }}</button>
+          <button type="button" :class="{ active: activeView === 'departments' }" @click="switchView('departments')">{{ t('management.departmentTable') }}</button>
         </div>
-        <span>共 {{ total }} 条记录</span>
+        <span>{{ t('management.records', { count: total }) }}</span>
       </div>
       <div class="management-filters">
-        <input v-model="keyword" class="search-input" :placeholder="activeView === 'people' ? '搜索编号、姓名或部门' : '搜索部门编号或名称'" @keyup.enter="load" />
+        <input v-model="keyword" class="search-input" :placeholder="activeView === 'people' ? t('management.searchPeople') : t('management.searchDepartment')" @keyup.enter="load" />
         <select v-if="activeView === 'people'" v-model="bindingFilter" @change="load">
-          <option value="">全部状态</option>
-          <option value="bound">已绑定设备</option>
-          <option value="unbound">未绑定</option>
+          <option value="">{{ t('management.allStatus') }}</option>
+          <option value="bound">{{ t('management.boundDevice') }}</option>
+          <option value="unbound">{{ t('management.unbound') }}</option>
         </select>
-        <button type="button" @click="load">查询</button>
-        <button type="button" @click="resetFilters">重置</button>
+        <button type="button" @click="load">{{ t('common.search') }}</button>
+        <button type="button" @click="resetFilters">{{ t('common.reset') }}</button>
       </div>
       <div class="management-table-wrap">
         <table v-if="activeView === 'people'" class="management-table">
-          <thead><tr><th>编号</th><th>姓名</th><th>部门</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>{{ t('management.personId') }}</th><th>{{ t('management.name') }}</th><th>{{ t('management.department') }}</th><th>{{ t('management.status') }}</th><th>{{ t('management.action') }}</th></tr></thead>
           <tbody>
             <tr v-for="person in people" :key="person.personId">
               <td>{{ person.personId }}</td>
               <td>{{ person.personName || person.name }}</td>
-              <td>{{ person.departmentName || '无' }}</td>
-              <td><span :class="['status-chip', person.bindingStatus]">{{ person.bindingStatus === 'bound' ? '已绑定设备' : '未绑定' }}</span></td>
+              <td>{{ person.departmentName || t('management.noDepartment') }}</td>
+              <td><span :class="['status-chip', person.bindingStatus]">{{ person.bindingStatus === 'bound' ? t('management.boundDevice') : t('management.unbound') }}</span></td>
               <td><div class="row-actions">
-                <button type="button" @click="openEditor(person)">编辑</button>
-                <button class="danger" type="button" @click="deleteTarget = person">删除</button>
+                <button type="button" @click="openEditor(person)">{{ t('common.edit') }}</button>
+                <button class="danger" type="button" @click="deleteTarget = person">{{ t('common.delete') }}</button>
               </div></td>
             </tr>
-            <tr v-if="!loading && people.length === 0"><td class="empty-row" colspan="5">暂无符合条件的人员</td></tr>
-            <tr v-if="loading"><td class="empty-row" colspan="5">正在加载…</td></tr>
+            <tr v-if="!loading && people.length === 0"><td class="empty-row" colspan="5">{{ t('management.noPeople') }}</td></tr>
+            <tr v-if="loading"><td class="empty-row" colspan="5">{{ t('management.loading') }}</td></tr>
           </tbody>
         </table>
         <table v-else class="management-table">
-          <thead><tr><th>部门编号 / ID</th><th>部门名称</th><th>部门人数</th><th>操作</th></tr></thead>
+          <thead><tr><th>{{ t('management.departmentId') }}</th><th>{{ t('management.departmentName') }}</th><th>{{ t('management.personnelCount') }}</th><th>{{ t('management.action') }}</th></tr></thead>
           <tbody>
             <tr v-for="department in departments" :key="department.code">
               <td>{{ department.code }}</td><td>{{ department.name }}</td><td>{{ department.personnelCount }}</td>
               <td><div class="row-actions">
-                <button type="button" @click="openEditor(department)">编辑</button>
-                <button class="danger" type="button" @click="deleteTarget = department">删除</button>
+                <button type="button" @click="openEditor(department)">{{ t('common.edit') }}</button>
+                <button class="danger" type="button" @click="deleteTarget = department">{{ t('common.delete') }}</button>
               </div></td>
             </tr>
-            <tr v-if="!loading && departments.length === 0"><td class="empty-row" colspan="4">暂无符合条件的部门</td></tr>
-            <tr v-if="loading"><td class="empty-row" colspan="4">正在加载…</td></tr>
+            <tr v-if="!loading && departments.length === 0"><td class="empty-row" colspan="4">{{ t('management.noDepartments') }}</td></tr>
+            <tr v-if="loading"><td class="empty-row" colspan="4">{{ t('management.loading') }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -131,6 +131,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import BaseModal from '@/components/BaseModal.vue';
 import {
   createDepartment, createPersonnel, deleteDepartment, deletePersonnel, fetchDepartments, fetchPersonnel,
@@ -140,6 +141,7 @@ import { downloadCsv, parseCsv, readCsvValue } from '@/services/csvTransfer';
 import '@/styles/management.css';
 
 defineProps<{ themeMode: 'dark' | 'light' }>();
+const { t } = useI18n();
 
 type ViewMode = 'people' | 'departments';
 type DeleteTarget = PersonnelVO | DepartmentVO;

@@ -2,48 +2,48 @@
   <section :class="['management-page', `management-page--${themeMode}`]">
     <header class="management-toolbar">
       <div>
-        <h2>定位设备管理</h2>
-        <p>维护定位设备编号、人员绑定、电量与运行状态；编号格式不受限</p>
+        <h2>{{ t('nav.deviceMgmt') }}</h2>
+        <p>{{ t('nav.deviceMgmtDesc') }}</p>
       </div>
       <div class="management-actions">
-        <button class="primary" type="button" @click="openEditor()">新增设备</button>
-        <button type="button" @click="openImport">批量导入</button>
-        <button type="button" @click="exportOpen = true">批量导出</button>
+        <button class="primary" type="button" @click="openEditor()">{{ t('common.add') }}</button>
+        <button type="button" @click="openImport">{{ t('common.import') }}</button>
+        <button type="button" @click="exportOpen = true">{{ t('common.export') }}</button>
       </div>
     </header>
 
     <section class="management-panel">
       <div class="management-panel-title">
         <div>
-          <h3>设备列表</h3>
-          <p>共 {{ total }} 条记录</p>
+          <h3>{{ t('management.deviceList') }}</h3>
+          <p>{{ t('management.records', { count: total }) }}</p>
         </div>
       </div>
       <div class="management-filters">
-        <input v-model="keyword" class="search-input" placeholder="搜索设备编号或绑定人员" @keyup.enter="load" />
+        <input v-model="keyword" class="search-input" :placeholder="t('management.searchDevice')" @keyup.enter="load" />
         <select v-model="statusFilter" @change="load">
-          <option value="">全部状态</option>
-          <option value="online">在线</option>
-          <option value="offline">离线</option>
+          <option value="">{{ t('management.allStatus') }}</option>
+          <option value="online">{{ t('management.online') }}</option>
+          <option value="offline">{{ t('management.offline') }}</option>
           <option value="SOS">SOS</option>
         </select>
         <select v-model="bindingFilter" @change="load">
-          <option value="">全部绑定状态</option>
-          <option value="bound">已绑定</option>
-          <option value="unbound">未绑定</option>
+          <option value="">{{ t('management.allBinding') }}</option>
+          <option value="bound">{{ t('management.bound') }}</option>
+          <option value="unbound">{{ t('management.unbound') }}</option>
         </select>
-        <button type="button" @click="load">查询</button>
-        <button type="button" @click="resetFilters">重置</button>
+        <button type="button" @click="load">{{ t('common.search') }}</button>
+        <button type="button" @click="resetFilters">{{ t('common.reset') }}</button>
       </div>
       <div class="management-table-wrap">
         <table class="management-table">
           <thead>
-            <tr><th>设备编号</th><th>绑定人编号</th><th>电量</th><th>状态</th><th>操作</th></tr>
+            <tr><th>{{ t('management.deviceId') }}</th><th>{{ t('management.boundPersonId') }}</th><th>{{ t('management.battery') }}</th><th>{{ t('management.status') }}</th><th>{{ t('management.action') }}</th></tr>
           </thead>
           <tbody>
             <tr v-for="device in devices" :key="device.deviceId">
               <td>{{ device.deviceId }}</td>
-              <td>{{ device.boundPersonId || '未绑定' }}</td>
+              <td>{{ device.boundPersonId || t('management.unbound') }}</td>
               <td>
                 <div class="battery-value">
                   <span>{{ device.battery }}%</span>
@@ -53,13 +53,13 @@
               <td><span :class="['status-chip', device.status.toLowerCase()]">{{ statusLabel(device.status) }}</span></td>
               <td>
                 <div class="row-actions">
-                  <button type="button" @click="openEditor(device)">编辑</button>
-                  <button class="danger" type="button" @click="confirmDelete(device)">删除</button>
+                  <button type="button" @click="openEditor(device)">{{ t('common.edit') }}</button>
+                  <button class="danger" type="button" @click="confirmDelete(device)">{{ t('common.delete') }}</button>
                 </div>
               </td>
             </tr>
-            <tr v-if="!loading && devices.length === 0"><td class="empty-row" colspan="5">暂无符合条件的设备</td></tr>
-            <tr v-if="loading"><td class="empty-row" colspan="5">正在加载…</td></tr>
+            <tr v-if="!loading && devices.length === 0"><td class="empty-row" colspan="5">{{ t('management.noDevices') }}</td></tr>
+            <tr v-if="loading"><td class="empty-row" colspan="5">{{ t('management.loading') }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -132,6 +132,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import BaseModal from '@/components/BaseModal.vue';
 import {
   createDevice, deleteDevice, fetchDevices, fetchPersonnel, updateDevice,
@@ -141,6 +142,7 @@ import { assertBattery, downloadCsv, parseCsv, readCsvValue } from '@/services/c
 import '@/styles/management.css';
 
 defineProps<{ themeMode: 'dark' | 'light' }>();
+const { t } = useI18n();
 
 const devices = ref<DeviceVO[]>([]);
 const people = ref<PersonnelVO[]>([]);

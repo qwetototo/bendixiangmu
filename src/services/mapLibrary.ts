@@ -5,6 +5,7 @@ import { toRaw } from 'vue';
 export interface MapFloorItem {
   id: string;
   name: string;
+  description?: string;
   config: SceneConfig;
   scaleRatio?: number;
   positioningOrigin?: Point3D;
@@ -74,6 +75,7 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
         .map((floor) => ({
           id: floor.id,
           name: floor.name || floor.config.floor.name || floor.id,
+          description: typeof floor.description === 'string' ? floor.description : '',
           config: cloneSceneConfig(floor.config),
           scaleRatio: floor.scaleRatio,
           positioningOrigin: floor.positioningOrigin ? ([...floor.positioningOrigin] as Point3D) : undefined,

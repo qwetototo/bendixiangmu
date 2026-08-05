@@ -2,27 +2,27 @@
   <section :class="['management-page', `management-page--${themeMode}`]">
     <header class="management-toolbar">
       <div>
-        <h2>信标设备管理</h2>
-        <p>维护信标编号、三维坐标、电量与预留状态；编号格式不受限</p>
+        <h2>{{ t('nav.beaconMgmt') }}</h2>
+        <p>{{ t('nav.beaconMgmtDesc') }}</p>
       </div>
       <div class="management-actions">
-        <button class="primary" type="button" @click="openEditor()">新增信标</button>
-        <button type="button" @click="openImport">批量导入</button>
-        <button type="button" @click="exportOpen = true">批量导出</button>
+        <button class="primary" type="button" @click="openEditor()">{{ t('common.add') }}</button>
+        <button type="button" @click="openImport">{{ t('common.import') }}</button>
+        <button type="button" @click="exportOpen = true">{{ t('common.export') }}</button>
       </div>
     </header>
 
     <section class="management-panel">
-      <div class="management-panel-title"><div><h3>信标列表</h3><p>共 {{ total }} 条记录</p></div></div>
+      <div class="management-panel-title"><div><h3>{{ t('management.beaconList') }}</h3><p>{{ t('management.records', { count: total }) }}</p></div></div>
       <div class="management-filters">
-        <input v-model="keyword" class="search-input" placeholder="搜索信标编号、坐标或状态" @keyup.enter="load" />
-        <input v-model="statusFilter" placeholder="筛选状态" @keyup.enter="load" />
-        <button type="button" @click="load">查询</button>
-        <button type="button" @click="resetFilters">重置</button>
+        <input v-model="keyword" class="search-input" :placeholder="t('management.searchBeacon')" @keyup.enter="load" />
+        <input v-model="statusFilter" :placeholder="t('management.filterStatus')" @keyup.enter="load" />
+        <button type="button" @click="load">{{ t('common.search') }}</button>
+        <button type="button" @click="resetFilters">{{ t('common.reset') }}</button>
       </div>
       <div class="management-table-wrap">
         <table class="management-table">
-          <thead><tr><th>信标编号</th><th>坐标（X, Y, Z）</th><th>电量</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>{{ t('management.beaconId') }}</th><th>{{ t('management.coordinate') }}</th><th>{{ t('management.battery') }}</th><th>{{ t('management.status') }}</th><th>{{ t('management.action') }}</th></tr></thead>
           <tbody>
             <tr v-for="beacon in beacons" :key="beacon.beaconId">
               <td>{{ beacon.beaconId }}</td>
@@ -33,14 +33,14 @@
                   <div class="battery-bar"><i :style="{ width: `${beacon.battery}%` }"></i></div>
                 </div>
               </td>
-              <td>{{ beacon.status || '未设置' }}</td>
+              <td>{{ beacon.status || t('management.notSet') }}</td>
               <td><div class="row-actions">
-                <button type="button" @click="openEditor(beacon)">编辑</button>
-                <button class="danger" type="button" @click="deleteTarget = beacon">删除</button>
+                <button type="button" @click="openEditor(beacon)">{{ t('common.edit') }}</button>
+                <button class="danger" type="button" @click="deleteTarget = beacon">{{ t('common.delete') }}</button>
               </div></td>
             </tr>
-            <tr v-if="!loading && beacons.length === 0"><td class="empty-row" colspan="5">暂无符合条件的信标</td></tr>
-            <tr v-if="loading"><td class="empty-row" colspan="5">正在加载…</td></tr>
+            <tr v-if="!loading && beacons.length === 0"><td class="empty-row" colspan="5">{{ t('management.noBeacons') }}</td></tr>
+            <tr v-if="loading"><td class="empty-row" colspan="5">{{ t('management.loading') }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -92,12 +92,14 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import BaseModal from '@/components/BaseModal.vue';
 import { createBeacon, deleteBeacon, fetchBeacons, updateBeacon, type BeaconVO } from '@/services/adminApi';
 import { assertBattery, assertFiniteNumber, downloadCsv, parseCsv, readCsvValue } from '@/services/csvTransfer';
 import '@/styles/management.css';
 
 defineProps<{ themeMode: 'dark' | 'light' }>();
+const { t } = useI18n();
 
 const beacons = ref<BeaconVO[]>([]);
 const total = ref(0);
