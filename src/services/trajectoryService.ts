@@ -1,6 +1,6 @@
-import axios from 'axios';
+import { http } from '@/services/http';
 import type { PathPoint } from '@/three/TwinScene';
-import { transformProtocolCoordinates } from '@/services/mqttPose';
+import { transformProtocolCoordinates } from '@/services/positionTransform';
 
 export interface TrajectoryQuery {
   deviceId?: string;
@@ -38,7 +38,7 @@ const STORED_THETA_SCALE = 1000;
 
 export async function fetchTrajectoryPoints(query: TrajectoryQuery): Promise<TrajectoryReplayPoint[]> {
   const endpoint = import.meta.env.VITE_TRAJECTORY_API_URL?.trim() || DEFAULT_TRAJECTORY_API_URL;
-  const response = await axios.get<TrajectoryResponseVO>(endpoint, {
+  const response = await http.get<TrajectoryResponseVO>(endpoint, {
     params: {
       deviceId: query.deviceId || undefined,
       startTime: query.startTime,

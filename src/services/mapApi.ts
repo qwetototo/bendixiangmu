@@ -1,5 +1,6 @@
 import type { MapMetadata, SavedMap } from '@/services/mapLibrary';
 import type { SceneConfig } from '@/types/scene';
+import { authFetch } from '@/services/http';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -83,7 +84,7 @@ export async function uploadModel(
   if (thumbnail) formData.append('thumbnail', thumbnail);
   if (id) formData.append('id', id);
 
-  const response = await fetch(`${API_BASE}/upload`, {
+  const response = await authFetch(`${API_BASE}/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -102,7 +103,7 @@ export async function uploadModel(
  * GET /api/models
  */
 export async function fetchModelList(): Promise<MapModel[]> {
-  const response = await fetch(API_BASE);
+  const response = await authFetch(API_BASE);
   const result = await handleResponse<MapModel[] | { models: MapModel[] }>(response, '获取模型列表');
   if (Array.isArray(result)) {
     return result;
@@ -116,7 +117,7 @@ export async function fetchModelList(): Promise<MapModel[]> {
  * GET /api/models/:id
  */
 export async function fetchModelDetail(id: string): Promise<MapModelDetail> {
-  const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}`);
+  const response = await authFetch(`${API_BASE}/${encodeURIComponent(id)}`);
   return handleResponse<MapModelDetail>(response, '获取模型详情');
 }
 
@@ -135,7 +136,7 @@ export async function saveModelConfig(
     thumbnail?: string;
   },
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}/config`, {
+  const response = await authFetch(`${API_BASE}/${encodeURIComponent(id)}/config`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -153,7 +154,7 @@ export async function uploadThumbnail(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_BASE}/thumbnail`, {
+  const response = await authFetch(`${API_BASE}/thumbnail`, {
     method: 'POST',
     body: formData,
   });
@@ -168,7 +169,7 @@ export async function uploadThumbnail(file: File): Promise<string> {
  * DELETE /api/models/:id
  */
 export async function deleteModel(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}`, {
+  const response = await authFetch(`${API_BASE}/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 

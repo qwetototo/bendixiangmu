@@ -35,7 +35,19 @@ BEGIN;
 SET TIME ZONE 'UTC';
 
 -- ----------------------------------------------------------------------------
--- 1. 部门
+-- 1. 登录用户
+--    password_hash 仅保存 BCrypt 摘要，不保存明文或可逆密文。
+-- ----------------------------------------------------------------------------
+CREATE TABLE app_user (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    username      VARCHAR(64)  NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    user_level    SMALLINT     NOT NULL
+        CHECK (user_level IN (0, 1))
+);
+
+-- ----------------------------------------------------------------------------
+-- 2. 部门
 -- ----------------------------------------------------------------------------
 CREATE TABLE department (
     id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -44,7 +56,7 @@ CREATE TABLE department (
 );
 
 -- ----------------------------------------------------------------------------
--- 2. 人员
+-- 3. 人员
 --    设备绑定状态由 device.personnel_id 是否为空实时计算，不保存冗余状态字段。
 -- ----------------------------------------------------------------------------
 CREATE TABLE personnel (
@@ -59,7 +71,7 @@ CREATE TABLE personnel (
 CREATE INDEX idx_personnel_department_id ON personnel (department_id);
 
 -- ----------------------------------------------------------------------------
--- 3. 定位设备
+-- 4. 定位设备
 --    device_id 保存定位设备唯一编号，可使用 MAC、IMEI、序列号或自定义编号，不限制格式。
 --    personnel_id 可空且唯一，因此同一人员最多绑定一台设备。
 -- ----------------------------------------------------------------------------
@@ -79,7 +91,7 @@ CREATE INDEX idx_device_status ON device (status);
 CREATE INDEX idx_device_personnel_id ON device (personnel_id);
 
 -- ----------------------------------------------------------------------------
--- 4. 信标设备
+-- 5. 信标设备
 -- ----------------------------------------------------------------------------
 CREATE TABLE beacon (
     id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -95,7 +107,7 @@ CREATE TABLE beacon (
 CREATE INDEX idx_beacon_status ON beacon (status);
 
 -- ----------------------------------------------------------------------------
--- 5. 业务区域
+-- 6. 业务区域
 --    事件中心和首页区域筛选仍会读取该表。
 -- ----------------------------------------------------------------------------
 CREATE TABLE area (
@@ -110,7 +122,7 @@ CREATE TABLE area (
 CREATE INDEX idx_area_type ON area (type);
 
 -- ----------------------------------------------------------------------------
--- 6. 告警事件
+-- 7. 告警事件
 --    device_id/person_id 使用业务编号，允许记录尚未入库或已删除设备产生的历史告警。
 -- ----------------------------------------------------------------------------
 CREATE TABLE alert_event (
@@ -239,7 +251,7 @@ FOR EACH ROW
 EXECUTE FUNCTION insert_alert_compatibility_view();
 
 -- ----------------------------------------------------------------------------
--- 7. 设备轨迹历史
+-- 8. 设备轨迹历史
 --    仅保留 TrajectoryMapper 实际读写的字段，按 server_ts 月度分区。
 -- ----------------------------------------------------------------------------
 CREATE TABLE device_location_history (

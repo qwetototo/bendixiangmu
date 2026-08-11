@@ -1,5 +1,5 @@
 import floorConfig from '@/assets/config/config.json';
-import type { Point3D, SceneConfig } from '@/types/scene';
+import type { ModelConfig, Point3D, SceneConfig } from '@/types/scene';
 import { toRaw } from 'vue';
 
 export interface MapFloorItem {
@@ -19,6 +19,7 @@ export interface MapMetadata {
   mapOrigin: Point3D;
   positioningOrigin: Point3D;
   scaleRatio: number;
+  modelParameters: ModelConfig[];
   activeFloorId: string;
   floors: MapFloorItem[];
 }
@@ -38,6 +39,29 @@ export const DEFAULT_MAP_ID = 'default-office-floor';
 
 export function cloneSceneConfig(config: SceneConfig): SceneConfig {
   return JSON.parse(JSON.stringify(toRaw(config))) as SceneConfig;
+}
+
+function cloneModels(models: ModelConfig[]): ModelConfig[] {
+  return JSON.parse(JSON.stringify(models)) as ModelConfig[];
+}
+
+function applySharedModelParameters(models: ModelConfig[], parameters: ModelConfig[]): ModelConfig[] {
+  const roleOffsets = new Map<string, number>();
+  return cloneModels(models).map((model, index) => {
+    const role = model.role || `index-${index}`;
+    const roleOffset = roleOffsets.get(role) ?? 0;
+    roleOffsets.set(role, roleOffset + 1);
+    const roleMatches = parameters.filter((parameter) => parameter.role === model.role);
+    const parameter = roleMatches[roleOffset] ?? parameters[index];
+    if (!parameter) return model;
+    return {
+      ...model,
+      path: model.path,
+      scale: parameter.scale,
+      center: [...parameter.center] as [number, number, number],
+      rotation: [...parameter.rotation] as [number, number, number],
+    };
+  });
 }
 
 function normalizePoint3D(value: unknown, fallback: Point3D): Point3D {
@@ -82,14 +106,18 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
         }))
     : [];
   const normalizedFloors = floors.length > 0 ? floors : [fallbackFloor];
+  const legacyMetadata = metadata as Partial<MapMetadata> & { models?: ModelConfig[] } | undefined;
+  const metadataParameters = Array.isArray(metadata?.modelParameters)
+    ? metadata.modelParameters
+    : Array.isArray(legacyMetadata?.models)
+      ? legacyMetadata.models
+      : [];
+  const modelParameters = cloneModels(metadataParameters.length > 0 ? metadataParameters : config.models);
   normalizedFloors.forEach((floor) => {
-    if (floor.scaleRatio === undefined) {
-      floor.scaleRatio = scaleRatio;
-    }
-    if (floor.positioningOrigin === undefined) {
-      floor.positioningOrigin = [...positioningOrigin] as Point3D;
-    }
-    floor.config.floor.scale = floor.scaleRatio;
+    floor.scaleRatio = scaleRatio;
+    floor.positioningOrigin = [...positioningOrigin] as Point3D;
+    floor.config.floor.scale = scaleRatio;
+    floor.config.models = applySharedModelParameters(floor.config.models, modelParameters);
   });
   const activeFloorId =
     typeof metadata?.activeFloorId === 'string' && normalizedFloors.some((floor) => floor.id === metadata.activeFloorId)
@@ -104,6 +132,7 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
     mapOrigin,
     positioningOrigin,
     scaleRatio,
+    modelParameters,
     activeFloorId,
     floors: normalizedFloors,
   };
@@ -114,12 +143,8 @@ function normalizeSavedMap(map: SavedMap): SavedMap {
   const metadata = createDefaultMetadata(config, map.metadata);
   const activeFloor = metadata.floors.find((floor) => floor.id === metadata.activeFloorId) ?? metadata.floors[0];
   const activeConfig = activeFloor ? cloneSceneConfig(activeFloor.config) : config;
-  // Use the active floor's own scaleRatio instead of the global metadata.scaleRatio
-  if (activeFloor && typeof activeFloor.scaleRatio === 'number' && activeFloor.scaleRatio > 0) {
-    activeConfig.floor.scale = activeFloor.scaleRatio;
-  } else {
-    activeConfig.floor.scale = metadata.scaleRatio;
-  }
+  activeConfig.floor.scale = metadata.scaleRatio;
+  activeConfig.models = applySharedModelParameters(activeConfig.models, metadata.modelParameters);
   return {
     ...map,
     name: map.name || config.floor.name || '未命名地图',
@@ -196,7 +221,18 @@ export function savedMapToApiPayload(map: SavedMap): {
     name: map.name,
     description: map.description,
     config: cloneSceneConfig(map.config),
-    metadata: { ...map.metadata },
+    metadata: {
+      ...map.metadata,
+      mapOrigin: [...map.metadata.mapOrigin] as Point3D,
+      positioningOrigin: [...map.metadata.positioningOrigin] as Point3D,
+      modelParameters: cloneModels(map.metadata.modelParameters),
+      floors: map.metadata.floors.map((floor) => ({
+        ...floor,
+        positioningOrigin: [...map.metadata.positioningOrigin] as Point3D,
+        scaleRatio: map.metadata.scaleRatio,
+        config: cloneSceneConfig(floor.config),
+      })),
+    },
     thumbnail: map.metadata.thumbnail || undefined,
   };
 }

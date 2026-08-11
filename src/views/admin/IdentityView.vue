@@ -8,7 +8,7 @@
       <div class="management-actions">
         <button class="primary" type="button" @click="openEditor()">新增{{ activeView === 'people' ? '人员' : '部门' }}</button>
         <button type="button" @click="openImport">{{ t('common.import') }}</button>
-        <button type="button" @click="exportOpen = true">{{ t('common.export') }}</button>
+        <button type="button" @click="exportOpen = true">{{ t('common.batchExport') }}</button>
       </div>
     </header>
 
@@ -123,7 +123,7 @@
       </div>
       <template #footer>
         <button type="button" @click="exportOpen = false">取消</button>
-        <button class="primary" type="button" @click="exportCsv">导出</button>
+        <button class="primary" type="button" @click="exportCsv">{{ t('common.batchExport') }}</button>
       </template>
     </BaseModal>
   </section>

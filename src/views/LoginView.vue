@@ -5,23 +5,26 @@
         <span>deepfusion</span>
         <strong>{{ t('login.title') }}</strong>
       </div>
-      <form class="login-form" @submit.prevent="$emit('login', { remember: loginForm.remember })">
+      <form class="login-form" @submit.prevent="submitLogin">
         <label>
           <span>{{ t('login.account') }}</span>
-          <input v-model="loginForm.account" autocomplete="username" placeholder="admin@deepfusion" />
+          <input v-model.trim="loginForm.username" autocomplete="username" :disabled="loading" />
         </label>
         <label>
           <span>{{ t('login.password') }}</span>
-          <input v-model="loginForm.password" autocomplete="current-password" :placeholder="t('login.passwordPlaceholder')" type="password" />
+          <input v-model="loginForm.password" autocomplete="current-password" :disabled="loading" :placeholder="t('login.passwordPlaceholder')" type="password" />
         </label>
         <div class="login-options">
           <label>
-            <input v-model="loginForm.remember" type="checkbox" />
+            <input v-model="loginForm.remember" :disabled="loading" type="checkbox" />
             <span>{{ t('login.rememberMe') }}</span>
           </label>
           <button type="button">{{ t('login.forgotPassword') }}</button>
         </div>
-        <button class="login-submit" type="submit">{{ t('login.submit') }}</button>
+        <p v-if="errorMessage" class="login-error" role="alert">{{ errorMessage }}</p>
+        <button class="login-submit" type="submit" :disabled="loading">
+          {{ loading ? t('login.loggingIn') : t('login.submit') }}
+        </button>
       </form>
       <div class="login-metrics">
         <div>
@@ -52,17 +55,28 @@
 import { reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
 import footerGaIcon from '@/assets/image/footer_ga-1.png';
+import type { LoginPayload } from '@/services/authApi';
 const { t } = useI18n();
 
-defineEmits<{
-  login: [{ remember: boolean }];
+const props = defineProps<{
+  loading: boolean;
+  errorMessage: string;
+}>();
+
+const emit = defineEmits<{
+  login: [payload: LoginPayload];
 }>();
 
 const loginForm = reactive({
-  account: 'admin@deepfusion',
+  username: '',
   password: '',
   remember: true,
 });
+
+function submitLogin() {
+  if (props.loading || !loginForm.username || !loginForm.password) return;
+  emit('login', { ...loginForm });
+}
 </script>
 
 <style scoped>
@@ -170,6 +184,17 @@ const loginForm = reactive({
   color: #fff;
   font-weight: 800;
   cursor: pointer;
+}
+
+.login-submit:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.login-error {
+  margin: 0;
+  color: #ff8f9c;
+  font-size: 13px;
 }
 
 .login-metrics {

@@ -215,20 +215,20 @@
               <template v-if="baseMapModel">
                 <label>
                   <span>{{ t('config.modelX') }}</span>
-                  <input v-model.number="baseMapModel.center[0]" type="number" step="0.1" @change="sanitizeModelNumberField(baseMapModel!.center, 0)" />
+                  <input v-model.number="baseMapModel.center[0]" type="number" step="0.1" @change="commitBaseModelParameter(0)" />
                 </label>
                 <label>
                   <span>{{ t('config.modelY') }}</span>
-                  <input v-model.number="baseMapModel.center[1]" type="number" step="0.1" @change="sanitizeModelNumberField(baseMapModel!.center, 1)" />
+                  <input v-model.number="baseMapModel.center[1]" type="number" step="0.1" @change="commitBaseModelParameter(1)" />
                 </label>
                 <label>
                   <span>{{ t('config.modelZ') }}</span>
-                  <input v-model.number="baseMapModel.center[2]" type="number" step="0.1" @change="sanitizeModelNumberField(baseMapModel!.center, 2)" />
+                  <input v-model.number="baseMapModel.center[2]" type="number" step="0.1" @change="commitBaseModelParameter(2)" />
                 </label>
                 <label class="slider-field map-preview__rotation-field">
                   <span>{{ t('config.rotationY') }}</span>
-                  <input v-model.number="baseMapModel.rotation[1]" type="range" min="-180" max="180" step="1" @change="sanitizeModelNumberField(baseMapModel!.rotation, 1)" />
-                  <input v-model.number="baseMapModel.rotation[1]" type="number" step="1" @change="sanitizeModelNumberField(baseMapModel!.rotation, 1)" />
+                  <input v-model.number="baseMapModel.rotation[1]" type="range" min="-180" max="180" step="1" @change="commitBaseModelRotation" />
+                  <input v-model.number="baseMapModel.rotation[1]" type="number" step="1" @change="commitBaseModelRotation" />
                 </label>
               </template>
               <input ref="baseMapFileInput" class="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" @change="importBaseMapFile" />
@@ -531,12 +531,12 @@ function onScaleRatioInput(event: Event) {
 
 function setScaleRatio(value: number) {
   if (!draftMap.value || !Number.isFinite(value) || value <= 0) return;
-  const activeFloor = draftMap.value.metadata.floors.find((floor) => floor.id === draftMap.value!.metadata.activeFloorId);
-  if (activeFloor) {
-    activeFloor.scaleRatio = value;
-    activeFloor.config.floor.scale = value;
-    draftMap.value.config.floor.scale = value;
-  }
+  draftMap.value.metadata.scaleRatio = value;
+  draftMap.value.config.floor.scale = value;
+  draftMap.value.metadata.floors.forEach((floor) => {
+    floor.scaleRatio = value;
+    floor.config.floor.scale = value;
+  });
 }
 
 function onScaleRatioBlur() {
@@ -555,25 +555,17 @@ function onScaleRatioBlur() {
   scaleRatioDisplay.value = String(num);
 }
 
-// Per-floor positioningOrigin display
+// Building-level positioning origin shared by every floor.
 const positioningOriginDisplay = ref<Point3D>([0, 0, 0]);
 function syncPositioningOriginDisplay() {
   if (!draftMap.value) return;
-  const floor = currentFloor.value;
-  if (floor?.positioningOrigin) {
-    positioningOriginDisplay.value = [...floor.positioningOrigin] as Point3D;
-  } else {
-    positioningOriginDisplay.value = [...draftMap.value.metadata.positioningOrigin] as Point3D;
-  }
+  positioningOriginDisplay.value = [...draftMap.value.metadata.positioningOrigin] as Point3D;
 }
 function commitPositioningOriginDisplay() {
   if (!draftMap.value) return;
-  const floor = currentFloor.value;
-  if (floor) {
-    floor.positioningOrigin = [...positioningOriginDisplay.value] as Point3D;
-  }
+  draftMap.value.metadata.positioningOrigin = [...positioningOriginDisplay.value] as Point3D;
+  applyBuildingSettingsToFloors(draftMap.value);
 }
-watch(() => draftMap.value?.metadata.activeFloorId, syncPositioningOriginDisplay);
 watch(() => draftMap.value, syncPositioningOriginDisplay, { immediate: true });
 watch(() => draftMap.value?.metadata.activeFloorId, updateScaleRatioDisplay);
 watch(() => draftMap.value, updateScaleRatioDisplay, { immediate: true });
@@ -628,6 +620,24 @@ function sanitizeModelNumberField(arr: number[], index: number, fallback = 0) {
   }
 }
 
+function commitBuildingModelParameters() {
+  if (!draftMap.value) return;
+  captureBuildingModelParameters(draftMap.value);
+  applyBuildingSettingsToFloors(draftMap.value);
+}
+
+function commitBaseModelParameter(index: number) {
+  if (!baseMapModel.value) return;
+  sanitizeModelNumberField(baseMapModel.value.center, index);
+  commitBuildingModelParameters();
+}
+
+function commitBaseModelRotation() {
+  if (!baseMapModel.value) return;
+  sanitizeModelNumberField(baseMapModel.value.rotation, 1);
+  commitBuildingModelParameters();
+}
+
 function getPreviewBox(config: SceneConfig) {
   const xs: number[] = [];
   const ys: number[] = [];
@@ -655,20 +665,18 @@ function getPreviewBox(config: SceneConfig) {
 }
 
 function getSafeScaleRatio(map: SavedMap): number {
-  const activeFloor = map.metadata.floors.find((floor) => floor.id === map.metadata.activeFloorId);
-  const scaleRatio = activeFloor?.scaleRatio ?? map.metadata.scaleRatio;
+  const scaleRatio = map.metadata.scaleRatio;
   return Number.isFinite(scaleRatio) && scaleRatio > 0 ? scaleRatio : 100;
 }
 
 function syncScaleRatioToConfig(map: SavedMap) {
   const scaleRatio = getSafeScaleRatio(map);
+  map.metadata.scaleRatio = scaleRatio;
   map.config.floor.scale = scaleRatio;
-  // Only sync the active floor — do not overwrite other floors
-  const activeFloor = map.metadata.floors.find((floor) => floor.id === map.metadata.activeFloorId);
-  if (activeFloor) {
-    activeFloor.scaleRatio = scaleRatio;
-    activeFloor.config.floor.scale = scaleRatio;
-  }
+  map.metadata.floors.forEach((floor) => {
+    floor.scaleRatio = scaleRatio;
+    floor.config.floor.scale = scaleRatio;
+  });
 }
 
 function normalizeModelConfig(model: ModelConfig): ModelConfig {
@@ -683,9 +691,68 @@ function normalizeModelConfig(model: ModelConfig): ModelConfig {
     path: model.path,
     scale: model.scale,
     center,
-    rotation: model.rotation,
+    rotation: [...model.rotation] as [number, number, number],
     role: model.role,
   };
+}
+
+function getUploadedModelId(modelPath: string | undefined): string | null {
+  if (!modelPath) return null;
+  const pathname = modelPath.split(/[?#]/, 1)[0].replace(/\\/g, '/');
+  const match = pathname.match(/(?:^|\/)uploads\/models\/([^/]+)\.(?:glb|gltf)$/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getBackendConfigId(map: SavedMap): string {
+  const uploadedIds = map.metadata.floors
+    .flatMap((floor) => floor.config.models)
+    .concat(map.config.models)
+    .filter((model) => model.role === 'base-map')
+    .map((model) => getUploadedModelId(model.path))
+    .filter((id): id is string => Boolean(id));
+
+  return uploadedIds.find((id) => id === map.id) ?? uploadedIds[0] ?? map.id;
+}
+
+function cloneBuildingModels(models: ModelConfig[]): ModelConfig[] {
+  return models.map((model) => normalizeModelConfig(model));
+}
+
+function applyModelParameters(models: ModelConfig[], parameters: ModelConfig[]): ModelConfig[] {
+  const roleOffsets = new Map<string, number>();
+  return models.map((model, index) => {
+    const role = model.role || `index-${index}`;
+    const roleOffset = roleOffsets.get(role) ?? 0;
+    roleOffsets.set(role, roleOffset + 1);
+    const roleMatches = parameters.filter((parameter) => parameter.role === model.role);
+    const parameter = roleMatches[roleOffset] ?? parameters[index];
+    if (!parameter) return normalizeModelConfig(model);
+    return {
+      ...normalizeModelConfig(model),
+      path: model.path,
+      scale: parameter.scale,
+      center: [...parameter.center] as [number, number, number],
+      rotation: [...parameter.rotation] as [number, number, number],
+    };
+  });
+}
+
+function captureBuildingModelParameters(map: SavedMap) {
+  map.metadata.modelParameters = cloneBuildingModels(map.config.models);
+}
+
+function applyBuildingSettingsToFloors(map: SavedMap) {
+  const parameters = cloneBuildingModels(map.metadata.modelParameters);
+  const positioningOrigin = [...map.metadata.positioningOrigin] as Point3D;
+  const scaleRatio = getSafeScaleRatio(map);
+  map.config.models = applyModelParameters(map.config.models, parameters);
+  map.config.floor.scale = scaleRatio;
+  map.metadata.floors.forEach((floor) => {
+    floor.config.models = applyModelParameters(floor.config.models, parameters);
+    floor.config.floor.scale = scaleRatio;
+    floor.scaleRatio = scaleRatio;
+    floor.positioningOrigin = [...positioningOrigin] as Point3D;
+  });
 }
 
 function normalizeSceneModelCenters(config: SceneConfig) {
@@ -707,6 +774,8 @@ function normalizeClonedSceneConfig(config: SceneConfig): SceneConfig {
 
 function syncActiveFloorFromConfig(map: SavedMap) {
   syncScaleRatioToConfig(map);
+  captureBuildingModelParameters(map);
+  applyBuildingSettingsToFloors(map);
   const activeFloorId = map.metadata.activeFloorId;
   const activeIndex = map.metadata.floors.findIndex((floor) => floor.id === activeFloorId);
   const oldFloor = activeIndex >= 0 ? map.metadata.floors[activeIndex] : null;
@@ -715,9 +784,7 @@ function syncActiveFloorFromConfig(map: SavedMap) {
     name: map.config.floor.name || map.metadata.floor || t('config.floorLabel'),
     config: normalizeClonedSceneConfig(map.config),
     scaleRatio: oldFloor?.scaleRatio ?? getSafeScaleRatio(map),
-    positioningOrigin: oldFloor?.positioningOrigin
-      ? ([...oldFloor.positioningOrigin] as Point3D)
-      : ([...map.metadata.positioningOrigin] as Point3D),
+    positioningOrigin: [...map.metadata.positioningOrigin] as Point3D,
   };
 
   if (activeIndex >= 0) {
@@ -743,6 +810,7 @@ function switchFloor(floorId: string) {
   draftMap.value.metadata.floor = targetFloor.name;
   draftMap.value.config = normalizeClonedSceneConfig(targetFloor.config);
   syncScaleRatioToConfig(draftMap.value);
+  applyBuildingSettingsToFloors(draftMap.value);
   pickMode.value = null;
   previewRestoreView = null;
   previewHasFramed = false;
@@ -762,10 +830,13 @@ function addFloor() {
   const floorNumber = draftMap.value.metadata.floors.length + 1;
   const config = createBlankSceneConfig(t('config.floorNameDefault', { n: floorNumber }));
   config.floor.id = `floor-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+  config.floor.scale = draftMap.value.metadata.scaleRatio;
   const floorItem: MapFloorItem = {
     id: config.floor.id,
     name: config.floor.name,
     config,
+    scaleRatio: draftMap.value.metadata.scaleRatio,
+    positioningOrigin: [...draftMap.value.metadata.positioningOrigin] as Point3D,
   };
   draftMap.value.metadata.floors.push(floorItem);
   switchFloor(floorItem.id);
@@ -788,6 +859,7 @@ function removeCurrentFloor() {
   draftMap.value.metadata.floor = nextFloor.name;
   draftMap.value.config = normalizeClonedSceneConfig(nextFloor.config);
   syncScaleRatioToConfig(draftMap.value);
+  applyBuildingSettingsToFloors(draftMap.value);
 }
 
 function updateCurrentFloorName() {
@@ -1120,10 +1192,7 @@ async function rebuildPreviewScene() {
 
   const token = ++previewBuildToken;
   const config = normalizeClonedSceneConfig(map.config);
-  const activeFloor = map.metadata.floors.find((f) => f.id === map.metadata.activeFloorId);
-  const positioningOrigin = (activeFloor?.positioningOrigin
-    ? [...activeFloor.positioningOrigin]
-    : [...map.metadata.positioningOrigin]) as [number, number, number];
+  const positioningOrigin = [...map.metadata.positioningOrigin] as [number, number, number];
   const assetSignature = getPreviewAssetSignature(config);
   const layoutSignature = getPreviewLayoutSignature(config, positioningOrigin);
   const needsAssetReload = assetSignature !== previewAssetSignature;
@@ -1342,11 +1411,13 @@ function openEditor(map: SavedMap) {
       ...map.metadata,
       mapOrigin: [...map.metadata.mapOrigin] as [number, number, number],
       positioningOrigin: [...map.metadata.positioningOrigin] as [number, number, number],
+      modelParameters: cloneBuildingModels(map.metadata.modelParameters),
       floors: cloneMapFloors(map.metadata.floors),
     },
     config: normalizeClonedSceneConfig(map.config),
   };
   syncScaleRatioToConfig(draftMap.value);
+  applyBuildingSettingsToFloors(draftMap.value);
   viewMode.value = 'edit';
 
   // Update URL to include map ID so refresh restores the editor
@@ -1398,6 +1469,7 @@ function saveDraft() {
           metadata: {
             ...draftMap.value.metadata,
             scaleRatio: Number(draftMap.value.metadata.scaleRatio) > 0 ? Number(draftMap.value.metadata.scaleRatio) : 100,
+            modelParameters: cloneBuildingModels(draftMap.value.metadata.modelParameters),
             floors: cloneMapFloors(draftMap.value.metadata.floors),
           },
           config: normalizeClonedSceneConfig(draftMap.value.config),
@@ -1412,16 +1484,21 @@ function saveDraft() {
     sceneStore.setActiveMap(nextMap.id, normalizeClonedSceneConfig(nextMap.config));
   }
 
-  // Persist to backend API (best-effort)
+  // Uploaded model/config files use the server-generated model ID. Legacy
+  // locally-created maps may still have a different `map-*` browser ID, so
+  // resolve the backend ID from the persisted model path before saving.
   if (nextMap.id !== DEFAULT_MAP_ID) {
-    apiSaveModelConfig(nextMap.id, {
+    const backendConfigId = getBackendConfigId(nextMap);
+    apiSaveModelConfig(backendConfigId, {
       name: nextMap.name,
       description: nextMap.description,
       config: nextMap.config,
       metadata: nextMap.metadata,
       thumbnail: nextMap.metadata.thumbnail || undefined,
-    }).catch(() => {
-      // API not available — localStorage fallback is sufficient
+    }).catch((error) => {
+      console.error(`[saveDraft] failed to save backend config ${backendConfigId}`, error);
+      const reason = error instanceof Error ? error.message : t('config.mapSaveServerFailed');
+      showMessage(t('config.mapSaveServerFailed', { reason }));
     });
   }
 
@@ -1454,7 +1531,7 @@ async function deleteMap(map: SavedMap) {
   const nextMaps = maps.value.filter((item) => item.id !== map.id);
 
   // Delete via backend API (removes model file + config JSON + thumbnail)
-  apiDeleteModel(map.id).catch(() => {
+  apiDeleteModel(getBackendConfigId(map)).catch(() => {
     // Backend not available — silently ignore; localStorage will be cleaned up.
   });
 
@@ -1589,7 +1666,9 @@ function replaceCurrentFloorBaseMap(baseModel: ModelConfig) {
   }
 
   const nonBaseModels = draftMap.value.config.models.filter((model) => model.role !== 'base-map');
-  draftMap.value.config.models = [baseModel, ...nonBaseModels];
+  draftMap.value.config.models = [normalizeModelConfig(baseModel), ...cloneBuildingModels(nonBaseModels)];
+  captureBuildingModelParameters(draftMap.value);
+  applyBuildingSettingsToFloors(draftMap.value);
   syncActiveFloorFromConfig(draftMap.value);
 }
 
@@ -1712,12 +1791,18 @@ async function importBaseMapFile(event: Event) {
   baseMapImporting.value = true;
 
   try {
-    // When replacing an existing base map (re-upload), pass the map ID so the
-    // backend overwrites the old file.  For a first-time upload on any floor,
-    // omit the ID so the backend creates a new unique file — otherwise every
-    // floor would share the same model file path.
+    // Each floor keeps its own model path. Replacing the current floor reuses
+    // the map file only when that floor already has a base model.
     const existingBase = draftMap.value.config.models.find((m) => m.role === 'base-map');
-    const detail = await apiUploadModel(file, undefined, undefined, undefined, existingBase ? draftMap.value.id : undefined);
+    const existingBaseId = getUploadedModelId(existingBase?.path);
+    const hasUploadedBaseModel = draftMap.value.metadata.floors.some((floor) =>
+      floor.config.models.some((model) => model.role === 'base-map' && getUploadedModelId(model.path)),
+    );
+    // The first upload for a blank local map creates the server config under
+    // the local map ID. Replacing an existing floor model reuses that model's
+    // own server ID; adding another floor gets a separate model asset ID.
+    const uploadId = existingBaseId ?? (!hasUploadedBaseModel ? draftMap.value.id : undefined);
+    const detail = await apiUploadModel(file, undefined, undefined, undefined, uploadId);
     console.log('[importBaseMapFile] upload response:', JSON.stringify(detail));
 
     const baseModel: ModelConfig = {
@@ -1774,10 +1859,7 @@ function handlePreviewClick(event: MouseEvent) {
       0,
       mapPoint[2],
     ];
-    const floor = currentFloor.value;
-    if (floor) {
-      floor.positioningOrigin = [mapPoint[0], 0, mapPoint[2]];
-    }
+    applyBuildingSettingsToFloors(draftMap.value);
     syncPositioningOriginDisplay();
     showMessage(t('config.positioningOriginUpdated'));
   }

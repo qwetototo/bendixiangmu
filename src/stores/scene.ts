@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import type { SceneConfig } from '@/types/scene';
-import { getActiveMap, setActiveMapId } from '@/services/mapLibrary';
+import { getActiveMap, getMapLibrary, setActiveMapId } from '@/services/mapLibrary';
+import { derivePositionTransform, setPositionTransform } from '@/services/positionTransform';
 
 interface SceneState {
   config: SceneConfig;
@@ -8,10 +9,14 @@ interface SceneState {
 }
 
 export const useSceneStore = defineStore('scene', {
-  state: (): SceneState => ({
-    config: getActiveMap().config,
-    activeMapId: getActiveMap().id,
-  }),
+  state: (): SceneState => {
+    const activeMap = getActiveMap();
+    setPositionTransform(derivePositionTransform(activeMap));
+    return {
+      config: activeMap.config,
+      activeMapId: activeMap.id,
+    };
+  },
   actions: {
     setConfig(config: SceneConfig) {
       this.config = config;
@@ -20,6 +25,10 @@ export const useSceneStore = defineStore('scene', {
       this.activeMapId = mapId;
       this.config = config;
       setActiveMapId(mapId);
+      const map = getMapLibrary().find((item) => item.id === mapId);
+      if (map) {
+        setPositionTransform(derivePositionTransform(map));
+      }
     },
   },
 });

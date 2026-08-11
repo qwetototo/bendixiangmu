@@ -8,7 +8,7 @@
       <div class="management-actions">
         <button class="primary" type="button" @click="openEditor()">{{ t('common.add') }}</button>
         <button type="button" @click="openImport">{{ t('common.import') }}</button>
-        <button type="button" @click="exportOpen = true">{{ t('common.export') }}</button>
+        <button type="button" @click="exportOpen = true">{{ t('common.batchExport') }}</button>
       </div>
     </header>
 
@@ -124,7 +124,7 @@
       </div>
       <template #footer>
         <button type="button" @click="exportOpen = false">取消</button>
-        <button class="primary" type="button" @click="exportCsv">导出</button>
+        <button class="primary" type="button" @click="exportCsv">{{ t('common.batchExport') }}</button>
       </template>
     </BaseModal>
   </section>
@@ -212,10 +212,11 @@ function closeEditor() {
 async function openPersonPicker() {
   personKeyword.value = '';
   personPickerOpen.value = true;
-  if (people.value.length) return;
   try {
-    people.value = (await fetchPersonnel({ page: 1, pageSize: 1000 })).records;
+    const page = await fetchPersonnel({ page: 1, pageSize: 1000, bindingStatus: 'unbound' });
+    people.value = page.records.filter((person) => person.bindingStatus === 'unbound');
   } catch (error) {
+    people.value = [];
     formError.value = error instanceof Error ? error.message : '加载人员失败';
   }
 }

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { http } from '@/services/http';
 
 interface AlertMessageVO {
   title?: string;
@@ -22,7 +22,7 @@ export interface AlertEvent {
 }
 
 export async function getAllAlertMessage(): Promise<AlertEvent[]> {
-  const response = await axios.get<AlertResponseVO>('/api/alerts');
+  const response = await http.get<AlertResponseVO>('/api/alerts');
   if (response.data.status !== 200 || !Array.isArray(response.data.data)) {
     return [];
   }

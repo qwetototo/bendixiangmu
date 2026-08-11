@@ -64,6 +64,14 @@ interface LivePoseSample {
 }
 
 export class TwinScene {
+  private static readonly SHADOW_BOUNDS_PADDING_RATIO = 0.08;
+  private static readonly MIN_SHADOW_BOUNDS_PADDING = 20;
+  private static readonly LIVE_TRAIL_MAX_POINTS = 500;
+  private static readonly REPLAY_TRAIL_MAX_POINTS = 5000;
+  private static readonly MEDIUM_DEVICE_COUNT = 12;
+  private static readonly SHADOW_DISABLE_DEVICE_COUNT = 20;
+  private static readonly HIGH_DEVICE_COUNT = 24;
+  private static readonly TRAIL_DISABLE_DEVICE_COUNT = 30;
   private static readonly LIVE_POSE_MARKER_HEIGHT = 0;
   private static readonly LIVE_POSE_TRAIL_HEIGHT = 1.2;
   private static readonly LIVE_POSE_COLOR = '#3be3ff';
@@ -86,6 +94,7 @@ export class TwinScene {
   private camera: THREE.PerspectiveCamera | null = null;
   private renderer: THREE.WebGLRenderer | null = null;
   private controls: OrbitControls | null = null;
+  private directionalLight: THREE.DirectionalLight | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -104,6 +113,8 @@ export class TwinScene {
   private selectedLivePoseId: string | null = null;
   private trackedLivePoseId: string | null = null;
   private trailsVisible = true;
+  private performanceTrailsEnabled = true;
+  private performanceProfileKey = '';
   private overlayBaseSize = new THREE.Vector2(1, 1);
   private resizeHandler: () => void;
   private clickHandler: (event: MouseEvent) => void;
@@ -129,7 +140,9 @@ export class TwinScene {
   init(): void {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#07111d');
-    this.scene.fog = new THREE.Fog('#07111d', 450, 1400);
+    // OrbitControls allows the camera to move as far as 900 units. Starting
+    // fog at 450 made the map lose contrast and look blurred while zooming out.
+    this.scene.fog = new THREE.Fog('#07111d', 1800, 3600);
 
     this.createCamera();
     this.createRenderer();
@@ -196,7 +209,8 @@ export class TwinScene {
     const fillLight = new THREE.DirectionalLight('#5dade2', 0.6);
     fillLight.position.set(-180, 120, -120);
 
-    this.scene.add(ambientLight, directionalLight, fillLight);
+    this.scene.add(ambientLight, directionalLight, directionalLight.target, fillLight);
+    this.directionalLight = directionalLight;
   }
 
   private addHelpers(): void {
@@ -220,7 +234,7 @@ export class TwinScene {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 120;
-    this.controls.maxDistance = 900;
+    this.controls.maxDistance = 2000;
     this.controls.maxPolarAngle = Math.PI / 2.05;
     this.controls.target.set(0, 0, 0);
     this.controls.update();
@@ -235,6 +249,7 @@ export class TwinScene {
     this.floorGroup = this.builder.build(this.config);
     this.addLivePoseLayer();
     this.scene.add(this.floorGroup);
+    this.updateShadowCameraBounds();
     void this.loadReferenceModels();
   }
 
@@ -295,47 +310,6 @@ export class TwinScene {
     core.castShadow = true;
     core.position.y = 4.6;
 
-    const pointerShape = new THREE.Shape();
-    pointerShape.moveTo(0, 8.5);
-    pointerShape.lineTo(5.6, 0.8);
-    pointerShape.lineTo(2.2, 0.8);
-    pointerShape.lineTo(2.2, -7.8);
-    pointerShape.lineTo(-2.2, -7.8);
-    pointerShape.lineTo(-2.2, 0.8);
-    pointerShape.lineTo(-5.6, 0.8);
-    pointerShape.closePath();
-
-    const pointerGlow = new THREE.Mesh(
-      new THREE.ShapeGeometry(pointerShape),
-      new THREE.MeshBasicMaterial({
-        color: TwinScene.LIVE_POSE_COLOR,
-        transparent: true,
-        opacity: 0.32,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    );
-    pointerGlow.name = `device:pointer-glow:${deviceId}`;
-    pointerGlow.rotation.x = -Math.PI / 2;
-    pointerGlow.position.set(0, 0.3, 11.5);
-    pointerGlow.scale.set(1.25, 1.25, 1);
-    pointerGlow.renderOrder = 29;
-
-    const pointer = new THREE.Mesh(
-      new THREE.ShapeGeometry(pointerShape),
-      new THREE.MeshBasicMaterial({
-        color: TwinScene.LIVE_POSE_CORE_COLOR,
-        transparent: true,
-        opacity: 0.96,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    );
-    pointer.name = `device:pointer:${deviceId}`;
-    pointer.position.set(0, 0.34, 11.5);
-    pointer.rotation.x = -Math.PI / 2;
-    pointer.renderOrder = 30;
-
     const halo = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: this.createRadialGradientTexture(TwinScene.LIVE_POSE_COLOR),
@@ -353,12 +327,19 @@ export class TwinScene {
     label.visible = this.livePoseLabelsVisible;
     label.position.set(0, 26, 0);
 
-    markerGroup.add(baseDisc, baseRing, halo, core, pointerGlow, pointer, label);
+    markerGroup.add(baseDisc, baseRing, halo, core, label);
     return markerGroup;
   }
 
   private createLivePoseTrail(deviceId: string): THREE.Line {
     const geometry = new THREE.BufferGeometry();
+    const positions = new THREE.BufferAttribute(
+      new Float32Array(TwinScene.REPLAY_TRAIL_MAX_POINTS * 3),
+      3,
+    );
+    positions.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('position', positions);
+    geometry.setDrawRange(0, 0);
     const material = new THREE.LineBasicMaterial({
       color: TwinScene.LIVE_POSE_TRAIL_COLOR,
       transparent: true,
@@ -368,6 +349,7 @@ export class TwinScene {
     const trail = new THREE.Line(geometry, material);
     trail.name = `device:trail:${deviceId}`;
     trail.renderOrder = 25;
+    trail.frustumCulled = false;
     return trail;
   }
 
@@ -487,7 +469,7 @@ export class TwinScene {
     }
 
     const trail = this.createLivePoseTrail(trailId);
-    trail.visible = this.trailsVisible && this.isLivePoseVisible(trailId);
+    trail.visible = this.isTrailRenderingEnabled() && this.isLivePoseVisible(trailId);
     (trail.material as THREE.LineBasicMaterial).color.set(
       trailId === this.selectedLivePoseId ? TwinScene.SELECTED_LIVE_POSE_TRAIL_COLOR : TwinScene.LIVE_POSE_TRAIL_COLOR,
     );
@@ -512,14 +494,21 @@ export class TwinScene {
     return !this.visibleLivePoseIds || this.visibleLivePoseIds.has(deviceId || 'unknown');
   }
 
+  private isTrailRenderingEnabled(): boolean {
+    return this.trailsVisible && this.performanceTrailsEnabled;
+  }
+
+  private getTrailPointCount(trail: THREE.Line): number {
+    return Number.isFinite(trail.geometry.drawRange.count) ? trail.geometry.drawRange.count : 0;
+  }
+
   private applyLivePoseVisibility(): void {
     this.livePoseMarkers.forEach((marker, deviceId) => {
       marker.visible = this.isLivePoseVisible(deviceId);
     });
 
     this.livePoseTrails.forEach((trail, deviceId) => {
-      const position = trail.geometry.getAttribute('position');
-      trail.visible = this.trailsVisible && this.isLivePoseVisible(deviceId) && Boolean(position && position.count > 1);
+      trail.visible = this.isTrailRenderingEnabled() && this.isLivePoseVisible(deviceId) && this.getTrailPointCount(trail) > 1;
     });
 
     this.updateLivePoseLabelVisibility();
@@ -542,7 +531,7 @@ export class TwinScene {
         const mesh = object as THREE.Mesh;
         const sprite = object as THREE.Sprite;
 
-        if (object.name.startsWith('device:ring:') || object.name.startsWith('device:pointer-glow:')) {
+        if (object.name.startsWith('device:ring:')) {
           (mesh.material as THREE.MeshBasicMaterial).color.set(
             selected ? TwinScene.SELECTED_LIVE_POSE_COLOR : TwinScene.LIVE_POSE_COLOR,
           );
@@ -554,10 +543,6 @@ export class TwinScene {
           const material = mesh.material as THREE.MeshStandardMaterial;
           material.color.set(selected ? TwinScene.SELECTED_LIVE_POSE_CORE_COLOR : TwinScene.LIVE_POSE_CORE_COLOR);
           material.emissive.set(selected ? TwinScene.SELECTED_LIVE_POSE_EMISSIVE_COLOR : TwinScene.LIVE_POSE_EMISSIVE_COLOR);
-        } else if (object.name.startsWith('device:pointer:')) {
-          (mesh.material as THREE.MeshBasicMaterial).color.set(
-            selected ? TwinScene.SELECTED_LIVE_POSE_CORE_COLOR : TwinScene.LIVE_POSE_CORE_COLOR,
-          );
         } else if (object.name.startsWith('device:halo:')) {
           (sprite.material as THREE.SpriteMaterial).color.set(
             selected ? TwinScene.SELECTED_LIVE_POSE_COLOR : TwinScene.LIVE_POSE_COLOR,
@@ -626,20 +611,41 @@ export class TwinScene {
     return Date.now();
   }
 
-  private rebuildTrailGeometry(deviceId: string): void {
+  private writeTrailSamples(deviceId: string, samples: LivePoseSample[]): void {
     const trail = this.getOrCreateLivePoseTrail(deviceId);
     if (!trail) {
       return;
     }
 
     const trailId = deviceId || 'unknown';
-    const samples = this.livePoseSamples.get(trailId) ?? [];
-    const points = samples.map(
-      (sample) => new THREE.Vector3(sample.x, Math.max(sample.z, 0) + TwinScene.LIVE_POSE_TRAIL_HEIGHT, sample.y),
-    );
-    trail.geometry.dispose();
-    trail.geometry = new THREE.BufferGeometry().setFromPoints(points);
-    trail.visible = this.trailsVisible && this.isLivePoseVisible(trailId) && points.length > 1;
+    const position = trail.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!position) return;
+    const count = Math.min(samples.length, position.count);
+    const start = samples.length - count;
+    for (let index = 0; index < count; index += 1) {
+      const sample = samples[start + index];
+      position.setXYZ(index, sample.x, Math.max(sample.z, 0) + TwinScene.LIVE_POSE_TRAIL_HEIGHT, sample.y);
+    }
+    position.clearUpdateRanges();
+    position.addUpdateRange(0, count * 3);
+    position.needsUpdate = true;
+    trail.geometry.setDrawRange(0, count);
+    trail.visible = this.isTrailRenderingEnabled() && this.isLivePoseVisible(trailId) && count > 1;
+  }
+
+  private appendTrailSample(deviceId: string, sample: LivePoseSample, samples: LivePoseSample[]): void {
+    const trail = this.getOrCreateLivePoseTrail(deviceId);
+    if (!trail) return;
+    const position = trail.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!position) return;
+
+    const nextIndex = samples.length - 1;
+    position.setXYZ(nextIndex, sample.x, Math.max(sample.z, 0) + TwinScene.LIVE_POSE_TRAIL_HEIGHT, sample.y);
+    position.clearUpdateRanges();
+    position.addUpdateRange(nextIndex * 3, 3);
+    position.needsUpdate = true;
+    trail.geometry.setDrawRange(0, samples.length);
+    trail.visible = this.isTrailRenderingEnabled() && this.isLivePoseVisible(deviceId) && samples.length > 1;
   }
 
   private disposeObjectResources(object: THREE.Object3D): void {
@@ -664,18 +670,26 @@ export class TwinScene {
   private updateLivePoseTrail(deviceId: string, pose: LivePose): void {
     const trailId = deviceId || 'unknown';
     const samples = this.livePoseSamples.get(trailId) ?? [];
-    samples.push({
+    const sample = {
       sortKey: this.getPoseSortKey(pose),
       x: pose.x,
       y: pose.y,
       z: pose.z,
-    });
+    };
+    const lastSample = samples[samples.length - 1];
+    const canAppend = samples.length < TwinScene.LIVE_TRAIL_MAX_POINTS && (!lastSample || sample.sortKey >= lastSample.sortKey);
+    if (canAppend) {
+      samples.push(sample);
+      this.livePoseSamples.set(trailId, samples);
+      this.appendTrailSample(trailId, sample, samples);
+      return;
+    }
 
+    samples.push(sample);
     samples.sort((left, right) => left.sortKey - right.sortKey);
-
-    const limitedSamples = samples.slice(-500);
+    const limitedSamples = samples.slice(-TwinScene.LIVE_TRAIL_MAX_POINTS);
     this.livePoseSamples.set(trailId, limitedSamples);
-    this.rebuildTrailGeometry(deviceId);
+    this.writeTrailSamples(trailId, limitedSamples);
   }
 
   setDevicePath(deviceId: string, points: PathPoint[]): void {
@@ -693,8 +707,9 @@ export class TwinScene {
         z: point.z,
       }));
 
-    this.livePoseSamples.set(trailId, pathSamples.slice(-5000));
-    this.rebuildTrailGeometry(trailId);
+    const limitedSamples = pathSamples.slice(-TwinScene.REPLAY_TRAIL_MAX_POINTS);
+    this.livePoseSamples.set(trailId, limitedSamples);
+    this.writeTrailSamples(trailId, limitedSamples);
   }
 
   clearDeviceLivePose(deviceId: string): void {
@@ -804,17 +819,38 @@ export class TwinScene {
   setTrailsVisible(visible: boolean): void {
     this.trailsVisible = visible;
     this.livePoseTrails.forEach((trail) => {
-      const position = trail.geometry.getAttribute('position');
       const deviceId = trail.name.slice('device:trail:'.length) || 'unknown';
-      trail.visible = visible && this.isLivePoseVisible(deviceId) && Boolean(position && position.count > 1);
+      trail.visible = this.isTrailRenderingEnabled() && this.isLivePoseVisible(deviceId) && this.getTrailPointCount(trail) > 1;
     });
   }
 
+  setRealtimePerformance(deviceCount: number, realtime: boolean): void {
+    const safeCount = Math.max(0, deviceCount);
+    const pixelRatio = realtime
+      ? safeCount >= TwinScene.HIGH_DEVICE_COUNT
+        ? 1
+        : safeCount >= TwinScene.MEDIUM_DEVICE_COUNT
+          ? Math.min(window.devicePixelRatio, 1.25)
+          : Math.min(window.devicePixelRatio, 2)
+      : Math.min(window.devicePixelRatio, 2);
+    const trailsEnabled = !realtime || safeCount < TwinScene.TRAIL_DISABLE_DEVICE_COUNT;
+    const shadowsEnabled = !realtime || safeCount < TwinScene.SHADOW_DISABLE_DEVICE_COUNT;
+    const profileKey = `${realtime}:${pixelRatio}:${shadowsEnabled}:${trailsEnabled}`;
+    if (profileKey === this.performanceProfileKey) return;
+    this.performanceProfileKey = profileKey;
+    this.performanceTrailsEnabled = trailsEnabled;
+    if (this.renderer) {
+      this.renderer.setPixelRatio(pixelRatio);
+      this.renderer.shadowMap.enabled = shadowsEnabled;
+      this.renderer.shadowMap.needsUpdate = true;
+      this.handleResize();
+    }
+    this.applyLivePoseVisibility();
+  }
   clearAllTrails(): void {
     this.livePoseSamples.clear();
     this.livePoseTrails.forEach((trail) => {
-      trail.geometry.dispose();
-      trail.geometry = new THREE.BufferGeometry();
+      trail.geometry.setDrawRange(0, 0);
       trail.visible = false;
     });
   }
@@ -856,8 +892,8 @@ export class TwinScene {
       return;
     }
 
-    const { x, y, z, theta } = pose;
-    if (![x, y, z, theta].every((value) => Number.isFinite(value))) {
+    const { x, y, z } = pose;
+    if (![x, y, z].every((value) => Number.isFinite(value))) {
       return;
     }
 
@@ -869,15 +905,14 @@ export class TwinScene {
     this.updateLivePoseTrail(pose.deviceId, pose);
     marker.visible = this.isLivePoseVisible(pose.deviceId);
     marker.position.set(x, Math.max(z, 0) + TwinScene.LIVE_POSE_MARKER_HEIGHT, y);
-    marker.rotation.set(0, theta, 0);
 
     if (pose.deviceId === this.trackedLivePoseId) {
       this.focusTrackedLivePose(marker);
     }
   }
 
-  updateReplayPose(deviceId: string, point: PathPoint, theta = 0): void {
-    if (!this.livePoseGroup || ![point.x, point.y, point.z, theta].every((value) => Number.isFinite(value))) {
+  updateReplayPose(deviceId: string, point: PathPoint, _theta = 0): void {
+    if (!this.livePoseGroup || ![point.x, point.y, point.z].every((value) => Number.isFinite(value))) {
       return;
     }
 
@@ -888,7 +923,6 @@ export class TwinScene {
 
     marker.visible = this.isLivePoseVisible(deviceId);
     marker.position.set(point.x, Math.max(point.z, 0) + TwinScene.LIVE_POSE_MARKER_HEIGHT, point.y);
-    marker.rotation.set(0, theta, 0);
     if (deviceId === this.trackedLivePoseId) {
       this.focusTrackedLivePose(marker);
     }
@@ -897,8 +931,7 @@ export class TwinScene {
     const trailId = deviceId || 'unknown';
     const trail = this.livePoseTrails.get(trailId);
     if (trail) {
-      const position = trail.geometry.getAttribute('position');
-      trail.visible = this.trailsVisible && this.isLivePoseVisible(trailId) && Boolean(position && position.count > 1);
+      trail.visible = this.isTrailRenderingEnabled() && this.isLivePoseVisible(trailId) && this.getTrailPointCount(trail) > 1;
     }
   }
 
@@ -990,6 +1023,7 @@ export class TwinScene {
 
       this.modelGroups.push(model);
       this.scene.add(model);
+      this.updateShadowCameraBounds();
     } catch (error) {
       console.error(`Failed to load ${modelConfig.path}`, error);
     }
@@ -1110,6 +1144,76 @@ export class TwinScene {
     const minY = box.min.y;
 
     model.position.set(modelX - localCenter.x, modelY - minY, modelZ - localCenter.z);
+  }
+
+  private updateShadowCameraBounds(): void {
+    const light = this.directionalLight;
+    if (!light) {
+      return;
+    }
+
+    // Always include the configured floor, even for a blank map with no area
+    // meshes, then extend the bounds with generated geometry and GLB models.
+    const halfWidth = Math.max(Math.abs(Number(this.config.floor.width)) || 0, 1) / 2;
+    const halfDepth = Math.max(Math.abs(Number(this.config.floor.height)) || 0, 1) / 2;
+    const bounds = new THREE.Box3(
+      new THREE.Vector3(-halfWidth, 0, -halfDepth),
+      new THREE.Vector3(halfWidth, 0, halfDepth),
+    );
+
+    if (this.floorGroup) {
+      bounds.union(new THREE.Box3().setFromObject(this.floorGroup));
+    }
+    this.modelGroups.forEach((model) => {
+      bounds.union(new THREE.Box3().setFromObject(model));
+    });
+
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    const lightDirection = new THREE.Vector3(160, 260, 180).normalize();
+    const lightDistance = Math.max(500, size.length() * 1.5);
+    light.target.position.copy(center);
+    light.position.copy(center).addScaledVector(lightDirection, lightDistance);
+    light.target.updateMatrixWorld(true);
+    light.updateMatrixWorld(true);
+    light.shadow.updateMatrices(light);
+
+    const shadowCamera = light.shadow.camera;
+    const corners = [
+      new THREE.Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
+      new THREE.Vector3(bounds.min.x, bounds.min.y, bounds.max.z),
+      new THREE.Vector3(bounds.min.x, bounds.max.y, bounds.min.z),
+      new THREE.Vector3(bounds.min.x, bounds.max.y, bounds.max.z),
+      new THREE.Vector3(bounds.max.x, bounds.min.y, bounds.min.z),
+      new THREE.Vector3(bounds.max.x, bounds.min.y, bounds.max.z),
+      new THREE.Vector3(bounds.max.x, bounds.max.y, bounds.min.z),
+      new THREE.Vector3(bounds.max.x, bounds.max.y, bounds.max.z),
+    ].map((point) => point.applyMatrix4(shadowCamera.matrixWorldInverse));
+
+    const minX = Math.min(...corners.map((point) => point.x));
+    const maxX = Math.max(...corners.map((point) => point.x));
+    const minY = Math.min(...corners.map((point) => point.y));
+    const maxY = Math.max(...corners.map((point) => point.y));
+    const minDistance = Math.min(...corners.map((point) => -point.z));
+    const maxDistance = Math.max(...corners.map((point) => -point.z));
+    const paddingX = Math.max(
+      TwinScene.MIN_SHADOW_BOUNDS_PADDING,
+      (maxX - minX) * TwinScene.SHADOW_BOUNDS_PADDING_RATIO,
+    );
+    const paddingY = Math.max(
+      TwinScene.MIN_SHADOW_BOUNDS_PADDING,
+      (maxY - minY) * TwinScene.SHADOW_BOUNDS_PADDING_RATIO,
+    );
+    const depthPadding = Math.max(TwinScene.MIN_SHADOW_BOUNDS_PADDING, size.length() * 0.05);
+
+    shadowCamera.left = minX - paddingX;
+    shadowCamera.right = maxX + paddingX;
+    shadowCamera.top = maxY + paddingY;
+    shadowCamera.bottom = minY - paddingY;
+    shadowCamera.near = Math.max(0.1, minDistance - depthPadding);
+    shadowCamera.far = Math.max(shadowCamera.near + 1, maxDistance + depthPadding);
+    shadowCamera.updateProjectionMatrix();
+    light.shadow.needsUpdate = true;
   }
 
   private handleSceneClick(event: MouseEvent): void {
@@ -1233,6 +1337,7 @@ export class TwinScene {
     this.livePoseTrails.clear();
     this.livePoseSamples.clear();
     this.controls = null;
+    this.directionalLight = null;
     this.renderer = null;
     this.camera = null;
     this.scene = null;

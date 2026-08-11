@@ -30,6 +30,7 @@ device     1 ─── N device_location_history
 device 状态转为 SOS ─── N alert_event
 beacon 独立保存三维坐标
 area 为事件中心和区域筛选提供基础数据
+app_user 保存登录账号、BCrypt 密码摘要和用户等级
 ```
 
 人员与设备只维护当前绑定，不再保存历史绑定、权限和授权到期时间。关系直接保存在 `device.personnel_id`：
@@ -42,7 +43,20 @@ area 为事件中心和区域筛选提供基础数据
 
 ## 3. 表结构
 
-### 3.1 `department`
+### 3.1 `app_user`
+
+| 字段 | 类型 | 约束 | 用途 |
+| --- | --- | --- | --- |
+| `id` | BIGINT | PK, IDENTITY | 登录用户主键 |
+| `username` | VARCHAR(64) | UNIQUE, NOT NULL | 登录用户名 |
+| `password_hash` | VARCHAR(255) | NOT NULL | BCrypt 密码摘要，禁止保存明文 |
+| `user_level` | SMALLINT | NOT NULL, CHECK | `0` 管理员，`1` 普通用户 |
+
+管理员可以调用全部接口；普通用户只能调用查询接口。首次部署通过
+`DFMOTION_INITIAL_ADMIN_USERNAME` 和 `DFMOTION_INITIAL_ADMIN_PASSWORD` 创建初始管理员，
+后端写入数据库前会使用 BCrypt 处理密码。
+
+### 3.2 `department`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -59,7 +73,7 @@ LEFT JOIN personnel p ON p.department_id = d.id
 GROUP BY d.id, d.code, d.name;
 ```
 
-### 3.2 `personnel`
+### 3.3 `personnel`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -70,7 +84,7 @@ GROUP BY d.id, d.code, d.name;
 
 “已绑定设备 / 未绑定”不保存为字段，通过 `device.personnel_id` 是否存在实时计算。
 
-### 3.3 `device`
+### 3.4 `device`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -83,7 +97,7 @@ GROUP BY d.id, d.code, d.name;
 `device_id` 同时是轨迹数据中的设备业务编号。它只要求非空且唯一，不限制为
 MAC 地址，可保存 MAC、IMEI、序列号或 `860000000000022` 这类自定义编号。
 
-### 3.4 `beacon`
+### 3.5 `beacon`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -95,7 +109,7 @@ MAC 地址，可保存 MAC、IMEI、序列号或 `860000000000022` 这类自定�
 | `battery` | SMALLINT | NOT NULL, DEFAULT 80, 0–100 | 电量百分比 |
 | `status` | VARCHAR(10) | NOT NULL, DEFAULT `offline` | 预留状态字符串 |
 
-### 3.5 `alert_event`
+### 3.6 `alert_event`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -113,7 +127,7 @@ MAC 地址，可保存 MAC、IMEI、序列号或 `860000000000022` 这类自定�
 
 `device_id` 和 `person_id` 不使用外键，使历史告警在设备或人员删除后仍能保留。
 
-### 3.6 `area`
+### 3.7 `area`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -123,7 +137,7 @@ MAC 地址，可保存 MAC、IMEI、序列号或 `860000000000022` 这类自定�
 | `type` | VARCHAR(20) | NOT NULL | `zone` 或 `fence` |
 | `color` | VARCHAR(20) | NULL | 前端显示颜色 |
 
-### 3.7 `device_location_history`
+### 3.8 `device_location_history`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -236,7 +250,34 @@ psql -h <数据库主机> -U <数据库所有者或超级用户> \
 
 执行账号应为 `dfmotion` 数据库所有者或 PostgreSQL 超级用户，并具备终止现有连接和重新创建数据库的权限。
 
-### 8.4 验证
+### 8.4 启动认证服务
+
+后端数据库凭据、JWT 签名密钥和初始管理员密码不再写入配置文件。首次启动前设置：
+
+```bash
+export DB_URL='jdbc:postgresql://<数据库主机>:5432/dfmotion'
+export DB_USERNAME='<数据库用户名>'
+export DB_PASSWORD='<数据库密码>'
+export DFMOTION_JWT_SECRET='<至少 32 字节的随机密钥>'
+export DFMOTION_INITIAL_ADMIN_USERNAME='admin'
+export DFMOTION_INITIAL_ADMIN_PASSWORD='<至少 8 位的初始密码>'
+```
+
+首次启动会在用户表为空时创建 `user_level = 0` 的管理员，密码只以 BCrypt 摘要保存。
+确认管理员创建成功后，应从长期部署配置中移除 `DFMOTION_INITIAL_ADMIN_PASSWORD`。
+现有数据库应先执行 `docs/migrations/20260805_create_app_user.sql`。
+
+配置中心的用户管理接口为 `/api/users`：列表、创建、修改、修改密码和删除均只允许
+管理员访问。创建账号时使用默认密码 `deepfusionrobotics`；管理员之后可通过
+`PUT /api/users/{id}/password` 设置 8 到 128 位的新密码。后端在写入
+`app_user.password_hash` 前使用 BCrypt 生成不可逆摘要，接口响应不会返回密码或摘要。
+系统禁止删除当前账号、降低当前管理员等级，以及删除或降级最后一个管理员。
+
+JWT 和 BCrypt 分别解决接口身份校验与数据库密码保护，不会加密浏览器到服务器之间的
+网络传输。生产环境必须在反向代理或网关启用 HTTPS，并将 HTTP 重定向到 HTTPS；JWT
+签名密钥应通过安全的部署变量注入，不应提交到代码仓库。
+
+### 8.5 验证
 
 ```sql
 \c dfmotion
@@ -259,6 +300,7 @@ ORDER BY child.relname;
 预期业务表：
 
 ```text
+app_user
 department
 personnel
 device
@@ -276,7 +318,7 @@ device_location_history_YYYY_MM（下个月）
 alert
 ```
 
-### 8.5 验证 SOS
+### 8.6 验证 SOS
 
 ```sql
 INSERT INTO device (device_id) VALUES ('860000000000022');

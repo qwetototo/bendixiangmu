@@ -19,9 +19,18 @@
         </div>
 
         <div class="event-filter">
-          <label>
+          <label class="event-filter__range">
             <span>{{ t('events.timeRange') }}</span>
-            <input v-model="filters.timeRange" />
+            <ConfigProvider :locale="antdLocale" :theme="antdTheme">
+              <RangePicker
+                :value="selectedRange ?? undefined"
+                :allow-clear="true"
+                :format="'YYYY-MM-DD'"
+                :placeholder="[t('events.startDate'), t('events.endDate')]"
+                :presets="rangePresets"
+                @change="onRangeChange"
+              />
+            </ConfigProvider>
           </label>
           <label>
             <span>{{ t('events.eventType') }}</span>
@@ -73,7 +82,7 @@
             <small :class="['status-pill', event.statusTone]">{{ event.status }}</small>
             <span class="processed-time">{{ event.processedAt }}</span>
             <div class="row-actions">
-              <button type="button" @click.stop="openProcessDialog(event.id)">{{ t('common.process') }}</button>
+              <button v-if="canManage" type="button" @click.stop="openProcessDialog(event.id)">{{ t('common.process') }}</button>
             </div>
           </article>
 
@@ -91,7 +100,7 @@
       </aside>
     </section>
 
-    <BaseModal :open="processingEventId !== ''" title="处理告警" eyebrow="更新处置结果" :theme-mode="themeMode" @close="closeProcessDialog">
+    <BaseModal v-if="canManage" :open="processingEventId !== ''" title="处理告警" eyebrow="更新处置结果" :theme-mode="themeMode" @close="closeProcessDialog">
       <div class="process-form">
         <label>处理状态
           <select v-model="processForm.status">
@@ -123,22 +132,53 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import dayjs, { type Dayjs } from 'dayjs';
+import 'dayjs/locale/zh-cn';
+import { RangePicker } from 'ant-design-vue/es/date-picker';
+import ConfigProvider from 'ant-design-vue/es/config-provider';
+import antdThemeModule from 'ant-design-vue/es/theme';
+import zhCN from 'ant-design-vue/es/locale/zh_CN';
+import enUS from 'ant-design-vue/es/locale/en_US';
 import BaseModal from '@/components/BaseModal.vue';
 import { fetchAlertEvents, updateAlertEvent, type AlertEventVO } from '@/services/adminApi';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
-defineProps<{
+const props = defineProps<{
   themeMode: 'dark' | 'light';
+  canManage?: boolean;
 }>();
 
+const canManage = props.canManage ?? false;
+
 const filters = reactive({
-  timeRange: '今日 00:00 - 23:59',
   type: 'all',
   status: 'all',
 });
+
+// 时间范围默认选中今日,清除(X)后为 null 表示不限时间
+const selectedRange = ref<[Dayjs, Dayjs] | null>([dayjs().startOf('day'), dayjs().startOf('day')]);
+
+// dayjs 语言跟随应用语言,日历月名/星期名随之变化
+watch(
+  locale,
+  (next) => dayjs.locale(next === 'zh-CN' ? 'zh-cn' : 'en'),
+  { immediate: true },
+);
+
+const antdLocale = computed(() => (locale.value === 'zh-CN' ? zhCN : enUS));
+const antdTheme = computed(() => ({
+  algorithm: props.themeMode === 'dark' ? antdThemeModule.darkAlgorithm : antdThemeModule.defaultAlgorithm,
+}));
+
+const rangePresets = computed(() => [
+  { label: t('events.presetToday'), value: [dayjs(), dayjs()] },
+  { label: t('events.preset7days'), value: [dayjs().subtract(6, 'day'), dayjs()] },
+  { label: t('events.preset30days'), value: [dayjs().subtract(29, 'day'), dayjs()] },
+  { label: t('events.presetThisMonth'), value: [dayjs().startOf('month'), dayjs()] },
+]);
 
 type EventStatusTone = 'open' | 'running' | 'done' | 'ignored';
 
@@ -283,15 +323,29 @@ function replaceEvent(updated: AlertEventVO) {
   if (index >= 0) eventSource.value.splice(index, 1, updated);
 }
 
-onMounted(async () => {
+async function loadEvents() {
   try {
-    const page = await fetchAlertEvents({ page: 1, pageSize: 20 });
+    const params: Record<string, string | number | undefined> = { page: 1, pageSize: 20 };
+    if (selectedRange.value) {
+      // startTime 包含当日 00:00;endTime 排他,取结束日期次日 00:00 以覆盖整天
+      params.startTime = dayjs(selectedRange.value[0]).startOf('day').toISOString();
+      params.endTime = dayjs(selectedRange.value[1]).add(1, 'day').startOf('day').toISOString();
+    }
+    const page = await fetchAlertEvents(params);
     eventSource.value = page.records;
     selectedEventId.value = page.records[0]?.eventId ?? '';
   } catch (error) {
     toastMessage.value = error instanceof Error ? error.message : '加载事件失败';
   }
-});
+}
+
+function onRangeChange(value: [string, string] | [Dayjs, Dayjs] | null) {
+  // 清除后 value 为 null;选择后归一化为 [Dayjs, Dayjs]
+  selectedRange.value = Array.isArray(value) ? [dayjs(value[0]), dayjs(value[1])] : null;
+  loadEvents();
+}
+
+onMounted(loadEvents);
 
 </script>
 
@@ -405,6 +459,24 @@ onMounted(async () => {
   background: rgba(6, 10, 18, 0.36);
   color: inherit;
   padding: 0 10px;
+}
+
+.event-filter__range {
+  min-width: 280px;
+}
+
+.event-filter :deep(.ant-picker) {
+  height: 36px;
+  width: 100%;
+  min-width: 260px;
+  border: 1px solid rgba(118, 148, 212, 0.16);
+  border-radius: 6px;
+  background: rgba(6, 10, 18, 0.36);
+  color: inherit;
+}
+
+.event-filter :deep(.ant-picker-input > input) {
+  color: inherit;
 }
 
 .event-table {
@@ -596,13 +668,15 @@ onMounted(async () => {
 
 .event-page--light .event-filter input,
 .event-page--light .event-filter select,
+.event-page--light .event-filter :deep(.ant-picker),
 .event-page--light .event-table article {
   border-color: rgba(78, 101, 140, 0.12);
   background: rgba(246, 249, 253, 0.78);
 }
 
 .event-page--light .event-filter input,
-.event-page--light .event-filter select {
+.event-page--light .event-filter select,
+.event-page--light .event-filter :deep(.ant-picker) {
   color: #172033;
   background: #fff;
 }

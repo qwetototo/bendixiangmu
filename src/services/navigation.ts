@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons-vue';
 import { computed, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
 
 export type SectionKey = 'home' | 'track' | 'identity' | 'config';
 
@@ -27,8 +28,10 @@ export interface NavSection {
 
 export function useNavigation() {
   const { t } = useI18n();
+  const authStore = useAuthStore();
 
-  const navSections = computed<NavSection[]>(() => [
+  const navSections = computed<NavSection[]>(() => {
+    const sections: NavSection[] = [
     {
       key: 'home',
       label: t('nav.home'),
@@ -61,11 +64,13 @@ export function useNavigation() {
       label: t('nav.configCenter'),
       icon: SettingOutlined,
       items: [
-        { key: 'scene', label: t('nav.sceneConfig'), description: t('nav.sceneConfigDesc') },
         { key: 'map-editor', label: t('nav.mapEditor'), description: t('nav.mapEditorDesc') },
+        { key: 'users', label: t('nav.userManagement'), description: t('nav.userManagementDesc') },
       ],
     },
-  ]);
+    ];
+    return sections.filter((section) => authStore.isAdmin || (section.key !== 'identity' && section.key !== 'config'));
+  });
 
   const guideItems = computed(() => [
     { title: t('nav.onboarding1Title'), text: t('nav.onboarding1Text'), icon: DashboardOutlined },

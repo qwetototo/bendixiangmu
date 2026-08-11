@@ -1,5 +1,11 @@
 <template>
-  <LoginView v-if="!isAuthed" @login="handleLogin" />
+  <main v-if="!authStore.initialized" class="auth-loading">{{ t('login.verifying') }}</main>
+  <LoginView
+    v-else-if="!isAuthed"
+    :error-message="loginError"
+    :loading="loginLoading"
+    @login="handleLogin"
+  />
 
   <main v-else :class="['admin-shell', `admin-shell--${themeMode}`]">
     <header class="admin-topbar" @mouseleave="closeMenu">
@@ -66,10 +72,11 @@
         </div>
 
         <HomeView v-if="activePageKey === 'home.overview'" :key="`home-${pageRefreshKey}`" @navigate="selectNav" />
-        <EventCenterView v-else-if="activePageKey === 'track.events'" :key="`events-${pageRefreshKey}`" :theme-mode="themeMode" />
+        <EventCenterView v-else-if="activePageKey === 'track.events'" :key="`events-${pageRefreshKey}`" :can-manage="isAdmin" :theme-mode="themeMode" />
         <DeviceManagementView v-else-if="activePageKey === 'identity.devices'" :key="`devices-${pageRefreshKey}`" :theme-mode="themeMode" />
         <IdentityView v-else-if="activePageKey === 'identity.personnel'" :key="`personnel-${pageRefreshKey}`" :theme-mode="themeMode" />
         <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :key="`beacons-${pageRefreshKey}`" :theme-mode="themeMode" />
+        <UserManagementView v-else-if="activePageKey === 'config.users'" :key="`users-${pageRefreshKey}`" :theme-mode="themeMode" />
         <ConfigView v-else :key="`config-${activeSubmenu}-${editingMapId}-${pageRefreshKey}`" :page-key="activeSubmenu" :edit-map-id="editingMapId" />
       </section>
     </section>
@@ -97,14 +104,18 @@ import DeviceManagementView from '@/views/admin/DeviceManagementView.vue';
 import EventCenterView from '@/views/admin/EventCenterView.vue';
 import HomeView from '@/views/admin/HomeView.vue';
 import IdentityView from '@/views/admin/IdentityView.vue';
+import UserManagementView from '@/views/admin/UserManagementView.vue';
 import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
 import { useNavigation, type SectionKey } from '@/services/navigation';
 import { useLanguageStore } from '@/stores/language';
+import { useAuthStore } from '@/stores/auth';
+import type { LoginPayload } from '@/services/authApi';
 import { fetchAlertEvents, type DeviceStatus, type DeviceVO } from '@/services/adminApi';
 
 const { t, locale } = useI18n();
 const languageStore = useLanguageStore();
+const authStore = useAuthStore();
 const { navSections, findNavSection, getDefaultSubmenu } = useNavigation();
 
 function toggleLanguage() {
@@ -120,7 +131,6 @@ watch(
   { immediate: true },
 );
 
-const AUTH_STORAGE_KEY = 'twintrack.authenticated';
 const NAV_STORAGE_KEY = 'twintrack.activeNav';
 
 interface StoredNavState {
@@ -140,8 +150,9 @@ const routeAliases = new Map<string, StoredNavState>([
   ['/identity/personnel', { section: 'identity', submenu: 'personnel' }],
   ['/identity/people-devices', { section: 'identity', submenu: 'personnel' }],
   ['/identity/beacons', { section: 'identity', submenu: 'beacons' }],
-  ['/config', { section: 'config', submenu: 'scene' }],
-  ['/config/scene', { section: 'config', submenu: 'scene' }],
+  ['/config', { section: 'config', submenu: 'map-editor' }],
+  ['/config/scene', { section: 'config', submenu: 'map-editor' }],
+  ['/config/users', { section: 'config', submenu: 'users' }],
   ['/config/map-editor', { section: 'config', submenu: 'map-editor' }],
 ]);
 
@@ -153,16 +164,14 @@ function isValidNavState(state: StoredNavState): state is Required<StoredNavStat
 function getRouteNavState(): StoredNavState {
   const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
   const routeState = routeAliases.get(normalizedPath);
-  if (routeState && isValidNavState(routeState)) {
+  if (routeState) {
     return routeState;
   }
   // Parameterized route: /config/map-editor/:mapId
   const mapEditorMatch = normalizedPath.match(/^\/config\/map-editor\/(.+)$/);
   if (mapEditorMatch) {
     const state: StoredNavState = { section: 'config', submenu: 'map-editor' };
-    if (isValidNavState(state)) {
-      return state;
-    }
+    return state;
   }
   return {};
 }
@@ -181,13 +190,16 @@ function getStoredNavState(): StoredNavState {
   }
 }
 
-const isAuthed = ref(localStorage.getItem(AUTH_STORAGE_KEY) === 'true');
-const storedNavState = getRouteNavState().section ? getRouteNavState() : getStoredNavState();
+const isAuthed = computed(() => authStore.isAuthenticated);
+const isAdmin = computed(() => authStore.isAdmin);
+const storedNavState = getStoredNavState();
 const activeSection = ref<SectionKey>(storedNavState.section && findNavSection(storedNavState.section) ? storedNavState.section : 'home');
 const openedSection = ref<SectionKey | null>(null);
 const activeSubmenu = ref(storedNavState.submenu || getDefaultSubmenu(activeSection.value));
 const themeMode = ref<'dark' | 'light'>('light');
 const pageRefreshKey = ref(0);
+const loginLoading = ref(false);
+const loginError = ref('');
 const navButtonRefs = new Map<SectionKey, HTMLElement>();
 const submenuLeft = ref(0);
 const submenuWidth = ref(0);
@@ -261,19 +273,30 @@ function toggleTheme() {
   themeMode.value = themeMode.value === 'dark' ? 'light' : 'dark';
 }
 
-function handleLogin(payload: { remember: boolean }) {
-  isAuthed.value = true;
-  if (payload.remember) {
-    localStorage.setItem(AUTH_STORAGE_KEY, 'true');
-  } else {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+async function handleLogin(payload: LoginPayload) {
+  loginLoading.value = true;
+  loginError.value = '';
+  try {
+    await authStore.login(payload);
+    syncNavFromRoute();
+    void pollSosEvents();
+  } catch (error) {
+    loginError.value = error instanceof Error ? error.message : t('login.failed');
+  } finally {
+    loginLoading.value = false;
   }
 }
 
 function handleLogout() {
-  isAuthed.value = false;
-  localStorage.removeItem(AUTH_STORAGE_KEY);
+  authStore.logout();
   localStorage.removeItem(NAV_STORAGE_KEY);
+  activeSection.value = 'home';
+  activeSubmenu.value = 'overview';
+  window.history.replaceState({}, '', '/home/overview');
+}
+
+function handleUnauthorized() {
+  if (authStore.isAuthenticated) handleLogout();
 }
 
 function removeSosNotice(id: string) {
@@ -334,6 +357,10 @@ function getPathForNav(sectionKey: SectionKey, submenuKey: string) {
 }
 
 function selectNav(sectionKey: SectionKey, submenuKey: string, replace = false) {
+  if (!isAdmin.value && (sectionKey === 'identity' || sectionKey === 'config')) {
+    selectNav('home', 'overview', true);
+    return;
+  }
   const nextSubmenu = submenuKey || getDefaultSubmenu(sectionKey);
   if (!isValidNavState({ section: sectionKey, submenu: nextSubmenu })) {
     return;
@@ -354,7 +381,9 @@ function syncNavFromRoute() {
   const routeState = getRouteNavState();
   if (routeState.section && routeState.submenu) {
     selectNav(routeState.section, routeState.submenu, true);
+    return;
   }
+  selectNav('home', 'overview', true);
 }
 
 watch(
@@ -379,22 +408,36 @@ watch(
   { immediate: true },
 );
 
-onMounted(() => {
-  syncNavFromRoute();
+onMounted(async () => {
   window.addEventListener('popstate', syncNavFromRoute);
   window.addEventListener('twintrack:device-status', handleDeviceStatusEvent);
-  void pollSosEvents();
+  window.addEventListener('twintrack:unauthorized', handleUnauthorized);
+  await authStore.initialize();
+  if (isAuthed.value) {
+    syncNavFromRoute();
+    void pollSosEvents();
+  }
   sosPollingTimer = window.setInterval(pollSosEvents, 5000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('popstate', syncNavFromRoute);
   window.removeEventListener('twintrack:device-status', handleDeviceStatusEvent);
+  window.removeEventListener('twintrack:unauthorized', handleUnauthorized);
   if (sosPollingTimer) window.clearInterval(sosPollingTimer);
 });
 </script>
 
 <style scoped>
+.auth-loading {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #dce8ff;
+  background: #080a0f;
+}
+
 .admin-shell {
   display: flex;
   flex-direction: column;

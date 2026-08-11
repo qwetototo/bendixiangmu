@@ -1,4 +1,5 @@
-import axios, { AxiosError } from 'axios';
+import { AxiosError } from 'axios';
+import { http } from '@/services/http';
 
 export interface Result<T> {
   status: number;
@@ -112,7 +113,7 @@ async function request<T>(
   options: { data?: unknown; params?: Record<string, QueryValue> } = {},
 ): Promise<T> {
   try {
-    const response = await axios.request<Result<T>>({ method, url, ...options });
+    const response = await http.request<Result<T>>({ method, url, ...options });
     const result = response.data;
     if (result.status !== 200) {
       throw new Error(result.message || '请求失败');

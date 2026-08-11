@@ -371,7 +371,6 @@ const pickedPoint = ref<PickPointResult | null>(null);
 const fencesVisible = ref(false);
 const livePoseLabelsVisible = ref(true);
 const trailsVisible = ref(true);
-const livePose = ref<LivePose | null>(null);
 const mqttStatus = ref<MqttConnectionStatus>('connecting');
 const mqttError = ref<MqttConnectionError | null>(null);
 const currentTime = ref(formatClock(new Date()));
@@ -423,11 +422,16 @@ let replayLoadToken = 0;
 let replayLoadCursor = 0;
 let replayScanWindowMs = REPLAY_SCAN_INITIAL_MS;
 let replayResumeAfterBuffer = false;
+let livePoseFrameId = 0;
+let areaStatsTimer = 0;
+let lastAreaStatsAt = 0;
 const replayTracks = new Map<string, ReplayPoint[]>();
 const latestLivePoses = new Map<string, LivePose>();
+const pendingLivePoses = new Map<string, LivePose>();
 const livePoseVersion = ref(0);
 const onlineDeviceCount = ref(0);
 const replayOnlineCount = ref(0);
+const AREA_STATS_INTERVAL_MS = 750;
 
 const deviceOptions = computed(() => {
   livePoseVersion.value;
@@ -804,6 +808,7 @@ function applyViewMode() {
       replaySearchAttempted.value = false;
       replayError.value = '';
     }
+    twinScene?.setRealtimePerformance(latestLivePoses.size, false);
     return;
   }
 
@@ -948,6 +953,40 @@ function restoreLivePoseView() {
   updateAreaStats();
 }
 
+function applyRealtimePerformance() {
+  twinScene?.setRealtimePerformance(latestLivePoses.size, !replayPanelOpen.value);
+}
+
+function scheduleRealtimeAreaStats() {
+  if (replayPanelOpen.value || areaStatsTimer) return;
+  const elapsed = performance.now() - lastAreaStatsAt;
+  const delay = Math.max(0, AREA_STATS_INTERVAL_MS - elapsed);
+  areaStatsTimer = window.setTimeout(() => {
+    areaStatsTimer = 0;
+    if (replayPanelOpen.value) return;
+    lastAreaStatsAt = performance.now();
+    updateAreaStats();
+  }, delay);
+}
+
+function flushPendingLivePoses() {
+  livePoseFrameId = 0;
+  if (replayPanelOpen.value) {
+    pendingLivePoses.clear();
+    return;
+  }
+  const poses = [...pendingLivePoses.values()];
+  pendingLivePoses.clear();
+  poses.forEach((pose) => twinScene?.updateLivePose(pose));
+}
+
+function scheduleLivePoseRender(pose: LivePose) {
+  pendingLivePoses.set(pose.deviceId, pose);
+  if (!livePoseFrameId) {
+    livePoseFrameId = window.requestAnimationFrame(flushPendingLivePoses);
+  }
+}
+
 function applyLiveDeviceFilter() {
   if (replayPanelOpen.value) {
     return;
@@ -989,6 +1028,7 @@ function createTwinScene() {
   twinScene.init();
   twinScene.toggleFences(fencesVisible.value);
   twinScene.toggleLivePoseLabels(livePoseLabelsVisible.value);
+  applyRealtimePerformance();
 
   if (!replayPanelOpen.value) {
     restoreLivePoseView();
@@ -1499,6 +1539,8 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   stopReplayTimer();
   replayPlaying.value = false;
   replayResumeAfterBuffer = false;
+  pendingLivePoses.clear();
+  twinScene?.setRealtimePerformance(latestLivePoses.size, false);
   twinScene?.clearAllDevicePoses();
   replayPoints.value = [];
   replayFrameTimes.value = [];
@@ -1570,6 +1612,7 @@ function exitReplayMode() {
   clearReplay();
   replayPanelOpen.value = false;
   viewMode.value = 'monitor';
+  applyRealtimePerformance();
   applyLiveDeviceFilter();
 }
 
@@ -1583,6 +1626,7 @@ function toggleReplayMode() {
   viewMode.value = 'replay';
   replaySearchAttempted.value = false;
   replayError.value = '';
+  twinScene?.setRealtimePerformance(latestLivePoses.size, false);
 }
 
 function toggleReplayPlaying() {
@@ -1685,13 +1729,16 @@ onMounted(() => {
   mqttClient = new MqttPoseClient({
     url: mqttUrl,
     onPose: (pose) => {
-      livePose.value = pose;
+      const isNewDevice = !latestLivePoses.has(pose.deviceId);
       latestLivePoses.set(pose.deviceId, pose);
-      livePoseVersion.value += 1;
-      onlineDeviceCount.value = latestLivePoses.size;
+      if (isNewDevice) {
+        livePoseVersion.value += 1;
+        onlineDeviceCount.value = latestLivePoses.size;
+        applyRealtimePerformance();
+      }
       if (!replayPanelOpen.value) {
-        updateAreaStats();
-        twinScene?.updateLivePose(pose);
+        scheduleRealtimeAreaStats();
+        scheduleLivePoseRender(pose);
       }
     },
     onPath: (deviceId, points) => {
@@ -1700,15 +1747,16 @@ onMounted(() => {
       }
     },
     onDeviceDisconnect: (deviceId) => {
-      latestLivePoses.delete(deviceId);
-      livePoseVersion.value += 1;
-      onlineDeviceCount.value = latestLivePoses.size;
-      if (!replayPanelOpen.value) {
-        updateAreaStats();
-        twinScene?.clearDeviceLivePose(deviceId);
+      const wasKnownDevice = latestLivePoses.delete(deviceId);
+      pendingLivePoses.delete(deviceId);
+      if (wasKnownDevice) {
+        livePoseVersion.value += 1;
+        onlineDeviceCount.value = latestLivePoses.size;
+        applyRealtimePerformance();
       }
-      if (livePose.value?.deviceId === deviceId) {
-        livePose.value = null;
+      if (!replayPanelOpen.value) {
+        scheduleRealtimeAreaStats();
+        twinScene?.clearDeviceLivePose(deviceId);
       }
     },
     onStatusChange: (status) => {
@@ -1724,6 +1772,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.clearInterval(clockTimer);
+  window.clearTimeout(areaStatsTimer);
+  window.cancelAnimationFrame(livePoseFrameId);
+  pendingLivePoses.clear();
   stopReplayTimer();
   stopReplayNudge();
   window.removeEventListener('resize', resizeAreaChart);

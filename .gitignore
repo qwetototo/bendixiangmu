@@ -28,5 +28,7 @@ skills-lock.json
 .claude/*
 .codex/*
 
-docs.zip
-docs/migrations/
+*.zip
+docs/migrations*
+!docs/migrations/README.md
+!docs/migrations/20260805_create_app_user.sql

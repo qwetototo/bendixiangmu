@@ -1,4 +1,5 @@
 import type { LivePose, PathPoint } from '@/three/TwinScene';
+import { transformProtocolCoordinates } from '@/services/positionTransform';
 
 export type MqttConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -7,17 +8,6 @@ export interface MqttConnectionError {
   closeCode?: number;
   closeReason?: string;
   wasClean?: boolean;
-}
-
-const POSITION_SCALE = 14.5;
-const POSITION_X_OFFSET = -84.95;
-const POSITION_Y_OFFSET = 79.67;
-
-export function transformProtocolCoordinates(x: number, y: number): { x: number; y: number } {
-  return {
-    x: POSITION_SCALE * x + POSITION_X_OFFSET,
-    y: POSITION_SCALE * -y + POSITION_Y_OFFSET,
-  };
 }
 
 interface OuterMqttMessage {
