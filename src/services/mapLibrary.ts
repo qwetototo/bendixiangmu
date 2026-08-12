@@ -7,13 +7,10 @@ export interface MapFloorItem {
   name: string;
   description?: string;
   config: SceneConfig;
-  scaleRatio?: number;
-  positioningOrigin?: Point3D;
 }
 
 export interface MapMetadata {
   thumbnail: string;
-  floor: string;
   region: string;
   address: string;
   mapOrigin: Point3D;
@@ -41,11 +38,29 @@ export function cloneSceneConfig(config: SceneConfig): SceneConfig {
   return JSON.parse(JSON.stringify(toRaw(config))) as SceneConfig;
 }
 
-function cloneModels(models: ModelConfig[]): ModelConfig[] {
-  return JSON.parse(JSON.stringify(models)) as ModelConfig[];
+/** 归一化模型配置：修复旧数据中 2 元素 center / heightOffset 的遗留格式。 */
+export function normalizeModelConfig(model: ModelConfig): ModelConfig {
+  const legacyCenter = model.center as unknown as number[];
+  const legacyHeight = Number((model as { heightOffset?: unknown }).heightOffset);
+  const center: [number, number, number] =
+    legacyCenter.length > 2
+      ? [Number(legacyCenter[0]) || 0, Number(legacyCenter[1]) || 0, Number(legacyCenter[2]) || 0]
+      : [Number(legacyCenter[0]) || 0, Number.isFinite(legacyHeight) ? legacyHeight : 0, Number(legacyCenter[1]) || 0];
+
+  return {
+    path: model.path,
+    scale: model.scale,
+    center,
+    rotation: [...model.rotation] as [number, number, number],
+    role: model.role,
+  };
 }
 
-function applySharedModelParameters(models: ModelConfig[], parameters: ModelConfig[]): ModelConfig[] {
+export function cloneModels(models: ModelConfig[]): ModelConfig[] {
+  return models.map((model) => normalizeModelConfig(model));
+}
+
+export function applySharedModelParameters(models: ModelConfig[], parameters: ModelConfig[]): ModelConfig[] {
   const roleOffsets = new Map<string, number>();
   return cloneModels(models).map((model, index) => {
     const role = model.role || `index-${index}`;
@@ -90,8 +105,6 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
     id: config.floor.id || `floor-${Date.now()}`,
     name: config.floor.name || '1F',
     config: cloneSceneConfig(config),
-    scaleRatio,
-    positioningOrigin: [...positioningOrigin] as Point3D,
   };
   const floors = Array.isArray(metadata?.floors)
     ? metadata.floors
@@ -101,8 +114,6 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
           name: floor.name || floor.config.floor.name || floor.id,
           description: typeof floor.description === 'string' ? floor.description : '',
           config: cloneSceneConfig(floor.config),
-          scaleRatio: floor.scaleRatio,
-          positioningOrigin: floor.positioningOrigin ? ([...floor.positioningOrigin] as Point3D) : undefined,
         }))
     : [];
   const normalizedFloors = floors.length > 0 ? floors : [fallbackFloor];
@@ -114,8 +125,6 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
       : [];
   const modelParameters = cloneModels(metadataParameters.length > 0 ? metadataParameters : config.models);
   normalizedFloors.forEach((floor) => {
-    floor.scaleRatio = scaleRatio;
-    floor.positioningOrigin = [...positioningOrigin] as Point3D;
     floor.config.floor.scale = scaleRatio;
     floor.config.models = applySharedModelParameters(floor.config.models, modelParameters);
   });
@@ -126,7 +135,6 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
 
   return {
     thumbnail: typeof metadata?.thumbnail === 'string' ? metadata.thumbnail : '',
-    floor: typeof metadata?.floor === 'string' && metadata.floor.trim() ? metadata.floor : config.floor.name || '1F',
     region: typeof metadata?.region === 'string' ? metadata.region : '',
     address: typeof metadata?.address === 'string' ? metadata.address : '',
     mapOrigin,
@@ -227,9 +235,9 @@ export function savedMapToApiPayload(map: SavedMap): {
       positioningOrigin: [...map.metadata.positioningOrigin] as Point3D,
       modelParameters: cloneModels(map.metadata.modelParameters),
       floors: map.metadata.floors.map((floor) => ({
-        ...floor,
-        positioningOrigin: [...map.metadata.positioningOrigin] as Point3D,
-        scaleRatio: map.metadata.scaleRatio,
+        id: floor.id,
+        name: floor.name,
+        description: floor.description,
         config: cloneSceneConfig(floor.config),
       })),
     },

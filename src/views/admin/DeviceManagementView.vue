@@ -242,6 +242,8 @@ async function save() {
     }));
     editorOpen.value = false;
     feedback.value = editingId.value ? '设备已更新' : '设备已新增';
+    // 新增成功后清空筛选，保证新设备在完整列表中立即可见
+    if (!editingId.value) { keyword.value = ''; statusFilter.value = ''; bindingFilter.value = ''; }
     await load();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : '保存失败';
@@ -307,6 +309,8 @@ async function importCsv(event: Event) {
     await Promise.all(payloads.map(createDevice));
     importOpen.value = false;
     feedback.value = `成功导入 ${payloads.length} 条设备记录`;
+    // 批量导入成功后清空筛选，保证导入的新设备立即可见
+    keyword.value = ''; statusFilter.value = ''; bindingFilter.value = '';
     await load();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : '导入失败';

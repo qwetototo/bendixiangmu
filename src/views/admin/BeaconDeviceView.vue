@@ -181,6 +181,8 @@ async function save() {
     else await createBeacon(payload);
     editorOpen.value = false;
     feedback.value = editingId.value ? '信标已更新' : '信标已新增';
+    // 新增成功后清空筛选，保证新信标在完整列表中立即可见
+    if (!editingId.value) { keyword.value = ''; statusFilter.value = ''; }
     await load();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : '保存失败';
@@ -237,6 +239,8 @@ async function importCsv(event: Event) {
     await Promise.all(payloads.map(createBeacon));
     importOpen.value = false;
     feedback.value = `成功导入 ${payloads.length} 条信标记录`;
+    // 批量导入成功后清空筛选，保证导入的新信标立即可见
+    keyword.value = ''; statusFilter.value = '';
     await load();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : '导入失败';

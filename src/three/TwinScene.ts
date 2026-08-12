@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { ModelConfig, OverlayConfig, SceneConfig } from '@/types/scene';
 import { SceneBuilder } from '@/three/builders/SceneBuilder';
+import { versionModelAssetUrl } from '@/services/modelAssetCache';
 
 const modelModules = import.meta.glob('/src/assets/model/**/*.{glb,gltf}', {
   eager: true,
@@ -1097,7 +1098,7 @@ export class TwinScene {
     }
 
     if (modelPath.startsWith('/') && !modelPath.startsWith('/src/assets/model/')) {
-      return modelPath;
+      return versionModelAssetUrl(modelPath);
     }
 
     const configuredPath = modelPath.replace(/\\/g, '/').replace(/^\/+/, '');

@@ -33,12 +33,19 @@ interface MqttPoseClientOptions {
   onDeviceDisconnect?: (deviceId: string) => void;
   onStatusChange?: (status: MqttConnectionStatus) => void;
   onError?: (error: MqttConnectionError) => void;
+  /** 超过该时长未收到设备任何消息即判定离线（默认 10s）。 */
+  deviceTimeoutMs?: number;
+  /** 离线检测轮询间隔（默认 2s）。 */
+  deviceCheckIntervalMs?: number;
 }
 
 export class MqttPoseClient {
   private static readonly POSE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/pose$/;
   private static readonly PATH_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/path$/;
   private static readonly DEVICE_EVENT_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/(disconnect|disconnected|offline|status|state)$/;
+  private static readonly DEVICE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\//;
+  private static readonly DEFAULT_DEVICE_TIMEOUT_MS = 10 * 1000;
+  private static readonly DEFAULT_DEVICE_CHECK_INTERVAL_MS = 2 * 1000;
   private static readonly DEBUG = true;
   private readonly url: string;
   private readonly onPose: (pose: LivePose) => void;
@@ -46,10 +53,15 @@ export class MqttPoseClient {
   private readonly onDeviceDisconnect?: (deviceId: string) => void;
   private readonly onStatusChange?: (status: MqttConnectionStatus) => void;
   private readonly onError?: (error: MqttConnectionError) => void;
+  private readonly deviceTimeoutMs: number;
+  private readonly deviceCheckIntervalMs: number;
   private socket: WebSocket | null = null;
   private reconnectTimer: number | null = null;
+  private deviceCheckTimer: number | null = null;
   private manuallyClosed = false;
   private readonly pathSegments = new Map<string, Map<number, PathPoint[]>>();
+  /** 设备最后一次收到消息的时间（毫秒时间戳），用于心跳超时离线判定。 */
+  private readonly lastActivityAt = new Map<string, number>();
 
   constructor(options: MqttPoseClientOptions) {
     this.url = options.url;
@@ -58,6 +70,8 @@ export class MqttPoseClient {
     this.onDeviceDisconnect = options.onDeviceDisconnect;
     this.onStatusChange = options.onStatusChange;
     this.onError = options.onError;
+    this.deviceTimeoutMs = options.deviceTimeoutMs ?? MqttPoseClient.DEFAULT_DEVICE_TIMEOUT_MS;
+    this.deviceCheckIntervalMs = options.deviceCheckIntervalMs ?? MqttPoseClient.DEFAULT_DEVICE_CHECK_INTERVAL_MS;
     this.debug('client created', { url: this.url });
   }
 
@@ -103,6 +117,9 @@ export class MqttPoseClient {
         rawData: event.data,
       });
 
+      // 收到设备相关消息即视为活跃，刷新离线超时计时。
+      this.recordEnvelopeActivity(event.data);
+
       const pose = this.parsePose(event.data);
       if (pose) {
         this.debug('pose parsed', pose);
@@ -124,8 +141,7 @@ export class MqttPoseClient {
       const disconnectedDeviceId = this.parseDeviceDisconnect(event.data);
       if (disconnectedDeviceId) {
         this.debug('device disconnect parsed', { deviceId: disconnectedDeviceId });
-        this.pathSegments.delete(disconnectedDeviceId);
-        this.onDeviceDisconnect?.(disconnectedDeviceId);
+        this.markDeviceOffline(disconnectedDeviceId);
         return;
       }
 
@@ -180,6 +196,8 @@ export class MqttPoseClient {
       });
       this.onStatusChange?.('error');
     });
+
+    this.startDeviceCheck();
   }
 
   disconnect(): void {
@@ -190,8 +208,10 @@ export class MqttPoseClient {
     });
     this.manuallyClosed = true;
     this.clearReconnectTimer();
+    this.clearDeviceCheck();
     this.socket?.close();
     this.socket = null;
+    this.lastActivityAt.clear();
     this.onStatusChange?.('disconnected');
   }
 
@@ -200,6 +220,66 @@ export class MqttPoseClient {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  /**
+   * 收到设备相关消息时刷新其离线计时。
+   */
+  private recordEnvelopeActivity(rawData: string): void {
+    try {
+      const outer = JSON.parse(rawData) as OuterMqttMessage;
+      const topicMatch = outer.topic?.match(MqttPoseClient.DEVICE_TOPIC_PATTERN);
+      const deviceId = topicMatch?.[1] ?? outer.deviceId ?? '';
+      if (deviceId) {
+        this.recordDeviceActivity(deviceId);
+      }
+    } catch {
+      // 非 JSON 信封消息（如分段路径裸数据）由解析器自行刷新，这里忽略即可。
+    }
+  }
+
+  private recordDeviceActivity(deviceId: string): void {
+    if (!deviceId) {
+      return;
+    }
+
+    this.lastActivityAt.set(deviceId, Date.now());
+  }
+
+  /**
+   * 启动离线检测轮询：仅在 WebSocket 连接期间生效，
+   * 对超过超时时间未收到任何消息的设备触发 onDeviceDisconnect。
+   */
+  private startDeviceCheck(): void {
+    this.clearDeviceCheck();
+    this.deviceCheckTimer = window.setInterval(() => {
+      if (this.socket?.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      const now = Date.now();
+      this.lastActivityAt.forEach((lastSeenAt, deviceId) => {
+        if (now - lastSeenAt >= this.deviceTimeoutMs) {
+          this.markDeviceOffline(deviceId);
+        }
+      });
+    }, this.deviceCheckIntervalMs);
+  }
+
+  private clearDeviceCheck(): void {
+    if (this.deviceCheckTimer !== null) {
+      window.clearInterval(this.deviceCheckTimer);
+      this.deviceCheckTimer = null;
+    }
+  }
+
+  /**
+   * 将设备标记为离线：清空其缓存与计时，并通知上层移除页面定位标记。
+   */
+  private markDeviceOffline(deviceId: string): void {
+    this.lastActivityAt.delete(deviceId);
+    this.pathSegments.delete(deviceId);
+    this.onDeviceDisconnect?.(deviceId);
   }
 
   private debug(message: string, details?: unknown): void {

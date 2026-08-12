@@ -353,16 +353,20 @@ import { useSceneStore } from '@/stores/scene';
 import type { AreaConfig, ModelConfig, Point3D, SceneConfig } from '@/types/scene';
 import {
   DEFAULT_MAP_ID,
+  applySharedModelParameters,
+  cloneModels,
   cloneSceneConfig,
   createBlankSceneConfig,
   createDefaultMetadata,
   createSavedMap,
   getMapLibrary,
   isSceneConfig,
+  normalizeModelConfig,
   saveMapLibrary,
   type MapFloorItem,
   type SavedMap,
 } from '@/services/mapLibrary';
+import { invalidateModelAssetUrl, versionModelAssetUrl } from '@/services/modelAssetCache';
 
 type RuleLevel = 'alarm' | 'warn' | 'normal';
 type PickMode = 'positioning-origin';
@@ -473,7 +477,6 @@ let previewScaleSignature = '';
 let previewDragState: PreviewDragState | null = null;
 let previewRestoreView: PreviewViewState | null = null;
 let previewClickBlocked = false;
-let skipNextWatchRebuild = false;
 const previewModelObjects = new Map<string, THREE.Object3D>();
 let previewAuxObjects: THREE.Object3D[] = [];
 const previewView = reactive<PreviewViewState>({
@@ -534,7 +537,6 @@ function setScaleRatio(value: number) {
   draftMap.value.metadata.scaleRatio = value;
   draftMap.value.config.floor.scale = value;
   draftMap.value.metadata.floors.forEach((floor) => {
-    floor.scaleRatio = value;
     floor.config.floor.scale = value;
   });
 }
@@ -674,26 +676,8 @@ function syncScaleRatioToConfig(map: SavedMap) {
   map.metadata.scaleRatio = scaleRatio;
   map.config.floor.scale = scaleRatio;
   map.metadata.floors.forEach((floor) => {
-    floor.scaleRatio = scaleRatio;
     floor.config.floor.scale = scaleRatio;
   });
-}
-
-function normalizeModelConfig(model: ModelConfig): ModelConfig {
-  const legacyCenter = model.center as unknown as number[];
-  const legacyHeight = Number((model as { heightOffset?: unknown }).heightOffset);
-  const center: [number, number, number] =
-    legacyCenter.length > 2
-      ? [Number(legacyCenter[0]) || 0, Number(legacyCenter[1]) || 0, Number(legacyCenter[2]) || 0]
-      : [Number(legacyCenter[0]) || 0, Number.isFinite(legacyHeight) ? legacyHeight : 0, Number(legacyCenter[1]) || 0];
-
-  return {
-    path: model.path,
-    scale: model.scale,
-    center,
-    rotation: [...model.rotation] as [number, number, number],
-    role: model.role,
-  };
 }
 
 function getUploadedModelId(modelPath: string | undefined): string | null {
@@ -714,44 +698,18 @@ function getBackendConfigId(map: SavedMap): string {
   return uploadedIds.find((id) => id === map.id) ?? uploadedIds[0] ?? map.id;
 }
 
-function cloneBuildingModels(models: ModelConfig[]): ModelConfig[] {
-  return models.map((model) => normalizeModelConfig(model));
-}
-
-function applyModelParameters(models: ModelConfig[], parameters: ModelConfig[]): ModelConfig[] {
-  const roleOffsets = new Map<string, number>();
-  return models.map((model, index) => {
-    const role = model.role || `index-${index}`;
-    const roleOffset = roleOffsets.get(role) ?? 0;
-    roleOffsets.set(role, roleOffset + 1);
-    const roleMatches = parameters.filter((parameter) => parameter.role === model.role);
-    const parameter = roleMatches[roleOffset] ?? parameters[index];
-    if (!parameter) return normalizeModelConfig(model);
-    return {
-      ...normalizeModelConfig(model),
-      path: model.path,
-      scale: parameter.scale,
-      center: [...parameter.center] as [number, number, number],
-      rotation: [...parameter.rotation] as [number, number, number],
-    };
-  });
-}
-
 function captureBuildingModelParameters(map: SavedMap) {
-  map.metadata.modelParameters = cloneBuildingModels(map.config.models);
+  map.metadata.modelParameters = cloneModels(map.config.models);
 }
 
 function applyBuildingSettingsToFloors(map: SavedMap) {
-  const parameters = cloneBuildingModels(map.metadata.modelParameters);
-  const positioningOrigin = [...map.metadata.positioningOrigin] as Point3D;
+  const parameters = cloneModels(map.metadata.modelParameters);
   const scaleRatio = getSafeScaleRatio(map);
-  map.config.models = applyModelParameters(map.config.models, parameters);
+  map.config.models = applySharedModelParameters(map.config.models, parameters);
   map.config.floor.scale = scaleRatio;
   map.metadata.floors.forEach((floor) => {
-    floor.config.models = applyModelParameters(floor.config.models, parameters);
+    floor.config.models = applySharedModelParameters(floor.config.models, parameters);
     floor.config.floor.scale = scaleRatio;
-    floor.scaleRatio = scaleRatio;
-    floor.positioningOrigin = [...positioningOrigin] as Point3D;
   });
 }
 
@@ -778,13 +736,10 @@ function syncActiveFloorFromConfig(map: SavedMap) {
   applyBuildingSettingsToFloors(map);
   const activeFloorId = map.metadata.activeFloorId;
   const activeIndex = map.metadata.floors.findIndex((floor) => floor.id === activeFloorId);
-  const oldFloor = activeIndex >= 0 ? map.metadata.floors[activeIndex] : null;
   const floorItem: MapFloorItem = {
     id: map.config.floor.id || activeFloorId || `floor-${Date.now()}`,
-    name: map.config.floor.name || map.metadata.floor || t('config.floorLabel'),
+    name: map.config.floor.name || t('config.floorLabel'),
     config: normalizeClonedSceneConfig(map.config),
-    scaleRatio: oldFloor?.scaleRatio ?? getSafeScaleRatio(map),
-    positioningOrigin: [...map.metadata.positioningOrigin] as Point3D,
   };
 
   if (activeIndex >= 0) {
@@ -807,7 +762,6 @@ function switchFloor(floorId: string) {
   }
 
   draftMap.value.metadata.activeFloorId = targetFloor.id;
-  draftMap.value.metadata.floor = targetFloor.name;
   draftMap.value.config = normalizeClonedSceneConfig(targetFloor.config);
   syncScaleRatioToConfig(draftMap.value);
   applyBuildingSettingsToFloors(draftMap.value);
@@ -835,8 +789,6 @@ function addFloor() {
     id: config.floor.id,
     name: config.floor.name,
     config,
-    scaleRatio: draftMap.value.metadata.scaleRatio,
-    positioningOrigin: [...draftMap.value.metadata.positioningOrigin] as Point3D,
   };
   draftMap.value.metadata.floors.push(floorItem);
   switchFloor(floorItem.id);
@@ -856,7 +808,6 @@ function removeCurrentFloor() {
   draftMap.value.metadata.floors = nextFloors;
   const nextFloor = nextFloors[0];
   draftMap.value.metadata.activeFloorId = nextFloor.id;
-  draftMap.value.metadata.floor = nextFloor.name;
   draftMap.value.config = normalizeClonedSceneConfig(nextFloor.config);
   syncScaleRatioToConfig(draftMap.value);
   applyBuildingSettingsToFloors(draftMap.value);
@@ -867,7 +818,6 @@ function updateCurrentFloorName() {
     return;
   }
 
-  draftMap.value.metadata.floor = draftMap.value.config.floor.name;
   const floor = currentFloor.value;
   if (floor) {
     floor.name = draftMap.value.config.floor.name;
@@ -1056,7 +1006,7 @@ function resolveModelUrl(modelPath: string | undefined | null): string | null {
   }
 
   if (modelPath.startsWith('/') && !modelPath.startsWith('/src/assets/model/')) {
-    return modelPath;
+    return versionModelAssetUrl(modelPath);
   }
 
   const configuredPath = modelPath.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -1086,7 +1036,6 @@ function applyPreviewModelConfig(model: THREE.Object3D, modelConfig: ModelConfig
 
   const modelScale = Number(scale);
   const finalScale = (Number.isFinite(modelScale) && modelScale > 0 ? modelScale : 1) * scaleRatioFactor;
-  console.log(`[Preview] apply config: modelScale=${modelScale}, floorScaleRatio=${floorScaleRatio}, scaleRatioFactor=${scaleRatioFactor}, finalScale=${finalScale}`);
   model.scale.setScalar(finalScale);
   model.rotation.set(
     THREE.MathUtils.degToRad(Number.isFinite(Number(rotation[0])) ? Number(rotation[0]) : 0),
@@ -1182,7 +1131,6 @@ function createXDirectionIndicator(config: SceneConfig) {
 }
 
 async function rebuildPreviewScene() {
-  console.log('[Preview] rebuildPreviewScene called, draftMap=', !!draftMap.value, 'previewRenderer=', !!previewRenderer);
   const map = draftMap.value;
   const preview = ensurePreviewRenderer();
   if (!map || !preview?.scene || !preview.camera) {
@@ -1204,8 +1152,6 @@ async function rebuildPreviewScene() {
     previewScaleSignature = scaleSignature;
     previewHasFramed = false;
   }
-  console.log('[Preview] signatures:', { assetSignature, prevAsset: previewAssetSignature, needsAssetReload, layoutSignature, prevLayout: previewLayoutSignature, needsLayoutUpdate, needsCameraReframe });
-  console.log('[Preview] models:', config.models.map(m => ({ path: m.path, role: m.role })));
   if (needsAssetReload) {
     clearPreviewScene();
     previewAssetSignature = assetSignature;
@@ -1223,23 +1169,19 @@ async function rebuildPreviewScene() {
     const modelKey = getPreviewModelKey(modelConfig, index);
     const cachedModel = previewModelObjects.get(modelKey);
     if (cachedModel) {
-      console.log('[Preview] using cached model', modelKey);
       applyPreviewModelConfig(cachedModel, modelConfig, config);
       loadedModels.push(cachedModel);
       continue;
     }
 
     const modelUrl = resolveModelUrl(modelConfig.path);
-    console.log('[Preview] resolveModelUrl:', { path: modelConfig.path, resolved: modelUrl });
     if (!modelUrl) {
       console.warn('[Preview] no URL for model:', modelConfig.path);
       continue;
     }
 
     try {
-      console.log('[Preview] loading model from:', modelUrl);
       const gltf = await gltfLoader.loadAsync(modelUrl);
-      console.log('[Preview] load success, scene children:', gltf.scene.children.length);
       if (token !== previewBuildToken) {
         disposePreviewObject(gltf.scene);
         return;
@@ -1253,30 +1195,20 @@ async function rebuildPreviewScene() {
         }
       });
       applyPreviewModelConfig(model, modelConfig, config);
-      const bbox = new THREE.Box3().setFromObject(model);
-      console.log('[Preview] model bbox:', JSON.stringify({
-        min: bbox.min.toArray(), max: bbox.max.toArray(),
-        size: bbox.getSize(new THREE.Vector3()).toArray(),
-        center: bbox.getCenter(new THREE.Vector3()).toArray(),
-        position: model.position.toArray(),
-      }));
       preview.scene.add(model);
       previewModelObjects.set(modelKey, model);
       loadedModels.push(model);
-      console.log('[Preview] model added to scene:', modelKey);
     } catch (error) {
       console.warn(`Failed to load preview model ${modelConfig.path}`, error);
     }
   }
 
   if (!previewHasFramed || pickMode.value) {
-    console.log('[Preview] framing camera, loadedModels:', loadedModels.length);
     framePreviewCamera(loadedModels, config);
     previewHasFramed = true;
   } else {
     updatePreviewCamera();
   }
-  console.log('[Preview] rebuild done, scene children:', preview.scene.children.length);
 }
 
 function framePreviewCamera(models: THREE.Object3D[], config: SceneConfig) {
@@ -1401,7 +1333,6 @@ async function loadMapsFromApi() {
 void loadMapsFromApi();
 
 function openEditor(map: SavedMap) {
-  console.log('[openEditor] opening map:', map.id, map.name, 'models:', map.config.models.map(m => ({ path: m.path, role: m.role })));
   previewHasFramed = false;
   previewRestoreView = null;
   previewClickedPoint.value = null;
@@ -1411,7 +1342,7 @@ function openEditor(map: SavedMap) {
       ...map.metadata,
       mapOrigin: [...map.metadata.mapOrigin] as [number, number, number],
       positioningOrigin: [...map.metadata.positioningOrigin] as [number, number, number],
-      modelParameters: cloneBuildingModels(map.metadata.modelParameters),
+      modelParameters: cloneModels(map.metadata.modelParameters),
       floors: cloneMapFloors(map.metadata.floors),
     },
     config: normalizeClonedSceneConfig(map.config),
@@ -1469,7 +1400,7 @@ function saveDraft() {
           metadata: {
             ...draftMap.value.metadata,
             scaleRatio: Number(draftMap.value.metadata.scaleRatio) > 0 ? Number(draftMap.value.metadata.scaleRatio) : 100,
-            modelParameters: cloneBuildingModels(draftMap.value.metadata.modelParameters),
+            modelParameters: cloneModels(draftMap.value.metadata.modelParameters),
             floors: cloneMapFloors(draftMap.value.metadata.floors),
           },
           config: normalizeClonedSceneConfig(draftMap.value.config),
@@ -1566,7 +1497,6 @@ async function importMapFile(event: Event) {
 
       // Upload via backend API
       const detail = await apiUploadModel(file, mapName, t('config.importedFrom', { file: file.name }));
-      console.log('[ImportMap] upload response:', JSON.stringify(detail));
       // Update model path from the API response
       config.models[0].path = detail.modelPath;
 
@@ -1666,7 +1596,7 @@ function replaceCurrentFloorBaseMap(baseModel: ModelConfig) {
   }
 
   const nonBaseModels = draftMap.value.config.models.filter((model) => model.role !== 'base-map');
-  draftMap.value.config.models = [normalizeModelConfig(baseModel), ...cloneBuildingModels(nonBaseModels)];
+  draftMap.value.config.models = [normalizeModelConfig(baseModel), ...cloneModels(nonBaseModels)];
   captureBuildingModelParameters(draftMap.value);
   applyBuildingSettingsToFloors(draftMap.value);
   syncActiveFloorFromConfig(draftMap.value);
@@ -1775,7 +1705,6 @@ function cancelPick() {
 }
 
 async function importBaseMapFile(event: Event) {
-  console.log('[BaseMap] upload button clicked');
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
@@ -1803,13 +1732,20 @@ async function importBaseMapFile(event: Event) {
     // own server ID; adding another floor gets a separate model asset ID.
     const uploadId = existingBaseId ?? (!hasUploadedBaseModel ? draftMap.value.id : undefined);
     const detail = await apiUploadModel(file, undefined, undefined, undefined, uploadId);
-    console.log('[importBaseMapFile] upload response:', JSON.stringify(detail));
 
+    // The re-upload keeps the same URL; bump its asset version so the preview
+    // (THREE.Cache + browser cache) reloads the new bytes instead of the old GLB.
+    invalidateModelAssetUrl(detail.modelPath);
+
+    // Keep the previous base map's transform when replacing. replaceCurrentFloorBaseMap
+    // propagates modelParameters to every floor (shared building alignment), so if we
+    // always reset to scale 2.5 / [0,0,0] here, replacing ONE floor's map would reset
+    // ALL floors' base maps to the origin — the "更换地图" regression.
     const baseModel: ModelConfig = {
       path: detail.modelPath,
-      scale: 2.5,
-      center: [0, 0, 0],
-      rotation: [0, 0, 0],
+      scale: existingBase && Number.isFinite(existingBase.scale) ? existingBase.scale : 2.5,
+      center: existingBase?.center ? ([...existingBase.center] as [number, number, number]) : [0, 0, 0],
+      rotation: existingBase?.rotation ? ([...existingBase.rotation] as [number, number, number]) : [0, 0, 0],
       role: 'base-map',
     };
 
@@ -1875,14 +1811,6 @@ watch(
   () => (viewMode.value === 'edit' ? draftMap.value : null),
   () => {
     if (viewMode.value !== 'edit') {
-      return;
-    }
-    console.log('[Watcher] triggered, skipNextWatchRebuild=', skipNextWatchRebuild,
-      'draftMap.models:', draftMap.value?.config.models.map(m => ({ path: m.path, role: m.role })));
-    // When importBaseMapFile has already loaded the model directly into the
-    // preview scene, skip the watcher to avoid clearing what was just added.
-    if (skipNextWatchRebuild) {
-      skipNextWatchRebuild = false;
       return;
     }
     void nextTick(() => {

@@ -285,6 +285,9 @@ async function save() {
       feedback.value = editingDepartment.value ? '部门信息已更新' : '部门已新增';
     }
     editorOpen.value = false;
+    // 新增成功后清空筛选，保证新人员/新部门在完整列表中立即可见
+    const creating = activeView.value === 'people' ? !editingPerson.value : !editingDepartment.value;
+    if (creating) { keyword.value = ''; bindingFilter.value = ''; }
     await load();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : '保存失败';
@@ -348,6 +351,8 @@ async function importCsv(event: Event) {
       feedback.value = `成功导入 ${payloads.length} 条部门记录`;
     }
     importOpen.value = false;
+    // 批量导入成功后清空筛选，保证导入的新记录立即可见
+    keyword.value = ''; bindingFilter.value = '';
     await load();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : '导入失败';

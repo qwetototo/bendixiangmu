@@ -35,8 +35,8 @@
       </button>
     </header>
 
-    <section :class="['workspace', workspaceClass]">
-      <aside class="left-rail">
+    <section class="workspace">
+      <aside v-show="overviewOpen" class="left-rail">
         <section class="glass-panel dashboard-card">
           <h2>{{ t('dashboard.realtimeOverview') }}</h2>
           <div class="dashboard-stats-row">
@@ -104,6 +104,10 @@
       </div>
 
       <nav class="tool-dock">
+        <button type="button" :class="{ active: overviewOpen }" @click="overviewOpen = !overviewOpen">
+          <DashboardOutlined />
+          <span>{{ t('dashboard.realtimeOverview') }}</span>
+        </button>
         <button type="button" :class="{ active: filterOpen }" @click="filterOpen = !filterOpen">
           <FilterOutlined />
           <span>{{ t('dashboard.deviceFilter') }}</span>
@@ -306,13 +310,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   AimOutlined,
   BorderOuterOutlined,
   ClearOutlined,
   CompassOutlined,
+  DashboardOutlined,
   DeploymentUnitOutlined,
   FilterOutlined,
   HeatMapOutlined,
@@ -377,6 +382,7 @@ const currentTime = ref(formatClock(new Date()));
 const cameraMode = ref<'overview' | 'top' | 'side'>('overview');
 const viewMode = ref('monitor');
 const selectedFloorId = ref(sceneStore.config.floor.id);
+const overviewOpen = ref(true);
 const filterOpen = ref(false);
 const deviceFilterKeyword = ref('');
 const replayPanelOpen = ref(false);
@@ -481,9 +487,6 @@ const displayOnlineCount = computed(() =>
 const onlineDevices = computed(() => displayOnlineCount.value);
 const isLightTheme = computed(() => props.themeMode === 'light');
 const chartTextColor = computed(() => (isLightTheme.value ? 'rgba(52, 65, 89, 0.72)' : 'rgba(226, 239, 249, 0.74)'));
-const workspaceClass = computed(() => ({
-  'workspace--replay-open': replayPanelOpen.value,
-}));
 const sortedAreaStats = computed(() =>
   [...areaStats.value].sort((a, b) => b.count - a.count),
 );
@@ -668,11 +671,14 @@ function getReplayDeviceName(): string {
 
 
 function resolveMqttWebSocketUrl(): string {
-  return import.meta.env.VITE_MQTT_WS_URL?.trim() || 'ws://user.deepfusionrobotics.cn:8080';
+  return import.meta.env.VITE_MQTT_WS_URL?.trim() || 'ws://user.deepfusionrobotics.com/ws';
 }
 
 function createAreaChartOption(): EChartsOption {
   const hasData = areaStats.value.some((item) => item.count > 0);
+  const accentColor = isLightTheme.value ? '#2563eb' : '#2e87ff';
+  const accentGlow = isLightTheme.value ? 'rgba(37, 99, 235, 0.26)' : 'rgba(46, 135, 255, 0.4)';
+  const emptyRingColor = isLightTheme.value ? 'rgba(52, 65, 89, 0.1)' : 'rgba(255, 255, 255, 0.06)';
 
   return {
     color: areaStats.value.map((item) => item.color),
@@ -712,11 +718,11 @@ function createAreaChartOption(): EChartsOption {
         silent: true,
         style: {
           text: `${onlineDevices.value}`,
-          fill: hasData ? '#2e87ff' : '#888888',
+          fill: hasData ? accentColor : '#888888',
           fontSize: 44,
           fontWeight: 900,
           align: 'center',
-          textShadowColor: hasData ? 'rgba(46, 135, 255, 0.4)' : 'transparent',
+          textShadowColor: hasData ? accentGlow : 'transparent',
           textShadowBlur: 16,
         },
       },
@@ -759,7 +765,7 @@ function createAreaChartOption(): EChartsOption {
               name: item.name,
               value: item.count,
             }))
-          : [{ name: '', value: 1, itemStyle: { color: 'rgba(255,255,255,0.06)' } }],
+          : [{ name: '', value: 1, itemStyle: { color: emptyRingColor } }],
       },
     ],
   };
@@ -1790,6 +1796,12 @@ watch(onlineDevices, () => {
   renderAreaChart();
 });
 
+watch(overviewOpen, (open) => {
+  if (open) {
+    nextTick(() => resizeAreaChart());
+  }
+});
+
 watch(areaStats, () => {
   renderAreaChart();
 }, { deep: true });
@@ -1955,6 +1967,13 @@ watch(
   color: #172033;
 }
 
+.twin-screen--light .replay-form select,
+.twin-screen--light .replay-form input,
+.twin-screen--light .time-range-button {
+  border-color: rgba(78, 101, 140, 0.26);
+  background: rgba(255, 255, 255, 0.9);
+}
+
 .icon-button,
 .map-controls button,
 .tool-dock button,
@@ -1987,20 +2006,15 @@ watch(
   position: relative;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
   padding: 14px 20px;
 }
 
-.workspace--replay-open {
-  grid-template-columns: 320px minmax(0, 1fr) 292px;
-}
-
 .left-rail,
 .right-rail {
-  position: relative;
+  position: absolute;
   z-index: 3;
   gap: 10px;
   min-width: 0;
@@ -2008,27 +2022,39 @@ watch(
 }
 
 .left-rail {
+  top: 14px;
+  left: 20px;
+  bottom: 28px;
   display: grid;
   grid-template-rows: auto 1fr;
+  width: 320px;
 }
 
 .right-rail {
+  top: 14px;
+  right: 20px;
+  bottom: 28px;
   display: flex;
   flex-direction: column;
+  width: 292px;
 }
 
 .glass-panel {
   overflow: hidden;
   border: 1px solid rgba(80, 145, 205, 0.28);
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(8, 28, 49, 0.92), rgba(5, 18, 33, 0.86));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 42px rgba(0, 0, 0, 0.22);
+  background: rgba(8, 28, 49, 0.22);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 32px rgba(0, 0, 0, 0.28);
 }
 
 .twin-screen--light .glass-panel {
-  border-color: rgba(78, 101, 140, 0.16);
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 16px 36px rgba(38, 52, 82, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-color: rgba(78, 101, 140, 0.18);
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 14px 36px rgba(38, 52, 82, 0.16), 0 2px 8px rgba(38, 52, 82, 0.08);
 }
 
 .glass-panel h2 {
@@ -2040,7 +2066,7 @@ watch(
 }
 
 .twin-screen--light .glass-panel h2 {
-  border-bottom-color: rgba(78, 101, 140, 0.12);
+  border-bottom-color: rgba(78, 101, 140, 0.14);
   color: #172033;
 }
 
@@ -2077,13 +2103,14 @@ watch(
 }
 
 .twin-screen--light .stat-pill {
-  border-color: rgba(78, 101, 140, 0.14);
-  background: rgba(246, 249, 253, 0.78);
+  border-color: rgba(78, 101, 140, 0.18);
+  background: rgba(246, 249, 253, 0.6);
+  box-shadow: 0 6px 16px rgba(38, 52, 82, 0.08);
 }
 
 .twin-screen--light .stat-pill:hover {
-  border-color: rgba(37, 99, 235, 0.28);
-  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.34);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.1), 0 6px 16px rgba(38, 52, 82, 0.08);
 }
 
 .stat-pill strong {
@@ -2096,6 +2123,14 @@ watch(
 
 .stat-pill--blue strong {
   color: #2f86ff !important;
+}
+
+.twin-screen--light .stat-pill strong {
+  color: #16a34a;
+}
+
+.twin-screen--light .stat-pill--blue strong {
+  color: #2563eb !important;
 }
 
 .stat-pill span {
@@ -2144,7 +2179,7 @@ watch(
 }
 
 .twin-screen--light .area-list {
-  border-top-color: rgba(78, 101, 140, 0.08);
+  border-top-color: rgba(78, 101, 140, 0.1);
 }
 
 .area-row {
@@ -2343,7 +2378,7 @@ watch(
 .pick-chip {
   position: fixed;
   top: 80px;
-  left: calc(50% + 80px);
+  left: 50%;
   display: flex;
   gap: 10px;
   transform: translateX(-50%);
@@ -2428,7 +2463,7 @@ watch(
 
 .tool-dock {
   position: fixed;
-  left: calc(50% + 80px);
+  left: 50%;
   bottom: 24px;
   display: grid;
   grid-template-columns: repeat(8, minmax(72px, 92px));
@@ -2482,7 +2517,7 @@ watch(
 
 .replay-progress-dock {
   position: fixed;
-  left: calc(50% + 80px);
+  left: 50%;
   bottom: 94px;
   z-index: 10;
   width: clamp(460px, 52vw, 620px);
@@ -2503,7 +2538,7 @@ watch(
 
 .floating-popover {
   position: fixed;
-  left: calc(50% + 80px);
+  left: 50%;
   bottom: 108px;
   display: grid;
   gap: 8px;
@@ -2648,6 +2683,10 @@ watch(
   margin: 10px 14px 0;
   color: #ffb15d;
   font-size: 12px;
+}
+
+.twin-screen--light .replay-error {
+  color: #b45309;
 }
 
 .replay-actions {
@@ -2928,6 +2967,10 @@ watch(
   color: rgba(23, 32, 51, 0.78);
 }
 
+.twin-screen--light .player-controls .play-button {
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
 .progress-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;
@@ -3048,36 +3091,36 @@ watch(
   background: #27d57d;
 }
 
+.twin-screen--light .timeline-item i {
+  background: #2563eb;
+}
+
+.twin-screen--light .timeline-item i.green {
+  background: #16a34a;
+}
+
 .timeline-item time {
   color: rgba(235, 245, 255, 0.84);
   font-size: 12px;
 }
 
-@media (max-width: 1280px) {
-  .workspace,
-  .workspace--replay-open {
-    grid-template-columns: 320px minmax(0, 1fr);
-  }
-
-  .right-rail {
-    position: absolute;
-    top: 14px;
-    right: 20px;
-    bottom: 28px;
-    width: 292px;
-  }
-}
-
 @media (max-width: 980px) {
-  .workspace,
-  .workspace--replay-open {
-    grid-template-columns: 1fr;
+  .workspace {
     padding: 10px;
   }
 
-  .left-rail,
+  .left-rail {
+    top: 10px;
+    left: 10px;
+    bottom: 24px;
+    width: min(320px, calc(100% - 20px));
+  }
+
   .right-rail {
-    display: none;
+    top: 10px;
+    right: 10px;
+    bottom: 24px;
+    width: min(292px, calc(100% - 20px));
   }
 
   .topbar {

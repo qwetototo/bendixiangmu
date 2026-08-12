@@ -49,13 +49,9 @@ export function transformProtocolCoordinates(x: number, y: number): { x: number;
  */
 export function derivePositionTransform(map: SavedMap): PositionTransform {
   const origin = map.metadata.positioningOrigin;
-  // const scaleRatio = map.metadata.scaleRatio;
-  // const resolvedRatio =
-  //   Number.isFinite(scaleRatio) && scaleRatio > 0 ? scaleRatio : DEFAULT_MAP_SCALE_RATIO;
   const configured = Boolean(origin) && (origin[0] !== 0 || origin[1] !== 0);
 
   return {
-    // scale: DEFAULT_POSITION_TRANSFORM.scale * (resolvedRatio / DEFAULT_MAP_SCALE_RATIO),
     scale: DEFAULT_POSITION_TRANSFORM.scale,
     xOffset: configured ? origin[0] : DEFAULT_POSITION_TRANSFORM.xOffset,
     zOffset: configured ? origin[1] : DEFAULT_POSITION_TRANSFORM.zOffset,
