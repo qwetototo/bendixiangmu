@@ -1,4 +1,4 @@
-import type { MapMetadata, SavedMap } from '@/services/mapLibrary';
+import type { MapMetadata } from '@/services/mapLibrary';
 import type { SceneConfig } from '@/types/scene';
 import { authFetch } from '@/services/http';
 

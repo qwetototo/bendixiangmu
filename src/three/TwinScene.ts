@@ -104,7 +104,6 @@ export class TwinScene {
   private modelGroups: THREE.Object3D[] = [];
   private overlayPlane: THREE.Mesh | null = null;
   private overlayMaterial: THREE.MeshBasicMaterial | null = null;
-  private gridHelper: THREE.GridHelper | null = null;
   private livePoseGroup: THREE.Group | null = null;
   private readonly livePoseMarkers = new Map<string, THREE.Group>();
   private readonly livePoseTrails = new Map<string, THREE.Line>();
@@ -223,7 +222,6 @@ export class TwinScene {
     gridHelper.position.y = 0.01;
     gridHelper.visible = false;
     this.scene.add(gridHelper);
-    this.gridHelper = gridHelper;
   }
 
   private addControls(): void {

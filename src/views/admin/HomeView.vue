@@ -15,8 +15,8 @@
           <p>{{ t('home.overviewDesc') }}</p>
         </div>
         <div class="quick-actions">
-          <button type="button" @click="$emit('navigate', 'track', 'live')">{{ t('home.enterLive') }}</button>
-          <button type="button" @click="$emit('navigate', 'track', 'events')">{{ t('home.viewEvents') }}</button>
+          <button type="button" @click="$emit('navigate', 'live', 'live')">{{ t('home.enterLive') }}</button>
+          <button type="button" @click="$emit('navigate', 'events', 'events')">{{ t('home.viewEvents') }}</button>
         </div>
       </article>
 
@@ -148,7 +148,9 @@ onMounted(async () => {
 
 function formatEventTime(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 </script>
 

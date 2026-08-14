@@ -55,8 +55,8 @@
     </header>
 
     <section class="admin-body">
-      <section v-if="activePageKey === 'track.live'" class="track-page">
-        <TwinScreen embedded :theme-mode="themeMode" @show-events="selectNav('track', 'events')" />
+      <section v-if="activePageKey === 'live.live'" class="track-page">
+        <TwinScreen embedded :theme-mode="themeMode" @show-events="selectNav('events', 'events')" />
       </section>
 
       <section v-else class="content-page">
@@ -72,12 +72,12 @@
         </div>
 
         <HomeView v-if="activePageKey === 'home.overview'" :key="`home-${pageRefreshKey}`" @navigate="selectNav" />
-        <EventCenterView v-else-if="activePageKey === 'track.events'" :key="`events-${pageRefreshKey}`" :can-manage="isAdmin" :theme-mode="themeMode" />
+        <EventCenterView v-else-if="activePageKey === 'events.events'" :key="`events-${pageRefreshKey}`" :can-manage="isAdmin" :theme-mode="themeMode" />
         <DeviceManagementView v-else-if="activePageKey === 'identity.devices'" :key="`devices-${pageRefreshKey}`" :theme-mode="themeMode" />
         <IdentityView v-else-if="activePageKey === 'identity.personnel'" :key="`personnel-${pageRefreshKey}`" :theme-mode="themeMode" />
         <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :key="`beacons-${pageRefreshKey}`" :theme-mode="themeMode" />
         <UserManagementView v-else-if="activePageKey === 'config.users'" :key="`users-${pageRefreshKey}`" :theme-mode="themeMode" />
-        <ConfigView v-else :key="`config-${activeSubmenu}-${editingMapId}-${pageRefreshKey}`" :page-key="activeSubmenu" :edit-map-id="editingMapId" />
+        <ConfigView v-else :key="`config-${activeSubmenu}-${editingMapId}-${pageRefreshKey}`" :page-key="activeSubmenu" :edit-map-id="editingMapId" :theme-mode="themeMode" />
       </section>
     </section>
 
@@ -132,6 +132,7 @@ watch(
 );
 
 const NAV_STORAGE_KEY = 'twintrack.activeNav';
+const THEME_STORAGE_KEY = 'twintrack.themeMode';
 
 interface StoredNavState {
   section?: SectionKey;
@@ -142,9 +143,13 @@ const routeAliases = new Map<string, StoredNavState>([
   ['/', { section: 'home', submenu: 'overview' }],
   ['/home', { section: 'home', submenu: 'overview' }],
   ['/home/overview', { section: 'home', submenu: 'overview' }],
-  ['/track', { section: 'track', submenu: 'live' }],
-  ['/track/live', { section: 'track', submenu: 'live' }],
-  ['/track/events', { section: 'track', submenu: 'events' }],
+  ['/track', { section: 'live', submenu: 'live' }],
+  ['/track/live', { section: 'live', submenu: 'live' }],
+  ['/track/events', { section: 'events', submenu: 'events' }],
+  ['/live', { section: 'live', submenu: 'live' }],
+  ['/live/live', { section: 'live', submenu: 'live' }],
+  ['/events', { section: 'events', submenu: 'events' }],
+  ['/events/events', { section: 'events', submenu: 'events' }],
   ['/identity', { section: 'identity', submenu: 'devices' }],
   ['/identity/devices', { section: 'identity', submenu: 'devices' }],
   ['/identity/personnel', { section: 'identity', submenu: 'personnel' }],
@@ -190,13 +195,18 @@ function getStoredNavState(): StoredNavState {
   }
 }
 
+function getStoredThemeMode(): 'dark' | 'light' {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  return stored === 'dark' || stored === 'light' ? stored : 'light';
+}
+
 const isAuthed = computed(() => authStore.isAuthenticated);
 const isAdmin = computed(() => authStore.isAdmin);
 const storedNavState = getStoredNavState();
 const activeSection = ref<SectionKey>(storedNavState.section && findNavSection(storedNavState.section) ? storedNavState.section : 'home');
 const openedSection = ref<SectionKey | null>(null);
 const activeSubmenu = ref(storedNavState.submenu || getDefaultSubmenu(activeSection.value));
-const themeMode = ref<'dark' | 'light'>('light');
+const themeMode = ref<'dark' | 'light'>(getStoredThemeMode());
 const pageRefreshKey = ref(0);
 const loginLoading = ref(false);
 const loginError = ref('');
@@ -271,6 +281,7 @@ function closeMenu() {
 
 function toggleTheme() {
   themeMode.value = themeMode.value === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_STORAGE_KEY, themeMode.value);
 }
 
 async function handleLogin(payload: LoginPayload) {

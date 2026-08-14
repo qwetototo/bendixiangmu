@@ -155,11 +155,11 @@ const canManage = props.canManage ?? false;
 
 const filters = reactive({
   type: 'all',
-  status: 'all',
+  status: '未解决',
 });
 
-// 时间范围默认选中今日,清除(X)后为 null 表示不限时间
-const selectedRange = ref<[Dayjs, Dayjs] | null>([dayjs().startOf('day'), dayjs().startOf('day')]);
+// 时间范围默认为空(null)表示不限时间;选中后为 [Dayjs, Dayjs] 区间
+const selectedRange = ref<[Dayjs, Dayjs] | null>(null);
 
 // dayjs 语言跟随应用语言,日历月名/星期名随之变化
 watch(
@@ -231,7 +231,7 @@ const events = computed<EventRow[]>(() => eventSource.value.map((event) => ({
   title: event.title,
   area: event.area || '--',
   device: event.deviceId || '--',
-  time: formatEventTime(event.occurredAt),
+  time: formatEventDateTime(event.occurredAt),
   type: eventTypeLabel[event.eventType],
   level: event.alertLevel,
   levelText: eventLevelLabel[event.alertLevel],
@@ -304,11 +304,6 @@ async function saveProcessDialog() {
   } finally {
     processingSaving.value = false;
   }
-}
-
-function formatEventTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function formatEventDateTime(value: string): string {

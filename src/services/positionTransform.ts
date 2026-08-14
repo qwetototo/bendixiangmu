@@ -18,17 +18,10 @@ export const DEFAULT_POSITION_TRANSFORM: PositionTransform = {
   zOffset: 79.67,
 };
 
-/** 默认地图的 scaleRatio（floor.scale），模型以该倍数放大到场景尺寸。 */
-export const DEFAULT_MAP_SCALE_RATIO = 14.5;
-
 let currentTransform: PositionTransform = { ...DEFAULT_POSITION_TRANSFORM };
 
 export function setPositionTransform(transform: PositionTransform): void {
   currentTransform = { ...transform };
-}
-
-export function getPositionTransform(): PositionTransform {
-  return { ...currentTransform };
 }
 
 export function transformProtocolCoordinates(x: number, y: number): { x: number; y: number } {

@@ -1,5 +1,5 @@
 <template>
-  <section v-if="pageKey !== 'map-editor'" class="config-page">
+  <section v-if="pageKey !== 'map-editor'" :class="['config-page', `config-page--${themeMode}`]">
     <section class="config-grid">
       <article
         v-for="item in configItems"
@@ -71,7 +71,7 @@
     </section>
   </section>
 
-  <section v-else class="map-editor-page">
+  <section v-else :class="['map-editor-page', `map-editor-page--${themeMode}`]">
     <template v-if="viewMode === 'list'">
       <section class="map-toolbar">
         <div>
@@ -79,14 +79,10 @@
           <p>{{ t('config.modelEditorDescription') }}</p>
         </div>
         <div class="toolbar-actions">
-          <input ref="mapFileInput" class="model-file-input" type="file" @change="importMapFile" />
-          <button type="button" class="upload-button" :disabled="mapImporting" @click="openMapFilePicker">
-            <UploadOutlined />
-            <span>{{ mapImporting ? t('config.importing') : '导入模型' }}</span>
-          </button>
           <button type="button" class="primary-button" @click="createBlankMap">
             <PlusOutlined />
-            <span>新建模型</span>
+            <!-- <span>新建模型</span> -->
+            <span>{{ t('config.createBlankMap') }}</span>
           </button>
         </div>
       </section>
@@ -409,7 +405,11 @@ interface ChannelItem {
 const props = defineProps<{
   pageKey?: string;
   editMapId?: string;
+  themeMode?: 'dark' | 'light';
 }>();
+
+/** 当前主题模式，未传入时回退浅色，用于 map-editor 的深色适配 */
+const themeMode = computed<'dark' | 'light'>(() => props.themeMode ?? 'light');
 
 const configItems = reactive<ConfigItem[]>([
   { title: t('config.trajectorySampling'), text: t('config.trajectorySamplingDesc'), enabled: true },
@@ -447,9 +447,7 @@ const maps = ref<SavedMap[]>(getMapLibrary());
 const viewMode = ref<'list' | 'edit'>('list');
 const draftMap = ref<SavedMap | null>(null);
 const message = ref('');
-const mapFileInput = ref<HTMLInputElement | null>(null);
 const preview3dRef = ref<HTMLDivElement | null>(null);
-const mapImporting = ref(false);
 const baseMapFileInput = ref<HTMLInputElement | null>(null);
 const baseMapImporting = ref(false);
 const thumbnailFileInput = ref<HTMLInputElement | null>(null);
@@ -884,7 +882,8 @@ function ensurePreviewRenderer() {
   if (!previewRenderer) {
     previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    previewRenderer.setClearColor(0xf3f7ff, 1);
+    // 透明清屏，背景由 .map-preview--3d 容器的主题 CSS 提供（浅色 #f3f7ff / 深色 #0d1422）
+    previewRenderer.setClearColor(0x000000, 0);
     container.appendChild(previewRenderer.domElement);
 
     previewScene = new THREE.Scene();
@@ -1399,7 +1398,7 @@ function saveDraft() {
           updatedAt: new Date().toISOString(),
           metadata: {
             ...draftMap.value.metadata,
-            scaleRatio: Number(draftMap.value.metadata.scaleRatio) > 0 ? Number(draftMap.value.metadata.scaleRatio) : 100,
+            scaleRatio: Number(draftMap.value.metadata.scaleRatio) > 0 ? Number(draftMap.value.metadata.scaleRatio) :1,
             modelParameters: cloneModels(draftMap.value.metadata.modelParameters),
             floors: cloneMapFloors(draftMap.value.metadata.floors),
           },
@@ -1474,79 +1473,6 @@ async function deleteMap(map: SavedMap) {
   showMessage(t('config.mapDeleted', { name: map.name }));
 }
 
-async function importMapFile(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file) {
-    return;
-  }
-
-  mapImporting.value = true;
-  try {
-    if (/\.(glb|gltf)$/i.test(file.name)) {
-      const mapName = file.name.replace(/\.(glb|gltf)$/i, '');
-      const config = createBlankSceneConfig(mapName);
-      config.models.push({
-        path: '', // will be filled from API response
-        scale: 1, // native scale; use 比例尺 to adjust
-        center: [0, 0, 0],
-        rotation: [0, 0, 0],
-        role: 'base-map',
-      });
-
-      // Upload via backend API
-      const detail = await apiUploadModel(file, mapName, t('config.importedFrom', { file: file.name }));
-      // Update model path from the API response
-      config.models[0].path = detail.modelPath;
-
-      // Use the backend-generated ID so the map ID matches the server's
-      // config file name (uploads/configs/{id}.json), enabling future
-      // re-uploads to overwrite the same model file.
-      const map = {
-        ...createSavedMap(mapName, t('config.importedFrom', { file: file.name }), config, detail.metadata),
-        id: detail.id,
-      };
-      syncMaps([map, ...maps.value]);
-
-      // Open editor — the deep watcher will trigger rebuildPreviewScene,
-      // which loads the model via URL through the /uploads proxy.
-      openEditor(map);
-      showMessage(t('config.mapImportedGLB', { scale: 1 }));
-      return;
-    }
-
-    if (!/\.json$/i.test(file.name)) {
-      showMessage(t('config.invalidFileType'));
-      return;
-    }
-
-    const text = await file.text();
-    const parsed = JSON.parse(text) as unknown;
-    const config = isSceneConfig(parsed) ? parsed : (parsed as { config?: unknown }).config;
-    if (!isSceneConfig(config)) {
-      showMessage(t('config.importConfigFailed'));
-      return;
-    }
-
-    const map = createSavedMap(config.floor.name || file.name.replace(/\.json$/i, ''), `从 ${file.name} 导入`, config);
-    syncMaps([map, ...maps.value]);
-    openEditor(map);
-    showMessage(t('config.mapSaved'));
-  } catch (error) {
-    console.error('[ImportMap] ERROR:', error);
-    const errorMessage =
-      error instanceof TypeError
-        ? t('config.uploadServiceError')
-        : error instanceof Error
-          ? error.message
-          : t('config.mapImportFailed');
-    showMessage(errorMessage);
-  } finally {
-    mapImporting.value = false;
-  }
-}
-
 async function importThumbnailFile(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -1580,10 +1506,6 @@ async function importThumbnailFile(event: Event) {
   } finally {
     thumbnailUploading.value = false;
   }
-}
-
-function openMapFilePicker() {
-  mapFileInput.value?.click();
 }
 
 function openBaseMapFilePicker() {
@@ -2414,6 +2336,135 @@ onBeforeUnmount(() => {
   background: #18345d;
   color: #fff;
   box-shadow: 0 12px 28px rgba(18, 34, 61, 0.22);
+}
+
+/* ------------------------------------------------------------------ */
+/* 深色主题适配（地图编辑器）                                            */
+/* 基础样式为浅色，深色模式下通过 map-editor-page--dark 覆盖             */
+/* ------------------------------------------------------------------ */
+
+.map-editor-page--dark .map-toolbar,
+.map-editor-page--dark .editor-header,
+.map-editor-page--dark .map-row,
+.map-editor-page--dark .preview-panel,
+.map-editor-page--dark .form-panel {
+  border-color: rgba(118, 148, 212, 0.2);
+  background:
+    linear-gradient(180deg, rgba(25, 31, 45, 0.92), rgba(13, 17, 27, 0.88)),
+    rgba(13, 17, 27, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 16px 34px rgba(0, 0, 0, 0.18);
+}
+
+.map-editor-page--dark .map-toolbar h2,
+.map-editor-page--dark .editor-header h2,
+.map-editor-page--dark .preview-panel h3,
+.map-editor-page--dark .form-panel h3,
+.map-editor-page--dark .map-row__title h3 {
+  color: #fff;
+}
+
+.map-editor-page--dark .map-toolbar p,
+.map-editor-page--dark .editor-header p,
+.map-editor-page--dark .map-row__content p,
+.map-editor-page--dark .panel-heading p,
+.map-editor-page--dark .origin-editor label,
+.map-editor-page--dark label,
+.map-editor-page--dark .thumbnail-uploader__actions > span {
+  color: rgba(224, 235, 255, 0.68);
+}
+
+.map-editor-page--dark button {
+  border-color: rgba(88, 119, 174, 0.28);
+  background: rgba(25, 30, 43, 0.82);
+  color: rgba(201, 218, 255, 0.82);
+}
+
+.map-editor-page--dark .primary-button {
+  border-color: rgba(28, 94, 214, 0.56);
+  background: #1f6feb;
+  color: #fff;
+}
+
+.map-editor-page--dark button.active {
+  border-color: rgba(100, 181, 246, 0.58);
+  background: rgba(49, 91, 194, 0.32);
+  color: #9cc2ff;
+}
+
+/* ghost / back 有独立基础规则（specificity 高于通用 button），需单独覆盖 */
+.map-editor-page--dark .ghost-button,
+.map-editor-page--dark .back-button {
+  background: rgba(30, 38, 56, 0.8);
+  color: rgba(201, 218, 255, 0.82);
+}
+
+.map-editor-page--dark .map-row.active {
+  border-color: rgba(100, 181, 246, 0.58);
+  background:
+    linear-gradient(180deg, rgba(36, 54, 86, 0.95), rgba(19, 28, 45, 0.9)),
+    rgba(13, 17, 27, 0.88);
+}
+
+.map-editor-page--dark .map-row__preview,
+.map-editor-page--dark .map-preview {
+  border-color: rgba(89, 119, 168, 0.22);
+  background: #0d1422;
+}
+
+.map-editor-page--dark line {
+  stroke: rgba(150, 180, 220, 0.5);
+}
+
+.map-editor-page--dark text {
+  fill: #dbe7ff;
+  stroke: rgba(8, 12, 20, 0.85);
+}
+
+.map-editor-page--dark .map-row__title span {
+  background: rgba(31, 111, 235, 0.18);
+  color: #9cc2ff;
+}
+
+.map-editor-page--dark .map-row__meta span,
+.map-editor-page--dark .preview-stats span {
+  background: rgba(74, 101, 148, 0.16);
+  color: rgba(201, 218, 255, 0.76);
+}
+
+.map-editor-page--dark .map-preview__hud,
+.map-editor-page--dark .map-preview__base-tools {
+  border-color: rgba(83, 112, 164, 0.22);
+  background: rgba(20, 27, 42, 0.88);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+}
+
+.map-editor-page--dark .map-preview__hud,
+.map-editor-page--dark .map-preview__base-title span,
+.map-editor-page--dark .map-preview__empty {
+  color: rgba(201, 218, 255, 0.68);
+}
+
+.map-editor-page--dark .map-preview__hud strong,
+.map-editor-page--dark .map-preview__base-title strong {
+  color: #dbe7ff;
+}
+
+.map-editor-page--dark input,
+.map-editor-page--dark select,
+.map-editor-page--dark textarea {
+  border-color: rgba(83, 112, 164, 0.25);
+  background: #0d1422;
+  color: #e3ecff;
+}
+
+.map-editor-page--dark .thumbnail-uploader__preview {
+  border-color: rgba(89, 119, 168, 0.22);
+  background: #0d1422;
+  color: rgba(201, 218, 255, 0.6);
+}
+
+.map-editor-page--dark .thumbnail-uploader__actions small {
+  color: rgba(201, 218, 255, 0.58);
 }
 
 .config-page {

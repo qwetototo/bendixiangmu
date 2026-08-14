@@ -6,12 +6,13 @@ import {
   HomeOutlined,
   SettingOutlined,
   TeamOutlined,
+  WarningOutlined,
 } from '@ant-design/icons-vue';
 import { computed, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
 
-export type SectionKey = 'home' | 'track' | 'identity' | 'config';
+export type SectionKey = 'home' | 'live' | 'events' | 'identity' | 'config';
 
 export interface NavItem {
   key: string;
@@ -41,11 +42,18 @@ export function useNavigation() {
       ],
     },
     {
-      key: 'track',
-      label: t('nav.trackCenter'),
+      key: 'live',
+      label: t('nav.liveTrack'),
       icon: DeploymentUnitOutlined,
       items: [
         { key: 'live', label: t('nav.liveTrack'), description: t('nav.liveTrackDesc') },
+      ],
+    },
+    {
+      key: 'events',
+      label: t('nav.eventCenter'),
+      icon: WarningOutlined,
+      items: [
         { key: 'events', label: t('nav.eventCenter'), description: t('nav.eventCenterDesc') },
       ],
     },

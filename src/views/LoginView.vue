@@ -43,7 +43,7 @@
     </section>
   </main>
 
-    <footer class="beian-footer">
+    <footer v-if="isZhBuild" class="beian-footer">
       <img :src="footerGaIcon" alt="" class="beian-footer__icon" />
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
         苏ICP备2026022812号
@@ -57,6 +57,9 @@ import { useI18n } from 'vue-i18n';
 import footerGaIcon from '@/assets/image/footer_ga-1.png';
 import type { LoginPayload } from '@/services/authApi';
 const { t } = useI18n();
+
+/** 是否为中文版构建（build:zh），英文版构建（build:en）不显示 ICP 备案 footer */
+const isZhBuild = (import.meta.env.VITE_DEFAULT_LOCALE ?? 'zh-CN') === 'zh-CN';
 
 const props = defineProps<{
   loading: boolean;
