@@ -85,6 +85,22 @@ export class TwinScene {
   private static readonly SELECTED_LIVE_POSE_CORE_COLOR = '#fff5c2';
   private static readonly SELECTED_LIVE_POSE_EMISSIVE_COLOR = '#ffd84d';
   private static readonly SELECTED_LIVE_POSE_TRAIL_COLOR = '#ffd84d';
+  private static readonly SCENE_FOG_COLOR = '#07111d';
+  /**
+   * Camera framing is anchored to a map whose scaleRatio (config.floor.scale)
+   * is 1. The base distances below are multiplied by floor.scale so the
+   * overview/top/side presets, the mouse zoom range, the fog plane and the far
+   * plane all scale together with the base-map model. The default map has
+   * floor.scale = 1, so its framing stays exactly as before.
+   */
+  private static readonly CAMERA_REFERENCE_SCALE = 1;
+  private static readonly CAMERA_MIN_SCALE = 0.25;
+  private static readonly CAMERA_MAX_SCALE = 12;
+  private static readonly CAMERA_MIN_DISTANCE = 100;
+  private static readonly CAMERA_MAX_DISTANCE = 2400;
+  private static readonly CAMERA_FAR = 3000;
+  private static readonly CAMERA_FOG_NEAR = 1800;
+  private static readonly CAMERA_FOG_FAR = 3600;
   private readonly container: HTMLDivElement;
   private readonly config: SceneConfig;
   private readonly builder = new SceneBuilder();
@@ -116,6 +132,7 @@ export class TwinScene {
   private performanceTrailsEnabled = true;
   private performanceProfileKey = '';
   private overlayBaseSize = new THREE.Vector2(1, 1);
+  private modelScaleFactor = 1;
   private resizeHandler: () => void;
   private clickHandler: (event: MouseEvent) => void;
   private doubleClickHandler: (event: MouseEvent) => void;
@@ -139,10 +156,15 @@ export class TwinScene {
 
   init(): void {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#07111d');
-    // OrbitControls allows the camera to move as far as 900 units. Starting
-    // fog at 450 made the map lose contrast and look blurred while zooming out.
-    this.scene.fog = new THREE.Fog('#07111d', 1800, 3600);
+    this.scene.background = new THREE.Color(TwinScene.SCENE_FOG_COLOR);
+    // Fog is anchored to the reference camera range and scales together with
+    // the base-map model (see applySceneFraming), so zooming far out on a
+    // scaled-up model never loses the map to fog.
+    this.scene.fog = new THREE.Fog(
+      TwinScene.SCENE_FOG_COLOR,
+      TwinScene.CAMERA_FOG_NEAR,
+      TwinScene.CAMERA_FOG_FAR,
+    );
 
     this.createCamera();
     this.createRenderer();
@@ -163,7 +185,7 @@ export class TwinScene {
     const width = this.container.clientWidth || 1;
     const height = this.container.clientHeight || 1;
 
-    this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 3000);
+    this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, TwinScene.CAMERA_FAR);
     this.camera.position.set(220, 240, 360);
     this.camera.lookAt(0, 0, 0);
   }
@@ -232,8 +254,8 @@ export class TwinScene {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.minDistance = 120;
-    this.controls.maxDistance = 2000;
+    this.controls.minDistance = TwinScene.CAMERA_MIN_DISTANCE;
+    this.controls.maxDistance = TwinScene.CAMERA_MAX_DISTANCE;
     this.controls.maxPolarAngle = Math.PI / 2.05;
     this.controls.target.set(0, 0, 0);
     this.controls.update();
@@ -249,6 +271,9 @@ export class TwinScene {
     this.addLivePoseLayer();
     this.scene.add(this.floorGroup);
     this.updateShadowCameraBounds();
+    // Frame the scene from the base-map scale so the initial view and the
+    // multi-view presets track the model even before it finishes loading.
+    this.applySceneFraming(true);
     void this.loadReferenceModels();
   }
 
@@ -854,19 +879,72 @@ export class TwinScene {
     });
   }
 
+  /**
+   * Camera framing multiplier derived from the base-map scale
+   * (config.floor.scale / metadata.scaleRatio, anchored at 1). Keeping the
+   * camera distances, zoom limits, fog and far plane proportional to it means
+   * the multi-view presets and the mouse zoom always match the model size.
+   */
+  private computeModelScaleFactor(): number {
+    const floorScale = Number(this.config.floor.scale);
+    if (!Number.isFinite(floorScale) || floorScale <= 0) {
+      return 1;
+    }
+    const raw = floorScale / TwinScene.CAMERA_REFERENCE_SCALE;
+    return THREE.MathUtils.clamp(raw, TwinScene.CAMERA_MIN_SCALE, TwinScene.CAMERA_MAX_SCALE);
+  }
+
+  private getCameraViewPosition(view: 'overview' | 'top' | 'side'): THREE.Vector3 {
+    const scale = this.modelScaleFactor;
+    if (view === 'top') {
+      return new THREE.Vector3(0, 640 * scale, 0.01 * scale);
+    }
+    if (view === 'side') {
+      return new THREE.Vector3(0, 220 * scale, 540 * scale);
+    }
+    return new THREE.Vector3(220 * scale, 240 * scale, 360 * scale);
+  }
+
+  /**
+   * Apply the model-scale-aware camera setup: zoom range, far plane and fog.
+   * When frameCamera is true (initial framing), the camera is also positioned
+   * at the scaled overview preset.
+   */
+  private applySceneFraming(frameCamera: boolean): void {
+    this.modelScaleFactor = this.computeModelScaleFactor();
+
+    if (this.controls) {
+      this.controls.minDistance = TwinScene.CAMERA_MIN_DISTANCE * this.modelScaleFactor;
+      this.controls.maxDistance = TwinScene.CAMERA_MAX_DISTANCE * this.modelScaleFactor;
+    }
+
+    if (this.camera) {
+      this.camera.far = TwinScene.CAMERA_FAR * this.modelScaleFactor;
+      this.camera.updateProjectionMatrix();
+      if (frameCamera) {
+        this.camera.position.copy(this.getCameraViewPosition('overview'));
+        this.camera.lookAt(0, 0, 0);
+      }
+    }
+
+    if (this.scene) {
+      this.scene.fog = new THREE.Fog(
+        TwinScene.SCENE_FOG_COLOR,
+        TwinScene.CAMERA_FOG_NEAR * this.modelScaleFactor,
+        TwinScene.CAMERA_FOG_FAR * this.modelScaleFactor,
+      );
+    }
+
+    this.controls?.update();
+  }
+
   setCameraView(view: 'overview' | 'top' | 'side'): void {
     if (!this.camera || !this.controls) {
       return;
     }
 
     const target = new THREE.Vector3(0, 0, 0);
-    if (view === 'top') {
-      this.camera.position.set(0, 640, 0.01);
-    } else if (view === 'side') {
-      this.camera.position.set(0, 220, 540);
-    } else {
-      this.camera.position.set(220, 240, 360);
-    }
+    this.camera.position.copy(this.getCameraViewPosition(view));
 
     this.controls.target.copy(target);
     this.camera.lookAt(target);

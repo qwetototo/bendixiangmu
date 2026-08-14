@@ -1,4 +1,10 @@
-import type { MapMetadata } from '@/services/mapLibrary';
+import {
+  cloneSceneConfig,
+  createDefaultMetadata,
+  isSceneConfig,
+  type MapMetadata,
+  type SavedMap,
+} from '@/services/mapLibrary';
 import type { SceneConfig } from '@/types/scene';
 import { authFetch } from '@/services/http';
 
@@ -29,6 +35,21 @@ export interface MapModelDetail extends MapModel {
 /* ------------------------------------------------------------------ */
 
 const API_BASE = '/api/models';
+
+/** Convert a backend model detail to the local SavedMap shape. Returns null when the config is incomplete. */
+export function mapDetailToSavedMap(detail: MapModelDetail): SavedMap | null {
+  if (!detail.config || !isSceneConfig(detail.config)) {
+    return null;
+  }
+  return {
+    id: detail.id,
+    name: detail.name || detail.config.floor.name || '未命名地图',
+    description: detail.description || '',
+    updatedAt: detail.updatedAt || new Date().toISOString(),
+    config: cloneSceneConfig(detail.config),
+    metadata: createDefaultMetadata(detail.config, detail.metadata),
+  };
+}
 
 async function handleResponse<T>(response: Response, errorLabel: string): Promise<T> {
   const text = await response.text();
@@ -174,4 +195,29 @@ export async function deleteModel(id: string): Promise<void> {
   });
 
   await handleResponse<{ success: boolean }>(response, '删除模型');
+}
+
+/**
+ * Fetch the currently applied map (the one the trajectory center uses).
+ *
+ * GET /api/models/active — data is null when no map has been applied yet.
+ */
+export async function fetchActiveModel(): Promise<MapModelDetail | null> {
+  const response = await authFetch(`${API_BASE}/active`);
+  return handleResponse<MapModelDetail | null>(response, '获取当前应用的地图');
+}
+
+/**
+ * Persist the currently applied map server-side so every device shares it.
+ *
+ * PUT /api/models/active
+ */
+export async function setActiveModel(id: string): Promise<void> {
+  const response = await authFetch(`${API_BASE}/active`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+
+  await handleResponse<{ success: boolean }>(response, '设置当前应用的地图');
 }

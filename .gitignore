@@ -27,7 +27,7 @@ skills-lock.json
 .agents/*
 .claude/*
 .codex/*
-
+.env
 *.zip
 docs/migrations*
 !docs/migrations/README.md

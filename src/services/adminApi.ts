@@ -94,14 +94,34 @@ export interface AlertEventVO {
 
 export interface DashboardSummaryVO {
   totalPersonnel: number;
+  /** 已绑定设备且设备在线的人员 */
   activePersonnel: number;
+  totalDeviceCount: number;
+  /** 已绑定人员（personnel_id 非空）的设备 */
+  boundDeviceCount: number;
   onlineDevices: number;
   offlineDevices: number;
+  sosDevices: number;
   lowBatteryDevices: number;
   todayAlertCount: number;
-  pendingAlertCount: number;
-  processingAlertCount: number;
-  closedAlertCount: number;
+  todayPendingAlertCount: number;
+  todayProcessingAlertCount: number;
+  todayClosedAlertCount: number;
+  todayIgnoredAlertCount: number;
+  todayCrossingCount: number;
+  todayGatherCount: number;
+  todayLowBatteryCount: number;
+  todayOfflineCount: number;
+  todaySosCount: number;
+}
+
+export interface SystemStatusVO {
+  cpuUsage: number;
+  memoryUsage: number;
+  diskUsage: number;
+  cpuCores: number;
+  memoryTotalMb: number;
+  memoryUsedMb: number;
 }
 
 type QueryValue = string | number | boolean | undefined;
@@ -208,4 +228,8 @@ export function updateAlertEvent(eventId: string, data: Partial<Pick<AlertEventV
 
 export function fetchDashboardSummary(params: Record<string, QueryValue> = {}) {
   return request<DashboardSummaryVO>('get', '/api/dashboard/summary', { params });
+}
+
+export function fetchSystemStatus() {
+  return request<SystemStatusVO>('get', '/api/dashboard/system-status');
 }

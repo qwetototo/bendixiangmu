@@ -28,7 +28,7 @@
         <div class="row-actions">
           <button type="button" :disabled="user.id === authStore.user?.id" @click="openEdit(user)">{{ t('common.edit') }}</button>
           <button type="button" @click="openPasswordDialog(user)">{{ t('users.changePassword') }}</button>
-          <button type="button" class="danger" :disabled="user.id === authStore.user?.id" @click="removeUser(user)">
+          <button type="button" class="danger" :disabled="user.id === authStore.user?.id || user.userLevel === 0" @click="removeUser(user)">
             {{ t('common.delete') }}
           </button>
         </div>
@@ -49,11 +49,13 @@
         </label>
         <label>
           <span>{{ t('users.level') }}</span>
-          <select v-model.number="form.userLevel">
-            <option :value="0">{{ t('users.admin') }}</option>
+          <select v-model.number="form.userLevel" :disabled="editingUser?.userLevel === 0">
             <option :value="1">{{ t('users.normal') }}</option>
+            <option v-if="editingUser" :value="0" disabled>{{ t('users.admin') }}</option>
           </select>
         </label>
+        <small v-if="editingUser?.userLevel === 0">{{ t('users.levelLockedAdmin') }}</small>
+        <small v-else-if="editingUser">{{ t('users.levelNoPromote') }}</small>
         <small v-if="!editingUser">{{ t('users.defaultPasswordHint') }}</small>
       </div>
       <template #footer>
@@ -158,9 +160,16 @@ function closeDialog() {
 
 async function saveUser() {
   if (!form.username) return;
+  const editing = editingUser.value;
+  // 安全校验：管理员不能创建/提升其他管理员，也不能调整其他管理员的等级
+  if (!editing && form.userLevel === 0) return;
+  if (editing) {
+    if (editing.userLevel === 0 && form.userLevel !== 0) return;
+    if (editing.userLevel === 1 && form.userLevel === 0) return;
+  }
   saving.value = true;
   try {
-    if (editingUser.value) await updateUser(editingUser.value.id, { ...form });
+    if (editing) await updateUser(editing.id, { ...form });
     else await createUser({ ...form });
     dialogOpen.value = false;
     showMessage(t('users.saved'));

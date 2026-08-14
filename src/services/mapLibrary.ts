@@ -98,9 +98,9 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
   const scaleRatio =
     Number.isFinite(metadataScaleRatio) && metadataScaleRatio > 0
       ? metadataScaleRatio
-      : Number.isFinite(configScaleRatio) && configScaleRatio > 1
+      : Number.isFinite(configScaleRatio) && configScaleRatio > 0
         ? configScaleRatio
-        : 100;
+        : 1;
   const fallbackFloor: MapFloorItem = {
     id: config.floor.id || `floor-${Date.now()}`,
     name: config.floor.name || '1F',

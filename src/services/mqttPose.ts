@@ -44,7 +44,7 @@ export class MqttPoseClient {
   private static readonly PATH_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/path$/;
   private static readonly DEVICE_EVENT_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/(disconnect|disconnected|offline|status|state)$/;
   private static readonly DEVICE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\//;
-  private static readonly DEFAULT_DEVICE_TIMEOUT_MS = 10 * 1000;
+  private static readonly DEFAULT_DEVICE_TIMEOUT_MS =  * 1000;
   private static readonly DEFAULT_DEVICE_CHECK_INTERVAL_MS = 2 * 1000;
   private static readonly DEBUG = true;
   private readonly url: string;

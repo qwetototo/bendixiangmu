@@ -290,6 +290,12 @@
               <small>{{ thumbnailUploadStatus || t('config.coverUploadHint') }}</small>
             </div>
           </div>
+          <div class="building-select-action">
+            <button type="button" class="building-select-button" @click="navigateToBuildingSelect">
+              <ShopOutlined />
+              <span>{{ t('config.goToBuildingSelect') }}</span>
+            </button>
+          </div>
         </article>
 
         <article class="form-panel">
@@ -332,6 +338,7 @@ import {
   DeleteOutlined,
   PlusOutlined,
   SaveOutlined,
+  ShopOutlined,
   UploadOutlined,
 } from '@ant-design/icons-vue';
 import {
@@ -341,6 +348,8 @@ import {
   saveModelConfig as apiSaveModelConfig,
   deleteModel as apiDeleteModel,
   uploadThumbnail as apiUploadThumbnail,
+  setActiveModel as apiSetActiveModel,
+  mapDetailToSavedMap,
   type MapModelDetail,
 } from '@/services/mapApi';
 import * as THREE from 'three';
@@ -353,10 +362,8 @@ import {
   cloneModels,
   cloneSceneConfig,
   createBlankSceneConfig,
-  createDefaultMetadata,
   createSavedMap,
   getMapLibrary,
-  isSceneConfig,
   normalizeModelConfig,
   saveMapLibrary,
   type MapFloorItem,
@@ -520,7 +527,7 @@ const previewCoordinateText = computed(() => {
 });
 const scaleRatioDisplay = ref('');
 function updateScaleRatioDisplay() {
-  scaleRatioDisplay.value = String(draftMap.value ? getSafeScaleRatio(draftMap.value) : 100);
+  scaleRatioDisplay.value = String(draftMap.value ? getSafeScaleRatio(draftMap.value) : 1);
 }
 function onScaleRatioInput(event: Event) {
   scaleRatioDisplay.value = (event.target as HTMLInputElement).value;
@@ -666,7 +673,7 @@ function getPreviewBox(config: SceneConfig) {
 
 function getSafeScaleRatio(map: SavedMap): number {
   const scaleRatio = map.metadata.scaleRatio;
-  return Number.isFinite(scaleRatio) && scaleRatio > 0 ? scaleRatio : 100;
+  return Number.isFinite(scaleRatio) && scaleRatio > 0 ? scaleRatio : 1;
 }
 
 function syncScaleRatioToConfig(map: SavedMap) {
@@ -734,9 +741,11 @@ function syncActiveFloorFromConfig(map: SavedMap) {
   applyBuildingSettingsToFloors(map);
   const activeFloorId = map.metadata.activeFloorId;
   const activeIndex = map.metadata.floors.findIndex((floor) => floor.id === activeFloorId);
+  const previousFloor = activeIndex >= 0 ? map.metadata.floors[activeIndex] : undefined;
   const floorItem: MapFloorItem = {
     id: map.config.floor.id || activeFloorId || `floor-${Date.now()}`,
     name: map.config.floor.name || t('config.floorLabel'),
+    description: previousFloor?.description,
     config: normalizeClonedSceneConfig(map.config),
   };
 
@@ -1274,25 +1283,6 @@ function syncMaps(nextMaps: SavedMap[]) {
   }
 }
 
-/** Convert a backend MapModelDetail to the local SavedMap format. */
-function modelDetailToSavedMap(detail: MapModelDetail): SavedMap | null {
-  // Backend may return models whose detail doesn't include full config/metadata yet.
-  // Validate required fields and fill defaults before converting.
-  if (!detail.config || !isSceneConfig(detail.config)) {
-    console.warn('[loadMapsFromApi] skipping map with incomplete config:', detail.id, detail.name);
-    return null;
-  }
-  const saved: SavedMap = {
-    id: detail.id,
-    name: detail.name,
-    description: detail.description || '',
-    updatedAt: detail.updatedAt || new Date().toISOString(),
-    config: cloneSceneConfig(detail.config),
-    metadata: createDefaultMetadata(detail.config, detail.metadata),
-  };
-  return saved;
-}
-
 /** Try to load custom maps from the backend API and merge into the local list. */
 async function loadMapsFromApi() {
   try {
@@ -1306,7 +1296,7 @@ async function loadMapsFromApi() {
 
     const apiMaps: SavedMap[] = details
       .filter((d): d is MapModelDetail => d !== null)
-      .map(modelDetailToSavedMap)
+      .map(mapDetailToSavedMap)
       .filter((m): m is SavedMap => m !== null);
 
     // Merge: replace any existing map with same id, keep the rest
@@ -1437,6 +1427,10 @@ function saveDraft() {
 
 function applyMap(map: SavedMap) {
   sceneStore.setActiveMap(map.id, normalizeClonedSceneConfig(map.config));
+  // 把"当前应用的地图"持久化到服务端，保证跨设备一致
+  apiSetActiveModel(map.id).catch((error) => {
+    console.error(`[applyMap] failed to persist active map ${map.id} on server`, error);
+  });
   showMessage(t('config.mapApplied', { name: map.name }));
 }
 
@@ -1539,6 +1533,16 @@ function clearThumbnail() {
 
   draftMap.value.metadata.thumbnail = '';
   thumbnailUploadStatus.value = '';
+}
+
+/** 「前往地图选择建筑」：跳转到 .env 中指定的目标地址（支持裸域名或完整 URL） */
+function navigateToBuildingSelect() {
+  const target = import.meta.env.VITE_BUILDING_SELECT_URL?.trim();
+  if (!target) {
+    return;
+  }
+  const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
+  window.location.href = url;
 }
 
 function handlePreviewPointerDown(event: MouseEvent) {
@@ -1901,6 +1905,23 @@ onBeforeUnmount(() => {
 .map-editor-page .ghost-button,
 .map-editor-page .back-button {
   background: rgba(236, 242, 255, 0.9);
+}
+
+.building-select-action {
+  display: flex;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(88, 119, 174, 0.14);
+}
+
+.building-select-button {
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.building-select-button:hover {
+  border-color: rgba(31, 111, 235, 0.56);
+  background: rgba(31, 111, 235, 0.06);
+  color: #174ea6;
 }
 
 .map-editor-page .upload-button input,
@@ -2396,6 +2417,12 @@ onBeforeUnmount(() => {
 .map-editor-page--dark .back-button {
   background: rgba(30, 38, 56, 0.8);
   color: rgba(201, 218, 255, 0.82);
+}
+
+.map-editor-page--dark .building-select-button:hover {
+  border-color: rgba(100, 181, 246, 0.58);
+  background: rgba(49, 91, 194, 0.32);
+  color: #9cc2ff;
 }
 
 .map-editor-page--dark .map-row.active {

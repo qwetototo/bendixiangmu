@@ -459,8 +459,9 @@ const replayDeviceOptions = computed(() => {
   ];
 });
 const activeSavedMap = computed<SavedMap | null>(() => {
+  sceneStore.savedMap;
   sceneStore.activeMapId;
-  return getMapLibrary().find((map) => map.id === sceneStore.activeMapId) ?? null;
+  return sceneStore.savedMap ?? getMapLibrary().find((map) => map.id === sceneStore.activeMapId) ?? null;
 });
 const floorOptions = computed(() => {
   const floors = activeSavedMap.value?.metadata.floors ?? [];
@@ -1032,6 +1033,9 @@ function createTwinScene() {
     },
   );
   twinScene.init();
+  // Re-apply the selected multi-view preset so a rebuilt scene (e.g. after a
+  // floor switch) keeps the user's view instead of resetting to overview.
+  applyCameraMode();
   twinScene.toggleFences(fencesVisible.value);
   twinScene.toggleLivePoseLabels(livePoseLabelsVisible.value);
   applyRealtimePerformance();

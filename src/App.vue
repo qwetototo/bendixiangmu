@@ -4,7 +4,9 @@
     v-else-if="!isAuthed"
     :error-message="loginError"
     :loading="loginLoading"
+    :theme-mode="themeMode"
     @login="handleLogin"
+    @toggle-theme="toggleTheme"
   />
 
   <main v-else :class="['admin-shell', `admin-shell--${themeMode}`]">
@@ -71,7 +73,7 @@
           </button>
         </div>
 
-        <HomeView v-if="activePageKey === 'home.overview'" :key="`home-${pageRefreshKey}`" @navigate="selectNav" />
+        <HomeView v-if="activePageKey === 'home.overview'" :key="`home-${pageRefreshKey}`" :theme-mode="themeMode" @navigate="selectNav" />
         <EventCenterView v-else-if="activePageKey === 'events.events'" :key="`events-${pageRefreshKey}`" :can-manage="isAdmin" :theme-mode="themeMode" />
         <DeviceManagementView v-else-if="activePageKey === 'identity.devices'" :key="`devices-${pageRefreshKey}`" :theme-mode="themeMode" />
         <IdentityView v-else-if="activePageKey === 'identity.personnel'" :key="`personnel-${pageRefreshKey}`" :theme-mode="themeMode" />
@@ -110,12 +112,14 @@ import TwinScreen from '@/views/TwinScreen.vue';
 import { useNavigation, type SectionKey } from '@/services/navigation';
 import { useLanguageStore } from '@/stores/language';
 import { useAuthStore } from '@/stores/auth';
+import { useSceneStore } from '@/stores/scene';
 import type { LoginPayload } from '@/services/authApi';
 import { fetchAlertEvents, type DeviceStatus, type DeviceVO } from '@/services/adminApi';
 
 const { t, locale } = useI18n();
 const languageStore = useLanguageStore();
 const authStore = useAuthStore();
+const sceneStore = useSceneStore();
 const { navSections, findNavSection, getDefaultSubmenu } = useNavigation();
 
 function toggleLanguage() {
@@ -427,6 +431,7 @@ onMounted(async () => {
   if (isAuthed.value) {
     syncNavFromRoute();
     void pollSosEvents();
+    void sceneStore.initialize();
   }
   sosPollingTimer = window.setInterval(pollSosEvents, 5000);
 });
@@ -717,6 +722,7 @@ onUnmounted(() => {
 .admin-shell--light :deep(.info-card),
 .admin-shell--light :deep(.activity-panel),
 .admin-shell--light :deep(.task-panel),
+.admin-shell--light :deep(.dist-panel),
 .admin-shell--light :deep(.side-panel),
 .admin-shell--light :deep(.list-panel),
 .admin-shell--light :deep(.detail-panel),
@@ -777,7 +783,9 @@ onUnmounted(() => {
 .admin-shell--light :deep(.event-table strong),
 .admin-shell--light :deep(.event-card-grid strong),
 .admin-shell--light :deep(.beacon-table strong),
-.admin-shell--light :deep(.beacon-detail strong) {
+.admin-shell--light :deep(.beacon-detail strong),
+.admin-shell--light :deep(.dist-panel h3),
+.admin-shell--light :deep(.dist-head b) {
   color: #172033;
 }
 
@@ -820,7 +828,10 @@ onUnmounted(() => {
 .admin-shell--light :deep(.activity-detail span),
 .admin-shell--light :deep(.task-progress span),
 .admin-shell--light :deep(.selected-channel span),
-.admin-shell--light :deep(.selected-channel small) {
+.admin-shell--light :deep(.selected-channel small),
+.admin-shell--light :deep(.dist-head em),
+.admin-shell--light :deep(.mini-head em),
+.admin-shell--light :deep(.dist-empty) {
   color: rgba(52, 65, 89, 0.68);
 }
 
@@ -843,7 +854,8 @@ onUnmounted(() => {
 .admin-shell--light :deep(.beacon-detail),
 .admin-shell--light :deep(.activity-detail),
 .admin-shell--light :deep(.task-progress),
-.admin-shell--light :deep(.selected-channel) {
+.admin-shell--light :deep(.selected-channel),
+.admin-shell--light :deep(.dist-item) {
   border-color: rgba(78, 101, 140, 0.12);
   background: rgba(246, 249, 253, 0.78);
 }
