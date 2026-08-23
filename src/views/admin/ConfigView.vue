@@ -81,7 +81,6 @@
         <div class="toolbar-actions">
           <button type="button" class="primary-button" @click="createBlankMap">
             <PlusOutlined />
-            <!-- <span>新建模型</span> -->
             <span>{{ t('config.createBlankMap') }}</span>
           </button>
         </div>
@@ -277,7 +276,7 @@
               <span v-else>{{ t('config.noCover') }}</span>
             </div>
             <div class="thumbnail-uploader__actions">
-              <span>封面</span>
+              <span>{{ t('config.cover') }}</span>
               <input ref="thumbnailFileInput" class="model-file-input" type="file" accept=".png,.jpg,.jpeg,.webp" @change="importThumbnailFile" />
               <button type="button" class="upload-button" :disabled="thumbnailUploading" @click="openThumbnailFilePicker">
                 <UploadOutlined />
@@ -304,12 +303,12 @@
             <select :value="draftMap.metadata.activeFloorId" @change="handleFloorSelect">
               <option v-for="floor in draftMap.metadata.floors" :key="floor.id" :value="floor.id">{{ floor.name }}</option>
             </select>
-            <button type="button" @click="addFloor"><PlusOutlined />新增楼层</button>
-            <button type="button" :disabled="draftMap.metadata.floors.length <= 1" @click="removeCurrentFloor"><DeleteOutlined />删除楼层</button>
+            <button type="button" @click="addFloor"><PlusOutlined />{{ t('config.addFloor') }}</button>
+            <button type="button" :disabled="draftMap.metadata.floors.length <= 1" @click="removeCurrentFloor"><DeleteOutlined />{{ t('config.deleteFloor') }}</button>
           </div>
           <div class="form-grid">
             <label>
-              <span>楼层名称</span>
+              <span>{{ t('config.floorName') }}</span>
               <input v-model.trim="draftMap.config.floor.name" type="text" @input="updateCurrentFloorName" />
             </label>
             <label class="wide">
