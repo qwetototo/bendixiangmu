@@ -187,7 +187,6 @@ const deviceStatusItems = computed(() => {
     { label: t('home.deviceOnline'), value: d?.onlineDevices ?? 0 },
     { label: t('home.deviceOffline'), value: d?.offlineDevices ?? 0 },
     { label: t('home.deviceSos'), value: d?.sosDevices ?? 0 },
-    { label: t('management.unbound'), value: Math.max(0, (d?.totalDeviceCount ?? 0) - (d?.boundDeviceCount ?? 0)) },
   ];
 });
 
@@ -341,7 +340,7 @@ function buildDeviceDistOption(): EChartsOption {
   const total = dashboard.value?.totalDeviceCount ?? 0;
   const hasData = items.some((item) => item.value > 0);
   const c = chartColors.value;
-  const deviceDistColors = ['#43e5a0', '#9aa7bd', '#ff8585', '#ffcf75'];
+  const deviceDistColors = ['#43e5a0', '#9aa7bd', '#ff8585'];
   return {
     color: deviceDistColors,
     tooltip: donutTooltip(c),
