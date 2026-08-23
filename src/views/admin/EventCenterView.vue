@@ -15,7 +15,7 @@
             <h3>{{ t('events.title') }}</h3>
             <span>{{ t('events.desc') }}</span>
           </div>
-          <button type="button" @click="toastMessage = t('events.exportDone', { count: filteredEvents.length })">{{ t('common.export') + t('events.event') }}</button>
+          <button type="button" @click="exportEvents">{{ t('common.export') + t('events.event') }}</button>
         </div>
 
         <div class="event-filter">
@@ -41,6 +41,7 @@
               <option value="低电量">{{ t('events.typeLowBattery') }}</option>
               <option value="离线">{{ t('events.typeOffline') }}</option>
               <option value="SOS 紧急告警">SOS 紧急告警</option>
+              <option value="人员跌倒">{{ t('events.typeFall') }}</option>
             </select>
           </label>
           <label>
@@ -132,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import dayjs, { type Dayjs } from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -203,6 +204,7 @@ const eventTypeLabel: Record<AlertEventVO['eventType'], string> = {
   low_battery: '低电量',
   offline: '离线',
   sos: 'SOS 紧急告警',
+  fall: '人员跌倒',
 };
 
 const eventStatusLabel: Record<AlertEventVO['status'], string> = {
@@ -226,6 +228,7 @@ const eventLevelLabel: Record<AlertEventVO['alertLevel'], string> = {
 };
 
 const eventSource = ref<AlertEventVO[]>([]);
+const totalEvents = ref(0);
 const events = computed<EventRow[]>(() => eventSource.value.map((event) => ({
   id: event.eventId,
   title: event.title,
@@ -252,7 +255,7 @@ const processForm = reactive({
 });
 
 const eventStats = computed(() => [
-  { label: t('events.todayEvents'), value: String(events.value.length), note: '当前筛选结果' },
+  { label: t('events.eventSummary'), value: String(totalEvents.value), note: t('events.currentFilter') },
   { label: t('events.pending'), value: String(eventSource.value.filter((event) => event.status === 'pending').length), note: t('events.highPriority') },
   { label: t('events.processing'), value: String(eventSource.value.filter((event) => event.status === 'processing').length), note: t('events.avgMinutes', { min: 18 }) },
   { label: t('events.closed'), value: String(eventSource.value.filter((event) => event.status === 'closed').length), note: t('events.closureRate', { rate: 84 }) },
@@ -318,9 +321,14 @@ function replaceEvent(updated: AlertEventVO) {
   if (index >= 0) eventSource.value.splice(index, 1, updated);
 }
 
-async function loadEvents() {
+// 列表分页拉大，避免"今日事件"统计被单页条数（原 20）锁死；
+// 同时每 5 秒静默轮询，后端收到告警后无需手动刷新即可看到。
+const REFRESH_INTERVAL_MS = 5000;
+let refreshTimer: number | undefined;
+
+async function loadEvents(silent = false) {
   try {
-    const params: Record<string, string | number | undefined> = { page: 1, pageSize: 20 };
+    const params: Record<string, string | number | undefined> = { page: 1, pageSize: 500 };
     if (selectedRange.value) {
       // startTime 包含当日 00:00;endTime 排他,取结束日期次日 00:00 以覆盖整天
       params.startTime = dayjs(selectedRange.value[0]).startOf('day').toISOString();
@@ -328,19 +336,63 @@ async function loadEvents() {
     }
     const page = await fetchAlertEvents(params);
     eventSource.value = page.records;
-    selectedEventId.value = page.records[0]?.eventId ?? '';
+    totalEvents.value = page.total;
+    // 轮询刷新时尽量保持当前选中行；被移除时才回退到最新一条。
+    if (!page.records.some((event) => event.eventId === selectedEventId.value)) {
+      selectedEventId.value = page.records[0]?.eventId ?? '';
+    }
   } catch (error) {
-    toastMessage.value = error instanceof Error ? error.message : '加载事件失败';
+    if (!silent) toastMessage.value = error instanceof Error ? error.message : '加载事件失败';
   }
 }
 
 function onRangeChange(value: [string, string] | [Dayjs, Dayjs] | null) {
   // 清除后 value 为 null;选择后归一化为 [Dayjs, Dayjs]
   selectedRange.value = Array.isArray(value) ? [dayjs(value[0]), dayjs(value[1])] : null;
-  loadEvents();
+  void loadEvents();
 }
 
-onMounted(loadEvents);
+/** 导出当前筛选结果（含 UTF-8 BOM，Excel 可直接打开中文）。 */
+function exportEvents() {
+  const headers = ['标题', '设备编号', '位置', '事件时间', '类型', '等级', '状态', '最后处理时间', '备注'];
+  const rows = filteredEvents.value.map((event) => [
+    event.title,
+    event.device,
+    event.area,
+    event.time,
+    event.type,
+    event.levelText,
+    event.status,
+    event.processedAt,
+    event.remark,
+  ]);
+  const escape = (value: string) => {
+    const text = String(value ?? '');
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\r\n');
+  // UTF-8 BOM，保证 Excel 直接打开中文不乱码。
+  const blob = new Blob([String.fromCharCode(0xfeff) + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  link.href = url;
+  link.download = `alert-events-${stamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  toastMessage.value = t('events.exportDone', { count: filteredEvents.value.length });
+}
+
+onMounted(() => {
+  void loadEvents();
+  refreshTimer = window.setInterval(() => void loadEvents(true), REFRESH_INTERVAL_MS);
+});
+
+onUnmounted(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer);
+});
 
 </script>
 

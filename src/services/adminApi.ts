@@ -82,7 +82,7 @@ export interface AlertEventVO {
   deviceId?: string | null;
   personId?: string | null;
   area?: string | null;
-  eventType: 'crossing' | 'gather' | 'low_battery' | 'offline' | 'sos';
+  eventType: 'crossing' | 'gather' | 'low_battery' | 'offline' | 'sos' | 'fall';
   alertLevel: 'alarm' | 'warn' | 'normal';
   status: 'pending' | 'processing' | 'closed' | 'ignored';
   remark?: string | null;

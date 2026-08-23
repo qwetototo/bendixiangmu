@@ -1542,7 +1542,7 @@ function navigateToBuildingSelect() {
     return;
   }
   const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
-  window.location.href = url;
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 function handlePreviewPointerDown(event: MouseEvent) {

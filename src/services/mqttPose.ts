@@ -10,6 +10,21 @@ export interface MqttConnectionError {
   wasClean?: boolean;
 }
 
+/**
+ * 设备实时告警（MQTT topic dfmotion/{deviceId}/sos）。
+ * payload 为分号分隔：时间戳;告警类型;附加信息。
+ */
+export interface DeviceAlarmEvent {
+  deviceId: string;
+  /** 上报时间戳原始字符串（单位由设备协议决定，未做换算）。 */
+  timestamp: string;
+  /** 告警类型：0=SOS 报警、1=人员跌倒、2=低电量，其他保留扩展。 */
+  alarmType: number;
+  /** 附加信息。 */
+  extra: string;
+  raw: string;
+}
+
 interface OuterMqttMessage {
   type?: string;
   deviceId?: string;
@@ -30,6 +45,7 @@ interface MqttPoseClientOptions {
   url: string;
   onPose: (pose: LivePose) => void;
   onPath?: (deviceId: string, points: PathPoint[]) => void;
+  onAlarm?: (alarm: DeviceAlarmEvent) => void;
   onDeviceDisconnect?: (deviceId: string) => void;
   onStatusChange?: (status: MqttConnectionStatus) => void;
   onError?: (error: MqttConnectionError) => void;
@@ -42,6 +58,7 @@ interface MqttPoseClientOptions {
 export class MqttPoseClient {
   private static readonly POSE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/pose$/;
   private static readonly PATH_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/path$/;
+  private static readonly ALARM_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/sos$/;
   private static readonly DEVICE_EVENT_TOPIC_PATTERN = /^dfmotion\/([^/]+)\/(disconnect|disconnected|offline|status|state)$/;
   private static readonly DEVICE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\//;
   private static readonly DEFAULT_DEVICE_TIMEOUT_MS = 60 * 1000;
@@ -50,6 +67,7 @@ export class MqttPoseClient {
   private readonly url: string;
   private readonly onPose: (pose: LivePose) => void;
   private readonly onPath?: (deviceId: string, points: PathPoint[]) => void;
+  private readonly onAlarm?: (alarm: DeviceAlarmEvent) => void;
   private readonly onDeviceDisconnect?: (deviceId: string) => void;
   private readonly onStatusChange?: (status: MqttConnectionStatus) => void;
   private readonly onError?: (error: MqttConnectionError) => void;
@@ -67,6 +85,7 @@ export class MqttPoseClient {
     this.url = options.url;
     this.onPose = options.onPose;
     this.onPath = options.onPath;
+    this.onAlarm = options.onAlarm;
     this.onDeviceDisconnect = options.onDeviceDisconnect;
     this.onStatusChange = options.onStatusChange;
     this.onError = options.onError;
@@ -121,7 +140,14 @@ export class MqttPoseClient {
         return;
       }
 
-      this.warn('message ignored: did not match pose, path, or disconnect parsers', {
+      const alarm = this.parseAlarm(event.data);
+      if (alarm) {
+
+        this.onAlarm?.(alarm);
+        return;
+      }
+
+      this.warn('message ignored: did not match pose, path, disconnect, or alarm parsers', {
         rawData: event.data,
       });
     });
@@ -489,6 +515,41 @@ export class MqttPoseClient {
       return null;
     } catch (error) {
       console.error('Failed to parse MQTT device disconnect message', error);
+      return null;
+    }
+  }
+
+  private parseAlarm(rawData: string): DeviceAlarmEvent | null {
+    try {
+      const outer = JSON.parse(rawData) as OuterMqttMessage;
+
+      if (outer.type !== 'mqtt' || !outer.payload) {
+
+        return null;
+      }
+
+      const topicMatch = outer.topic?.match(MqttPoseClient.ALARM_TOPIC_PATTERN);
+      if (!topicMatch) {
+
+        return null;
+      }
+
+      const fields = outer.payload.split(';').map((field) => field.trim());
+      const alarmType = Number(fields[1]);
+      if (!Number.isInteger(alarmType) || alarmType < 0) {
+
+        return null;
+      }
+
+      return {
+        deviceId: topicMatch[1] ?? outer.deviceId ?? '',
+        timestamp: fields[0] ?? '',
+        alarmType,
+        extra: fields[2] ?? '',
+        raw: outer.payload,
+      };
+    } catch (error) {
+      console.error('Failed to parse MQTT alarm message', error);
       return null;
     }
   }

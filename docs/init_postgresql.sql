@@ -143,14 +143,16 @@ CREATE TABLE alert_event (
     person_id   VARCHAR(50),
     area        VARCHAR(100),
     event_type  VARCHAR(20)  NOT NULL
-        CHECK (event_type IN ('crossing', 'gather', 'low_battery', 'offline', 'sos', 'legacy')),
+        CHECK (event_type IN ('crossing', 'gather', 'low_battery', 'offline', 'sos', 'fall', 'legacy')),
     alert_level VARCHAR(10)  NOT NULL DEFAULT 'warn'
         CHECK (alert_level IN ('alarm', 'warn', 'normal')),
     status      VARCHAR(20)  NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'processing', 'closed', 'ignored')),
     remark      VARCHAR(500),
     processed_at TIMESTAMP WITH TIME ZONE,
-    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- MQTT 告警去重键：deviceId + ':' + payload 时间戳；同一设备同一时间戳视为同一条告警。
+    source_key  VARCHAR(120)
 );
 
 CREATE INDEX idx_alert_event_occurred_at ON alert_event (occurred_at DESC);
@@ -158,23 +160,36 @@ CREATE INDEX idx_alert_event_device_id ON alert_event (device_id);
 CREATE INDEX idx_alert_event_person_id ON alert_event (person_id);
 CREATE INDEX idx_alert_event_type ON alert_event (event_type);
 CREATE INDEX idx_alert_event_status ON alert_event (status);
+CREATE UNIQUE INDEX idx_alert_event_source_key ON alert_event (source_key) WHERE source_key IS NOT NULL;
 
 -- 定位设备首次以 SOS 创建，或状态由非 SOS 转为 SOS 时，自动生成一条告警。
+-- 若该设备已存在"带 source_key 的 MQTT 告警"（后端已直接落库），则跳过生成，避免重复建单。
 CREATE OR REPLACE FUNCTION create_sos_alert_event()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
     bound_person_id VARCHAR(50);
-    should_create   BOOLEAN := FALSE;
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        should_create := NEW.status = 'SOS';
+        IF NEW.status <> 'SOS' THEN
+            RETURN NEW;
+        END IF;
     ELSIF TG_OP = 'UPDATE' THEN
-        should_create := NEW.status = 'SOS' AND OLD.status IS DISTINCT FROM 'SOS';
+        IF NOT (NEW.status = 'SOS' AND OLD.status IS DISTINCT FROM 'SOS') THEN
+            RETURN NEW;
+        END IF;
+    ELSE
+        RETURN NEW;
     END IF;
 
-    IF NOT should_create THEN
+    -- MQTT 告警已由后端带 source_key 直接落库，跳过触发器生成，避免重复告警。
+    IF EXISTS (
+        SELECT 1 FROM alert_event
+        WHERE device_id = NEW.device_id
+          AND event_type = 'sos'
+          AND source_key IS NOT NULL
+    ) THEN
         RETURN NEW;
     END IF;
 

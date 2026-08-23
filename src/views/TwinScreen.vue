@@ -480,6 +480,7 @@ const totalDevices = 30; // 设备总数，可从数据库动态更新
 const areaStats = ref<Array<{ name: string; count: number; percent: number; color: string }>>([]);
 
 const events = ref<AlertEvent[]>([]);
+
 const displayOnlineCount = computed(() =>
   replayPanelOpen.value
     ? replayOnlineCount.value

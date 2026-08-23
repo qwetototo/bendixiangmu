@@ -84,13 +84,13 @@
     </section>
 
     <TransitionGroup name="sos-notice" tag="section" class="sos-notice-stack" aria-live="assertive">
-      <article v-for="notice in sosNotices" :key="notice.id" class="sos-notice">
-        <span class="sos-notice-icon">SOS</span>
+      <article v-for="notice in alarmNotices" :key="notice.id" :class="['sos-notice', `sos-notice--${notice.level}`]">
+        <span class="sos-notice-icon">{{ notice.icon }}</span>
         <div>
-          <strong>设备紧急告警</strong>
-          <p>{{ notice.deviceId }} 已进入 SOS 状态<span v-if="notice.personId"> · 人员 {{ notice.personId }}</span></p>
+          <strong>{{ t(notice.labelKey) }}</strong>
+          <p>{{ notice.deviceId }}<span v-if="notice.personId"> · 人员 {{ notice.personId }}</span></p>
         </div>
-        <button type="button" aria-label="关闭通知" @click="removeSosNotice(notice.id)">×</button>
+        <button type="button" aria-label="关闭通知" @click="removeAlarmNotice(notice.id)">×</button>
       </article>
     </TransitionGroup>
   </main>
@@ -217,11 +217,11 @@ const loginError = ref('');
 const navButtonRefs = new Map<SectionKey, HTMLElement>();
 const submenuLeft = ref(0);
 const submenuWidth = ref(0);
-const seenSosEventIds = new Set<string>();
-const lastSosNoticeAt = new Map<string, number>();
-const sosNotices = ref<Array<{ id: string; deviceId: string; personId?: string | null }>>([]);
-let sosPollingInitialized = false;
-let sosPollingTimer: number | undefined;
+const seenAlertEventIds = new Set<string>();
+const lastAlarmNoticeAt = new Map<string, number>();
+const alarmNotices = ref<AlarmNotice[]>([]);
+let alarmPollingInitialized = false;
+let alarmPollingTimer: number | undefined;
 
 const activeSubmenus = computed(() => {
   return openedSection.value ? findNavSection(openedSection.value)?.items ?? [] : [];
@@ -294,7 +294,7 @@ async function handleLogin(payload: LoginPayload) {
   try {
     await authStore.login(payload);
     syncNavFromRoute();
-    void pollSosEvents();
+    void pollAlarmEvents();
   } catch (error) {
     loginError.value = error instanceof Error ? error.message : t('login.failed');
   } finally {
@@ -314,40 +314,67 @@ function handleUnauthorized() {
   if (authStore.isAuthenticated) handleLogout();
 }
 
-function removeSosNotice(id: string) {
-  sosNotices.value = sosNotices.value.filter((notice) => notice.id !== id);
+interface AlarmNotice {
+  id: string;
+  deviceId: string;
+  personId?: string | null;
+  labelKey: string;
+  level: 'alarm' | 'warn';
+  icon: string;
 }
 
-function handleSosTransition(deviceId: string, personId?: string | null) {
+const NOTIFIABLE_EVENT_TYPES = new Set(['sos', 'fall', 'low_battery']);
+const ALARM_TYPE_STYLE: Record<string, { labelKey: string; level: AlarmNotice['level']; icon: string }> = {
+  sos: { labelKey: 'alarm.sos', level: 'alarm', icon: 'SOS' },
+  fall: { labelKey: 'alarm.fall', level: 'alarm', icon: '跌倒' },
+  low_battery: { labelKey: 'alarm.lowBattery', level: 'warn', icon: '低电' },
+};
+const DEFAULT_ALARM_STYLE = { labelKey: 'alarm.unknown', level: 'warn' as const, icon: '!' };
+
+function removeAlarmNotice(id: string) {
+  alarmNotices.value = alarmNotices.value.filter((notice) => notice.id !== id);
+}
+
+function pushAlarmNotice(input: { deviceId: string; personId?: string | null; labelKey: string; level: AlarmNotice['level']; icon: string }) {
+  const throttleKey = `${input.deviceId}:${input.labelKey}`;
   const now = Date.now();
-  const previousNoticeAt = lastSosNoticeAt.get(deviceId) ?? 0;
-  if (now - previousNoticeAt < 10_000) return;
-  lastSosNoticeAt.set(deviceId, now);
-  const noticeId = `${deviceId}-${now}-${Math.random().toString(36).slice(2, 7)}`;
-  sosNotices.value.push({ id: noticeId, deviceId, personId });
-  window.setTimeout(() => removeSosNotice(noticeId), 3000);
+  const previousAt = lastAlarmNoticeAt.get(throttleKey) ?? 0;
+  if (now - previousAt < 10_000) return;
+  lastAlarmNoticeAt.set(throttleKey, now);
+  const noticeId = `${now}-${Math.random().toString(36).slice(2, 7)}`;
+  alarmNotices.value.push({ ...input, id: noticeId });
+  window.setTimeout(() => removeAlarmNotice(noticeId), 3000);
 }
 
-async function pollSosEvents() {
+async function pollAlarmEvents() {
   if (!isAuthed.value) return;
   try {
-    const page = await fetchAlertEvents({ page: 1, pageSize: 100, eventType: 'sos' });
-    const newEvents = sosPollingInitialized
+    const page = await fetchAlertEvents({ page: 1, pageSize: 100 });
+    const newEvents = alarmPollingInitialized
       ? page.records
-          .filter((event) => !seenSosEventIds.has(event.eventId))
+          .filter((event) => !seenAlertEventIds.has(event.eventId))
           .sort((left, right) => Date.parse(left.occurredAt) - Date.parse(right.occurredAt))
       : [];
-    page.records.forEach((event) => seenSosEventIds.add(event.eventId));
+    page.records.forEach((event) => seenAlertEventIds.add(event.eventId));
     newEvents.forEach((event) => {
-      if (event.deviceId) handleSosTransition(event.deviceId, event.personId);
+      // 全局通知仅覆盖实时告警类型（SOS/跌倒/低电量），其余事件只记录不弹通知。
+      if (!NOTIFIABLE_EVENT_TYPES.has(event.eventType)) return;
+      const style = ALARM_TYPE_STYLE[event.eventType] ?? DEFAULT_ALARM_STYLE;
+      pushAlarmNotice({
+        deviceId: event.deviceId ?? '',
+        personId: event.personId,
+        labelKey: style.labelKey,
+        level: style.level,
+        icon: style.icon,
+      });
     });
-    if (seenSosEventIds.size > 1000) {
-      seenSosEventIds.clear();
-      page.records.forEach((event) => seenSosEventIds.add(event.eventId));
+    if (seenAlertEventIds.size > 1000) {
+      seenAlertEventIds.clear();
+      page.records.forEach((event) => seenAlertEventIds.add(event.eventId));
     }
-    sosPollingInitialized = true;
+    alarmPollingInitialized = true;
   } catch (error) {
-    console.error('SOS 告警轮询失败', error);
+    console.error('告警轮询失败', error);
   }
 }
 
@@ -355,7 +382,13 @@ function handleDeviceStatusEvent(event: Event) {
   const detail = (event as CustomEvent<{ device: DeviceVO; previousStatus?: DeviceStatus }>).detail;
   if (!detail?.device) return;
   if (detail.previousStatus !== 'SOS' && detail.device.status === 'SOS') {
-    handleSosTransition(detail.device.deviceId, detail.device.boundPersonId);
+    pushAlarmNotice({
+      deviceId: detail.device.deviceId,
+      personId: detail.device.boundPersonId,
+      labelKey: 'alarm.sos',
+      level: 'alarm',
+      icon: 'SOS',
+    });
   }
 }
 
@@ -430,17 +463,17 @@ onMounted(async () => {
   await authStore.initialize();
   if (isAuthed.value) {
     syncNavFromRoute();
-    void pollSosEvents();
+    void pollAlarmEvents();
     void sceneStore.initialize();
   }
-  sosPollingTimer = window.setInterval(pollSosEvents, 5000);
+  alarmPollingTimer = window.setInterval(pollAlarmEvents, 5000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('popstate', syncNavFromRoute);
   window.removeEventListener('twintrack:device-status', handleDeviceStatusEvent);
   window.removeEventListener('twintrack:unauthorized', handleUnauthorized);
-  if (sosPollingTimer) window.clearInterval(sosPollingTimer);
+  if (alarmPollingTimer) window.clearInterval(alarmPollingTimer);
 });
 </script>
 
@@ -990,6 +1023,19 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.08em;
+}
+
+.sos-notice--warn {
+  border-color: rgba(255, 196, 92, 0.45);
+  background: rgba(40, 28, 8, 0.97);
+}
+
+.sos-notice--warn .sos-notice-icon {
+  background: #d97706;
+}
+
+.sos-notice--warn p {
+  color: rgba(255, 240, 214, 0.78);
 }
 
 .sos-notice strong {
