@@ -7,7 +7,7 @@
             <small v-if="eyebrow">{{ eyebrow }}</small>
             <h3 :id="titleId">{{ title }}</h3>
           </div>
-          <button class="modal-close" type="button" aria-label="关闭" @click="$emit('close')">×</button>
+          <button class="modal-close" type="button" :aria-label="t('common.close')" @click="$emit('close')">×</button>
         </header>
         <div class="modal-body"><slot /></div>
         <footer v-if="$slots.footer"><slot name="footer" /></footer>
@@ -18,6 +18,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = withDefaults(defineProps<{
   open: boolean;

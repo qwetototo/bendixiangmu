@@ -6,7 +6,7 @@
         <p>{{ t('nav.personnelMgmtDesc') }}</p>
       </div>
       <div class="management-actions">
-        <button class="primary" type="button" @click="openEditor()">新增{{ activeView === 'people' ? '人员' : '部门' }}</button>
+        <button class="primary" type="button" @click="openEditor()">{{ activeView === 'people' ? t('management.addPerson') : t('management.addDepartment') }}</button>
         <button type="button" @click="openImport">{{ t('common.import') }}</button>
         <button type="button" @click="exportOpen = true">{{ t('common.batchExport') }}</button>
       </div>
@@ -66,63 +66,63 @@
       <div v-if="feedback" class="management-feedback">{{ feedback }}</div>
     </section>
 
-    <BaseModal :open="editorOpen" :title="editorTitle" :eyebrow="activeView === 'people' ? '人员信息' : '部门信息'" @close="closeEditor">
+    <BaseModal :open="editorOpen" :title="editorTitle" :eyebrow="activeView === 'people' ? t('management.personnelInfo') : t('management.departmentInfo')" :theme-mode="themeMode" @close="closeEditor">
       <div v-if="activeView === 'people'" class="form-grid">
-        <label>人员编号<input v-model.trim="personForm.personId" maxlength="20" placeholder="例如 P-001" /></label>
-        <label>姓名<input v-model.trim="personForm.name" maxlength="50" placeholder="请输入姓名" /></label>
-        <label>部门
+        <label>{{ t('management.personId') }}<input v-model.trim="personForm.personId" maxlength="20" :placeholder="t('management.personIdExample')" /></label>
+        <label>{{ t('management.name') }}<input v-model.trim="personForm.name" maxlength="50" :placeholder="t('management.namePlaceholder')" /></label>
+        <label>{{ t('management.department') }}
           <button class="picker-button" type="button" @click="openDepartmentPicker">
-            <span>{{ selectedDepartmentName }}</span><span>选择 ›</span>
+            <span>{{ selectedDepartmentName }}</span><span>{{ t('management.select') }}</span>
           </button>
         </label>
-        <label>状态
-          <input :value="editingPerson?.bindingStatus === 'bound' ? '已绑定设备' : '未绑定'" disabled />
+        <label>{{ t('management.status') }}
+          <input :value="editingPerson?.bindingStatus === 'bound' ? t('management.boundDevice') : t('management.unbound')" disabled />
         </label>
       </div>
       <div v-else class="form-grid">
-        <label>部门编号 / ID<input v-model.trim="departmentForm.code" maxlength="20" placeholder="例如 deptRD" /></label>
-        <label>部门名称<input v-model.trim="departmentForm.name" maxlength="50" placeholder="例如 研发部" /></label>
-        <label v-if="editingDepartment">部门人数<input :value="editingDepartment.personnelCount" disabled /></label>
+        <label>{{ t('management.departmentId') }}<input v-model.trim="departmentForm.code" maxlength="20" :placeholder="t('management.departmentIdExample')" /></label>
+        <label>{{ t('management.departmentName') }}<input v-model.trim="departmentForm.name" maxlength="50" :placeholder="t('management.departmentNameExample')" /></label>
+        <label v-if="editingDepartment">{{ t('management.personnelCount') }}<input :value="editingDepartment.personnelCount" disabled /></label>
       </div>
       <p v-if="formError" class="form-error">{{ formError }}</p>
       <template #footer>
-        <button type="button" :disabled="saving" @click="closeEditor">取消</button>
-        <button class="primary" type="button" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+        <button type="button" :disabled="saving" @click="closeEditor">{{ t('common.cancel') }}</button>
+        <button class="primary" type="button" :disabled="saving" @click="save">{{ saving ? t('common.saving') : t('common.save') }}</button>
       </template>
     </BaseModal>
 
-    <BaseModal :open="departmentPickerOpen" title="选择部门" eyebrow="支持搜索" @close="departmentPickerOpen = false">
-      <input v-model="departmentKeyword" class="search-input" placeholder="搜索部门编号或名称" />
+    <BaseModal :open="departmentPickerOpen" :title="t('management.selectDepartment')" :eyebrow="t('management.supportSearch')" :theme-mode="themeMode" @close="departmentPickerOpen = false">
+      <input v-model="departmentKeyword" class="search-input" :placeholder="t('management.searchDepartmentPicker')" />
       <div class="picker-list">
-        <button type="button" @click="chooseDepartment(null)"><span>无</span><small>不设置部门</small></button>
+        <button type="button" @click="chooseDepartment(null)"><span>{{ t('management.noDepartment') }}</span><small>{{ t('management.noDepartmentSetting') }}</small></button>
         <button v-for="department in filteredDepartments" :key="department.code" type="button" @click="chooseDepartment(department)">
-          <span>{{ department.name }}</span><small>{{ department.code }} · {{ department.personnelCount }} 人</small>
+          <span>{{ department.name }}</span><small>{{ department.code }} · {{ department.personnelCount }} {{ t('management.peopleUnit') }}</small>
         </button>
       </div>
     </BaseModal>
 
-    <BaseModal :open="deleteTarget !== null" title="确认删除" eyebrow="危险操作" @close="deleteTarget = null">
-      <p>确认删除“{{ deleteTargetLabel }}”吗？删除后无法恢复。</p>
-      <p v-if="activeView === 'departments'" class="import-hint">删除部门后，该部门下人员的部门字段将变为“无”。</p>
+    <BaseModal :open="deleteTarget !== null" :title="t('management.confirmDelete')" :eyebrow="t('management.dangerousAction')" :theme-mode="themeMode" @close="deleteTarget = null">
+      <p>{{ t('management.confirmDeleteRecord', { label: deleteTargetLabel }) }}</p>
+      <p v-if="activeView === 'departments'" class="import-hint">{{ t('management.deleteDepartmentHint') }}</p>
       <template #footer>
-        <button type="button" @click="deleteTarget = null">取消</button>
-        <button class="danger" type="button" :disabled="saving" @click="remove">确认删除</button>
+        <button type="button" @click="deleteTarget = null">{{ t('common.cancel') }}</button>
+        <button class="danger" type="button" :disabled="saving" @click="remove">{{ t('management.confirmDeleteAction') }}</button>
       </template>
     </BaseModal>
 
-    <BaseModal :open="importOpen" :title="`批量导入${activeView === 'people' ? '人员' : '部门'}`" eyebrow="CSV 文件" @close="importOpen = false">
+    <BaseModal :open="importOpen" :title="activeView === 'people' ? t('management.importPeople') : t('management.importDepartments')" :eyebrow="t('management.csvFile')" :theme-mode="themeMode" @close="importOpen = false">
       <p class="import-hint">{{ importHint }}</p>
       <input ref="fileInput" type="file" accept=".csv,text/csv" @change="importCsv" />
       <p v-if="formError" class="form-error">{{ formError }}</p>
     </BaseModal>
 
-    <BaseModal :open="exportOpen" :title="`导出${activeView === 'people' ? '人员' : '部门'}`" eyebrow="CSV 文件" @close="exportOpen = false">
+    <BaseModal :open="exportOpen" :title="activeView === 'people' ? t('management.exportPeople') : t('management.exportDepartments')" :eyebrow="t('management.csvFile')" :theme-mode="themeMode" @close="exportOpen = false">
       <div class="export-options">
-        <label><input v-model="exportAll" type="radio" :value="true" /> 导出所有数据</label>
-        <label><input v-model="exportAll" type="radio" :value="false" /> 导出前 <input v-model.number="exportCount" type="number" min="1" :max="total || 1" /> 条</label>
+        <label><input v-model="exportAll" type="radio" :value="true" /> {{ t('management.exportAll') }}</label>
+        <label><input v-model="exportAll" type="radio" :value="false" /> {{ t('management.exportFirst') }} <input v-model.number="exportCount" type="number" min="1" :max="total || 1" /> {{ t('management.recordsUnit') }}</label>
       </div>
       <template #footer>
-        <button type="button" @click="exportOpen = false">取消</button>
+        <button type="button" @click="exportOpen = false">{{ t('common.cancel') }}</button>
         <button class="primary" type="button" @click="exportCsv">{{ t('common.batchExport') }}</button>
       </template>
     </BaseModal>
@@ -171,10 +171,10 @@ const personForm = reactive({ personId: '', name: '', departmentCode: null as st
 const departmentForm = reactive({ code: '', name: '' });
 
 const editorTitle = computed(() => {
-  if (activeView.value === 'people') return editingPerson.value ? '编辑人员' : '新增人员';
-  return editingDepartment.value ? '编辑部门' : '新增部门';
+  if (activeView.value === 'people') return editingPerson.value ? t('management.editPerson') : t('management.addPerson');
+  return editingDepartment.value ? t('management.editDepartment') : t('management.addDepartment');
 });
-const selectedDepartmentName = computed(() => departments.value.find((item) => item.code === personForm.departmentCode)?.name ?? '无');
+const selectedDepartmentName = computed(() => departments.value.find((item) => item.code === personForm.departmentCode)?.name ?? t('management.noDepartment'));
 const filteredDepartments = computed(() => {
   const value = departmentKeyword.value.trim().toLowerCase();
   return departments.value.filter((item) => !value || `${item.code} ${item.name}`.toLowerCase().includes(value));
@@ -185,8 +185,8 @@ const deleteTargetLabel = computed(() => {
   return 'personId' in target ? `${target.personName || target.name}（${target.personId}）` : `${target.name}（${target.code}）`;
 });
 const importHint = computed(() => activeView.value === 'people'
-  ? '表头支持：编号、姓名、部门编号。部门编号允许留空，状态由设备绑定关系自动计算，无需导入。'
-  : '表头支持：部门编号、部门名称。部门人数由人员关系自动统计，无需导入。');
+  ? t('management.peopleImportHint')
+  : t('management.departmentImportHint'));
 
 async function load() {
   loading.value = true;
@@ -201,7 +201,7 @@ async function load() {
       total.value = page.total;
     }
   } catch (error) {
-    feedback.value = error instanceof Error ? error.message : '加载数据失败';
+    feedback.value = error instanceof Error ? error.message : t('management.loadDataFailed');
   } finally {
     loading.value = false;
   }
@@ -232,7 +232,7 @@ function openEditor(target?: DeleteTarget) {
     personForm.personId = person?.personId ?? '';
     personForm.name = person?.personName || person?.name || '';
     personForm.departmentCode = person?.departmentCode ?? null;
-    void ensureDepartments().catch((error) => { formError.value = error instanceof Error ? error.message : '加载部门失败'; });
+    void ensureDepartments().catch((error) => { formError.value = error instanceof Error ? error.message : t('management.loadDepartmentsFailed'); });
   } else {
     const department = target as DepartmentVO | undefined;
     editingDepartment.value = department ?? null;
@@ -252,7 +252,7 @@ async function openDepartmentPicker() {
   try {
     await ensureDepartments();
   } catch (error) {
-    formError.value = error instanceof Error ? error.message : '加载部门失败';
+    formError.value = error instanceof Error ? error.message : t('management.loadDepartmentsFailed');
   }
 }
 
@@ -266,23 +266,23 @@ async function save() {
   saving.value = true;
   try {
     if (activeView.value === 'people') {
-      if (!personForm.personId || !personForm.name) throw new Error('人员编号和姓名不能为空');
+      if (!personForm.personId || !personForm.name) throw new Error(t('management.personRequired'));
       if (!editingPerson.value && people.value.some((item) => item.personId.toLowerCase() === personForm.personId.toLowerCase())) {
-        throw new Error('人员编号已存在');
+        throw new Error(t('management.personIdExists'));
       }
       const payload = { ...personForm };
       if (editingPerson.value) await updatePersonnel(editingPerson.value.personId, payload);
       else await createPersonnel(payload);
-      feedback.value = editingPerson.value ? '人员信息已更新' : '人员已新增';
+      feedback.value = editingPerson.value ? t('management.personUpdated') : t('management.personAdded');
     } else {
-      if (!departmentForm.code || !departmentForm.name) throw new Error('部门编号和部门名称不能为空');
+      if (!departmentForm.code || !departmentForm.name) throw new Error(t('management.departmentRequired'));
       if (!editingDepartment.value && departments.value.some((item) => item.code.toLowerCase() === departmentForm.code.toLowerCase())) {
-        throw new Error('部门编号已存在');
+        throw new Error(t('management.departmentIdExists'));
       }
       const payload = { ...departmentForm };
       if (editingDepartment.value) await updateDepartment(editingDepartment.value.code, payload);
       else await createDepartment(payload);
-      feedback.value = editingDepartment.value ? '部门信息已更新' : '部门已新增';
+      feedback.value = editingDepartment.value ? t('management.departmentUpdated') : t('management.departmentAdded');
     }
     editorOpen.value = false;
     // 新增成功后清空筛选，保证新人员/新部门在完整列表中立即可见
@@ -290,7 +290,7 @@ async function save() {
     if (creating) { keyword.value = ''; bindingFilter.value = ''; }
     await load();
   } catch (error) {
-    formError.value = error instanceof Error ? error.message : '保存失败';
+    formError.value = error instanceof Error ? error.message : t('management.saveFailed');
   } finally {
     saving.value = false;
   }
@@ -304,10 +304,10 @@ async function remove() {
     if ('personId' in target) await deletePersonnel(target.personId);
     else await deleteDepartment(target.code);
     deleteTarget.value = null;
-    feedback.value = '记录已删除';
+    feedback.value = t('management.recordDeleted');
     await load();
   } catch (error) {
-    feedback.value = error instanceof Error ? error.message : '删除失败';
+    feedback.value = error instanceof Error ? error.message : t('management.deleteFailed');
   } finally {
     saving.value = false;
   }
@@ -325,37 +325,37 @@ async function importCsv(event: Event) {
   formError.value = '';
   try {
     const rows = parseCsv(await file.text());
-    if (!rows.length) throw new Error('CSV 文件没有可导入的数据');
+    if (!rows.length) throw new Error(t('management.emptyCsv'));
     const seen = new Set<string>();
     if (activeView.value === 'people') {
       const payloads = rows.map((row, index) => {
-        const personId = readCsvValue(row, '编号', '人员编号', 'personId');
-        const name = readCsvValue(row, '姓名', 'name');
-        if (!personId || !name) throw new Error(`第 ${index + 2} 行编号和姓名不能为空`);
-        if (seen.has(personId.toLowerCase())) throw new Error(`第 ${index + 2} 行人员编号重复`);
+        const personId = readCsvValue(row, '编号', '人员编号', 'ID', 'Person ID', 'personId');
+        const name = readCsvValue(row, '姓名', 'Name', 'name');
+        if (!personId || !name) throw new Error(t('management.rowPersonRequired', { row: index + 2 }));
+        if (seen.has(personId.toLowerCase())) throw new Error(t('management.rowPersonDuplicate', { row: index + 2 }));
         seen.add(personId.toLowerCase());
-        return { personId, name, departmentCode: readCsvValue(row, '部门编号', '部门', 'departmentCode') || null };
+        return { personId, name, departmentCode: readCsvValue(row, '部门编号', '部门', 'Department ID', 'Department', 'departmentCode') || null };
       });
       await Promise.all(payloads.map(createPersonnel));
-      feedback.value = `成功导入 ${payloads.length} 条人员记录`;
+      feedback.value = t('management.importedPeople', { count: payloads.length });
     } else {
       const payloads = rows.map((row, index) => {
-        const code = readCsvValue(row, '部门编号', '部门编号/ID', 'code');
-        const name = readCsvValue(row, '部门名称', 'name');
-        if (!code || !name) throw new Error(`第 ${index + 2} 行部门编号和名称不能为空`);
-        if (seen.has(code.toLowerCase())) throw new Error(`第 ${index + 2} 行部门编号重复`);
+        const code = readCsvValue(row, '部门编号', '部门编号/ID', '部门编号 / ID', 'Department ID', 'code');
+        const name = readCsvValue(row, '部门名称', 'Department Name', 'name');
+        if (!code || !name) throw new Error(t('management.rowDepartmentRequired', { row: index + 2 }));
+        if (seen.has(code.toLowerCase())) throw new Error(t('management.rowDepartmentDuplicate', { row: index + 2 }));
         seen.add(code.toLowerCase());
         return { code, name };
       });
       await Promise.all(payloads.map(createDepartment));
-      feedback.value = `成功导入 ${payloads.length} 条部门记录`;
+      feedback.value = t('management.importedDepartments', { count: payloads.length });
     }
     importOpen.value = false;
     // 批量导入成功后清空筛选，保证导入的新记录立即可见
     keyword.value = ''; bindingFilter.value = '';
     await load();
   } catch (error) {
-    formError.value = error instanceof Error ? error.message : '导入失败';
+    formError.value = error instanceof Error ? error.message : t('management.importFailed');
   }
 }
 
@@ -364,17 +364,17 @@ async function exportCsv() {
     const limit = exportAll.value ? Math.max(total.value, 1) : Math.max(1, exportCount.value);
     if (activeView.value === 'people') {
       const rows = (await fetchPersonnel({ page: 1, pageSize: limit })).records.slice(0, limit);
-      downloadCsv('人员信息.csv', ['编号', '姓名', '部门编号', '部门名称', '状态'], rows.map((item) => [
+      downloadCsv(t('management.peopleCsvFilename'), [t('management.personId'), t('management.name'), t('management.departmentId'), t('management.departmentName'), t('management.status')], rows.map((item) => [
         item.personId, item.personName || item.name, item.departmentCode ?? '', item.departmentName ?? '',
-        item.bindingStatus === 'bound' ? '已绑定设备' : '未绑定',
+        item.bindingStatus === 'bound' ? t('management.boundDevice') : t('management.unbound'),
       ]));
     } else {
       const rows = (await fetchDepartments({ page: 1, pageSize: limit })).records.slice(0, limit);
-      downloadCsv('部门信息.csv', ['部门编号', '部门名称', '部门人数'], rows.map((item) => [item.code, item.name, item.personnelCount]));
+      downloadCsv(t('management.departmentCsvFilename'), [t('management.departmentId'), t('management.departmentName'), t('management.personnelCount')], rows.map((item) => [item.code, item.name, item.personnelCount]));
     }
     exportOpen.value = false;
   } catch (error) {
-    feedback.value = error instanceof Error ? error.message : '导出失败';
+    feedback.value = error instanceof Error ? error.message : t('management.exportFailed');
   }
 }
 

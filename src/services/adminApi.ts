@@ -65,6 +65,11 @@ export interface BeaconVO {
   z: number;
   battery: number;
   status: string;
+  deploymentStatus: 'undeployed' | 'deployed';
+  buildingId?: string | null;
+  buildingName?: string | null;
+  floorId?: string | null;
+  floorName?: string | null;
 }
 
 export interface BeaconWritePayload {
@@ -74,6 +79,14 @@ export interface BeaconWritePayload {
   z: number;
   battery: number;
   status: string;
+}
+
+export interface BeaconDeploymentPayload {
+  buildingId: string;
+  floorId: string;
+  x: number;
+  y: number;
+  z: number;
 }
 
 export interface AlertEventVO {
@@ -212,6 +225,10 @@ export function updateBeacon(beaconId: string, data: BeaconWritePayload) {
 
 export function deleteBeacon(beaconId: string) {
   return request<void>('delete', `/api/beacons/${encodeURIComponent(beaconId)}`);
+}
+
+export function deployBeacon(beaconId: string, data: BeaconDeploymentPayload) {
+  return request<BeaconVO>('put', `/api/beacons/${encodeURIComponent(beaconId)}/deployment`, { data });
 }
 
 export function fetchAlertEvents(params: Record<string, QueryValue> = {}) {

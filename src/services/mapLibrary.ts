@@ -10,12 +10,17 @@ export interface MapFloorItem {
 }
 
 export interface MapMetadata {
+  schemaVersion: 2;
+  /** 与数据库 map_building.building_id 对应的稳定建筑 ID。 */
+  buildingId: string;
   thumbnail: string;
   region: string;
   address: string;
   mapOrigin: Point3D;
   positioningOrigin: Point3D;
   scaleRatio: number;
+  /** 两点标定得到的比例：1 米真实距离对应的场景单位数（绝对测量值）。 */
+  calibrationScale?: number;
   modelParameters: ModelConfig[];
   activeFloorId: string;
   floors: MapFloorItem[];
@@ -90,7 +95,7 @@ function normalizePoint3D(value: unknown, fallback: Point3D): Point3D {
   }) as Point3D;
 }
 
-export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<MapMetadata>): MapMetadata {
+export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<MapMetadata>, buildingId = ''): MapMetadata {
   const mapOrigin: Point3D = normalizePoint3D(metadata?.mapOrigin, [0, 0, 0]);
   const positioningOrigin = normalizePoint3D(metadata?.positioningOrigin, mapOrigin);
   const metadataScaleRatio = Number(metadata?.scaleRatio);
@@ -132,14 +137,20 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
     typeof metadata?.activeFloorId === 'string' && normalizedFloors.some((floor) => floor.id === metadata.activeFloorId)
       ? metadata.activeFloorId
       : normalizedFloors[0].id;
+  const rawCalibrationScale = Number(metadata?.calibrationScale);
+  const calibrationScale =
+    Number.isFinite(rawCalibrationScale) && rawCalibrationScale > 0 ? rawCalibrationScale : undefined;
 
   return {
+    schemaVersion: 2,
+    buildingId: typeof metadata?.buildingId === 'string' && metadata.buildingId ? metadata.buildingId : buildingId,
     thumbnail: typeof metadata?.thumbnail === 'string' ? metadata.thumbnail : '',
     region: typeof metadata?.region === 'string' ? metadata.region : '',
     address: typeof metadata?.address === 'string' ? metadata.address : '',
     mapOrigin,
     positioningOrigin,
     scaleRatio,
+    calibrationScale,
     modelParameters,
     activeFloorId,
     floors: normalizedFloors,
@@ -148,7 +159,7 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
 
 function normalizeSavedMap(map: SavedMap): SavedMap {
   const config = cloneSceneConfig(map.config);
-  const metadata = createDefaultMetadata(config, map.metadata);
+  const metadata = createDefaultMetadata(config, map.metadata, map.id);
   const activeFloor = metadata.floors.find((floor) => floor.id === metadata.activeFloorId) ?? metadata.floors[0];
   const activeConfig = activeFloor ? cloneSceneConfig(activeFloor.config) : config;
   activeConfig.floor.scale = metadata.scaleRatio;
@@ -163,9 +174,19 @@ function normalizeSavedMap(map: SavedMap): SavedMap {
   };
 }
 
+/**
+ * 内置模板地图（overlay 底图，无 base-map GLB）的定位标定。
+ * 历史上由 DEFAULT_POSITION_TRANSFORM 提供（scale 14.5 / 偏移 -84.95, 79.67），
+ * 现在固化到模板地图 metadata，保证其行为不变，同时让默认变换回归中性 1:1。
+ */
+const TEMPLATE_MAP_CALIBRATION: Partial<MapMetadata> = {
+  calibrationScale: 14.5,
+  positioningOrigin: [-84.95, 0, 79.67],
+};
+
 export function getDefaultMap(): SavedMap {
   const config = cloneSceneConfig(floorConfig as unknown as SceneConfig);
-  const metadata = createDefaultMetadata(config);
+  const metadata = createDefaultMetadata(config, TEMPLATE_MAP_CALIBRATION, DEFAULT_MAP_ID);
   config.floor.scale = metadata.scaleRatio;
   return {
     id: DEFAULT_MAP_ID,
@@ -246,17 +267,18 @@ export function savedMapToApiPayload(map: SavedMap): {
 }
 
 export function createSavedMap(name: string, description: string, config: SceneConfig, metadata?: Partial<MapMetadata>): SavedMap {
+  const id = `map-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   return {
-    id: `map-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    id,
     name,
     description,
     updatedAt: new Date().toISOString(),
     config: cloneSceneConfig(config),
-    metadata: createDefaultMetadata(config, metadata),
+    metadata: createDefaultMetadata(config, metadata, id),
   };
 }
 
-export function createBlankSceneConfig(name = '新建地图'): SceneConfig {
+export function createBlankSceneConfig(name: string): SceneConfig {
   return {
     floor: {
       id: `floor-${Date.now()}`,

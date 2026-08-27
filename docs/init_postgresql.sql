@@ -101,7 +101,28 @@ CREATE INDEX idx_device_status ON device (status);
 CREATE INDEX idx_device_personnel_id ON device (personnel_id);
 
 -- ----------------------------------------------------------------------------
--- 5. 信标设备
+-- 5. 地图建筑与楼层目录
+--    这里只保存稳定身份和层级关系；完整 Three.js 场景仍保存在地图配置 JSON 中。
+-- ----------------------------------------------------------------------------
+CREATE TABLE map_building (
+    building_id VARCHAR(100) PRIMARY KEY,
+    name        VARCHAR(200) NOT NULL,
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE TABLE map_floor (
+    building_id VARCHAR(100) NOT NULL REFERENCES map_building(building_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+    floor_id    VARCHAR(100) NOT NULL,
+    name        VARCHAR(200) NOT NULL,
+    sort_order  INTEGER      NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    PRIMARY KEY (building_id, floor_id)
+);
+
+-- ----------------------------------------------------------------------------
+-- 6. 信标设备
+--    运行状态 status 与部署状态 deployment_status 分离；新信标默认未部署。
 -- ----------------------------------------------------------------------------
 CREATE TABLE beacon (
     id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -111,10 +132,19 @@ CREATE TABLE beacon (
     z         DOUBLE PRECISION NOT NULL DEFAULT 0,
     battery   SMALLINT         NOT NULL DEFAULT 80
         CHECK (battery BETWEEN 0 AND 100),
-    status    VARCHAR(10)      NOT NULL DEFAULT 'offline'
+    status    VARCHAR(10)      NOT NULL DEFAULT 'offline',
+    deployment_status VARCHAR(12) NOT NULL DEFAULT 'undeployed'
+        CHECK (deployment_status IN ('undeployed', 'deployed')),
+    building_id VARCHAR(100),
+    floor_id    VARCHAR(100),
+    CONSTRAINT fk_beacon_floor FOREIGN KEY (building_id, floor_id)
+        REFERENCES map_floor(building_id, floor_id)
+        ON UPDATE CASCADE ON DELETE SET NULL
 );
 
 CREATE INDEX idx_beacon_status ON beacon (status);
+CREATE INDEX idx_beacon_deployment ON beacon (deployment_status);
+CREATE INDEX idx_beacon_floor ON beacon (building_id, floor_id);
 
 -- ----------------------------------------------------------------------------
 -- 6. 业务区域

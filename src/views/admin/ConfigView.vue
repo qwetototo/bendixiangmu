@@ -117,11 +117,11 @@
             </div>
             <p>{{ map.description || t('config.noMapDesc') }}</p>
             <div class="map-row__meta">
-              <span>{{ map.config.floor.width }} x {{ map.config.floor.height }}</span>
-              <span>{{ t('config.areasCount', { n: map.config.areas.length }) }}</span>
-              <span>{{ t('config.wallsCount', { n: map.config.walls.length }) }}</span>
-              <span>{{ t('config.modelsCount', { n: map.config.models.length }) }}</span>
-              <span>{{ t('config.updatedAt', { date: formatDate(map.updatedAt) }) }}</span>
+              <span>{{ t('config.floorsCount', { n: map.metadata.floors.length }) }}</span>
+              <span>{{ t('config.areasCount', { n: countFloorsFeature(map, 'areas') }) }}</span>
+              <span>{{ t('config.wallsCount', { n: countFloorsFeature(map, 'walls') }) }}</span>
+              <span>{{ t('config.modelsCount', { n: countFloorsFeature(map, 'models') }) }}</span>
+              <span>{{ t('config.lastEdited', { date: formatDate(map.updatedAt) }) }}</span>
             </div>
           </div>
           <div class="map-row__actions">
@@ -248,6 +248,46 @@
             <label><span>Y</span><input v-model.number="positioningOriginDisplay[1]" type="number" @change="commitPositioningOriginDisplay" /></label>
             <label><span>Z</span><input v-model.number="positioningOriginDisplay[2]" type="number" @change="commitPositioningOriginDisplay" /></label>
           </div>
+          <div class="pick-actions origin-editor calibration-editor">
+            <button type="button" :class="{ active: pickMode === 'two-point-calibration' }" @click="startTwoPointCalibration">
+              <span>{{ t('config.calibrateTwoPoint') }}</span>
+            </button>
+            <span v-if="draftMap.metadata.calibrationScale" class="calibration-scale">
+              {{ t('config.calibrationStored', { scale: draftMap.metadata.calibrationScale.toFixed(4) }) }}
+            </span>
+            <label>
+              <span>{{ t('config.calibrationPointA') }}</span>
+              <strong class="calibration-scene">{{ calibrationSceneADisplay }}</strong>
+            </label>
+            <label>
+              <span>{{ t('config.calibrationPointB') }}</span>
+              <strong class="calibration-scene">{{ calibrationSceneBDisplay }}</strong>
+            </label>
+            <label><span>{{ t('config.calibrationRealDistance') }}</span><input v-model.number="calibrationRealDistance" type="number" min="0" step="any" /></label>
+            <span v-if="calibrationSceneA && calibrationSceneB" class="calibration-scale">
+              {{ t('config.calibrationScaleComputed', { scale: calibrationComputedScale.toFixed(4) }) }}
+            </span>
+            <button
+              v-if="calibrationSceneA && calibrationSceneB"
+              type="button"
+              class="primary-button"
+              :disabled="!calibrationValid"
+              @click="applyTwoPointCalibration"
+            >
+              <span>{{ t('config.calibrationApply') }}</span>
+            </button>
+            <button
+              v-if="draftMap.metadata.calibrationScale"
+              type="button"
+              class="ghost-button"
+              @click="resetCalibrationDefault"
+            >
+              <span>{{ t('config.calibrationResetDefault') }}</span>
+            </button>
+            <button v-if="pickMode === 'two-point-calibration'" type="button" class="ghost-button" @click="cancelTwoPointCalibration">
+              <span>{{ t('common.cancel') }}</span>
+            </button>
+          </div>
         </article>
 
         <article class="form-panel">
@@ -371,7 +411,7 @@ import {
 import { invalidateModelAssetUrl, versionModelAssetUrl } from '@/services/modelAssetCache';
 
 type RuleLevel = 'alarm' | 'warn' | 'normal';
-type PickMode = 'positioning-origin';
+type PickMode = 'positioning-origin' | 'two-point-calibration';
 type PreviewDragMode = 'pan' | 'rotate';
 
 interface PreviewViewState {
@@ -483,6 +523,8 @@ let previewRestoreView: PreviewViewState | null = null;
 let previewClickBlocked = false;
 const previewModelObjects = new Map<string, THREE.Object3D>();
 let previewAuxObjects: THREE.Object3D[] = [];
+/** 两点标定的预览标记（A/B 球 + 连线），与 previewAuxObjects 一起清理。 */
+let calibrationAuxObjects: THREE.Object3D[] = [];
 const previewView = reactive<PreviewViewState>({
   targetX: 0,
   targetY: 0,
@@ -493,12 +535,63 @@ const previewView = reactive<PreviewViewState>({
 });
 const previewClickedPoint = ref<[number, number, number] | null>(null);
 
+// 两点标定状态
+const calibrationSceneA = ref<[number, number, number] | null>(null); // 场景 [x, 0, z]
+const calibrationSceneB = ref<[number, number, number] | null>(null);
+const calibrationRealDistance = ref(0); // 两点间的真实长度（米）
+
 const selectedChannel = computed(() => {
   return channels.find((channel) => channel.name === selectedChannelName.value) ?? channels[0];
 });
 
 const previewAreas = computed(() => (config: SceneConfig) => config.areas.filter((area) => area.type === 'floor'));
-const pickModeLabel = computed(() => t('config.positioningOrigin'));
+const pickModeLabel = computed(() => {
+  if (pickMode.value === 'two-point-calibration') {
+    if (!calibrationSceneA.value) {
+      return t('config.calibrationPickA');
+    }
+    if (!calibrationSceneB.value) {
+      return t('config.calibrationPickB');
+    }
+    return t('config.calibrationPickA');
+  }
+  return t('config.positioningOrigin');
+});
+const calibrationSceneADisplay = computed(() =>
+  calibrationSceneA.value
+    ? `X ${calibrationSceneA.value[0].toFixed(2)} / Z ${calibrationSceneA.value[2].toFixed(2)}`
+    : t('config.noClickedCoordinate'),
+);
+const calibrationSceneBDisplay = computed(() =>
+  calibrationSceneB.value
+    ? `X ${calibrationSceneB.value[0].toFixed(2)} / Z ${calibrationSceneB.value[2].toFixed(2)}`
+    : t('config.noClickedCoordinate'),
+);
+const calibrationComputedScale = computed(() => {
+  const sA = calibrationSceneA.value;
+  const sB = calibrationSceneB.value;
+  if (!sA || !sB) {
+    return 0;
+  }
+  const sceneDist = Math.hypot(sB[0] - sA[0], sB[2] - sA[2]);
+  const realDist = calibrationRealDistance.value;
+  if (sceneDist <= 0 || !(Number.isFinite(realDist) && realDist > 0)) {
+    return 0;
+  }
+  return sceneDist / realDist;
+});
+const calibrationValid = computed(() => {
+  const sA = calibrationSceneA.value;
+  const sB = calibrationSceneB.value;
+  if (!sA || !sB) {
+    return false;
+  }
+  if (Math.hypot(sB[0] - sA[0], sB[2] - sA[2]) <= 0) {
+    return false;
+  }
+  const realDist = calibrationRealDistance.value;
+  return Number.isFinite(realDist) && realDist > 0;
+});
 const currentFloor = computed(() => {
   if (!draftMap.value) {
     return null;
@@ -618,6 +711,15 @@ function formatDate(value: string) {
     .getMinutes()
     .toString()
     .padStart(2, '0')}`;
+}
+
+/** 汇总地图所有楼层的区域/围墙/模型数量，作为地图级概览（map.config 只反映激活楼层）。 */
+function countFloorsFeature(map: SavedMap, feature: 'areas' | 'walls' | 'models'): number {
+  const floors = map.metadata.floors;
+  if (floors.length > 0) {
+    return floors.reduce((sum, floor) => sum + floor.config[feature].length, 0);
+  }
+  return map.config[feature].length;
 }
 
 function sanitizeModelNumberField(arr: number[], index: number, fallback = 0) {
@@ -775,6 +877,7 @@ function switchFloor(floorId: string) {
   previewRestoreView = null;
   previewHasFramed = false;
   previewClickedPoint.value = null;
+  resetCalibrationState();
 }
 
 function handleFloorSelect(event: Event) {
@@ -970,6 +1073,7 @@ function clearPreviewScene() {
   });
   previewModelObjects.clear();
   previewAuxObjects = [];
+  calibrationAuxObjects = [];
   previewAssetSignature = '';
   previewLayoutSignature = '';
 }
@@ -979,16 +1083,56 @@ function clearPreviewAuxObjects() {
     return;
   }
 
-  previewAuxObjects.forEach((object) => {
+  [...previewAuxObjects, ...calibrationAuxObjects].forEach((object) => {
     previewScene?.remove(object);
     disposePreviewObject(object);
   });
   previewAuxObjects = [];
+  calibrationAuxObjects = [];
 }
 
 function addPreviewAuxObject(object: THREE.Object3D) {
   previewAuxObjects.push(object);
   previewScene?.add(object);
+}
+
+/** 幂等重建两点标定的 A/B 标记与连线，以 calibrationSceneA/B 为唯一数据源。 */
+function updateCalibrationAux() {
+  if (!previewScene) {
+    return;
+  }
+
+  calibrationAuxObjects.forEach((object) => {
+    previewScene?.remove(object);
+    disposePreviewObject(object);
+  });
+  calibrationAuxObjects = [];
+
+  const sA = calibrationSceneA.value;
+  const sB = calibrationSceneB.value;
+  if (!sA && !sB) {
+    return;
+  }
+
+  const group = new THREE.Group();
+  if (sA) {
+    group.add(createCalibrationMarker(sA, 0x2ecc71, 'A'));
+  }
+  if (sB) {
+    group.add(createCalibrationMarker(sB, 0xe67e22, 'B'));
+  }
+  if (sA && sB) {
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(sA[0], 0.2, sA[2]),
+        new THREE.Vector3(sB[0], 0.2, sB[2]),
+      ]),
+      new THREE.LineBasicMaterial({ color: 0x3498db }),
+    );
+    group.add(line);
+  }
+  calibrationAuxObjects.push(group);
+  previewScene.add(group);
 }
 
 function getPreviewModelKey(modelConfig: ModelConfig, index: number): string {
@@ -1080,6 +1224,23 @@ function createPositioningOriginMarker(point: [number, number, number]) {
   return group;
 }
 
+function createCalibrationMarker(point: [number, number, number], color: number, label: string): THREE.Group {
+  const group = new THREE.Group();
+  // 标定点尽量小（半径 0.8，约为原 8 的 1/10），避免遮住精确落点。
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.8, 16, 8),
+    new THREE.MeshBasicMaterial({ color }),
+  );
+  sphere.position.set(point[0], point[1] + 0.8, point[2]);
+  group.add(sphere);
+
+  const sprite = createTextSprite(label, `#${color.toString(16).padStart(6, '0')}`);
+  sprite.position.set(point[0], point[1] + 4, point[2]);
+  sprite.scale.set(6, 6, 1);
+  group.add(sprite);
+  return group;
+}
+
 function createPreviewGrid(config: SceneConfig) {
   const size = Math.max(config.floor.width, config.floor.height, 100);
   const divisions = Math.max(Math.round(size / 100), 4);
@@ -1168,6 +1329,7 @@ async function rebuildPreviewScene() {
     addPreviewAuxObject(createPreviewGrid(config));
     addPreviewAuxObject(createXDirectionIndicator(config));
     addPreviewAuxObject(createPositioningOriginMarker(positioningOrigin));
+    updateCalibrationAux();
     previewLayoutSignature = layoutSignature;
   }
 
@@ -1324,6 +1486,7 @@ function openEditor(map: SavedMap) {
   previewHasFramed = false;
   previewRestoreView = null;
   previewClickedPoint.value = null;
+  resetCalibrationState();
   draftMap.value = {
     ...map,
     metadata: {
@@ -1361,7 +1524,8 @@ function closeEditor() {
 }
 
 function createBlankMap() {
-  const map = createSavedMap(t('config.unnamedMap'), t('config.blankMap'), createBlankSceneConfig());
+  const firstFloorName = t('config.floorNameDefault', { n: 1 });
+  const map = createSavedMap(t('config.unnamedMap'), t('config.blankMap'), createBlankSceneConfig(firstFloorName));
   syncMaps([map, ...maps.value]);
   openEditor(map);
 }
@@ -1412,7 +1576,7 @@ function saveDraft() {
       name: nextMap.name,
       description: nextMap.description,
       config: nextMap.config,
-      metadata: nextMap.metadata,
+      metadata: { ...nextMap.metadata, buildingId: backendConfigId },
       thumbnail: nextMap.metadata.thumbnail || undefined,
     }).catch((error) => {
       console.error(`[saveDraft] failed to save backend config ${backendConfigId}`, error);
@@ -1623,10 +1787,73 @@ function startPick(mode: PickMode) {
 
 function cancelPick() {
   pickMode.value = null;
+  resetCalibrationState();
   if (previewRestoreView) {
     applyPreviewViewState(previewRestoreView);
     previewRestoreView = null;
   }
+}
+
+/** 重置两点标定的所有中间状态（场景点 + 真实长度 + 预览标记）。 */
+function resetCalibrationState() {
+  calibrationSceneA.value = null;
+  calibrationSceneB.value = null;
+  calibrationRealDistance.value = 0;
+  updateCalibrationAux();
+}
+
+function startTwoPointCalibration() {
+  resetCalibrationState();
+  startPick('two-point-calibration');
+}
+
+function cancelTwoPointCalibration() {
+  cancelPick();
+}
+
+function applyTwoPointCalibration() {
+  const map = draftMap.value;
+  if (!map || !calibrationValid.value) {
+    return;
+  }
+
+  const sA = calibrationSceneA.value;
+  const sB = calibrationSceneB.value;
+  if (!sA || !sB) {
+    return;
+  }
+  const sceneDist = Math.hypot(sB[0] - sA[0], sB[2] - sA[2]);
+  const realDist = calibrationRealDistance.value;
+  if (sceneDist <= 0 || !(Number.isFinite(realDist) && realDist > 0)) {
+    showMessage(t('config.calibrationInvalidDistance'));
+    return;
+  }
+
+  const effectiveScale = sceneDist / realDist; // 场景单位/米
+
+  // 只校准比例；偏移（定位原点）由"选择定位原点"单独设定，这里不改动。
+  map.metadata.calibrationScale = effectiveScale;
+
+  // 应用成功后清空 A/B 标记、连线与输入，直接退出标定状态（已存比例展示保留）。
+  resetCalibrationState();
+
+  pickMode.value = null;
+  if (previewRestoreView) {
+    applyPreviewViewState(previewRestoreView);
+    previewRestoreView = null;
+  }
+  showMessage(t('config.calibrationApplied', { scale: effectiveScale.toFixed(4) }));
+}
+
+/** 将两点标定比例恢复为默认值：1 场景单位 = 1 米（不触碰定位原点）。 */
+function resetCalibrationDefault() {
+  const map = draftMap.value;
+  if (!map) {
+    return;
+  }
+  map.metadata.calibrationScale = 1;
+  updateCalibrationAux();
+  showMessage(t('config.calibrationResetApplied'));
 }
 
 async function importBaseMapFile(event: Event) {
@@ -1723,12 +1950,27 @@ function handlePreviewClick(event: MouseEvent) {
     applyBuildingSettingsToFloors(draftMap.value);
     syncPositioningOriginDisplay();
     showMessage(t('config.positioningOriginUpdated'));
+    pickMode.value = null;
+    resetCalibrationState();
+    if (previewRestoreView) {
+      applyPreviewViewState(previewRestoreView);
+      previewRestoreView = null;
+    }
+    return;
   }
 
-  pickMode.value = null;
-  if (previewRestoreView) {
-    applyPreviewViewState(previewRestoreView);
-    previewRestoreView = null;
+  if (pickMode.value === 'two-point-calibration') {
+    if (!calibrationSceneA.value) {
+      calibrationSceneA.value = [mapPoint[0], 0, mapPoint[2]];
+    } else if (!calibrationSceneB.value) {
+      calibrationSceneB.value = [mapPoint[0], 0, mapPoint[2]];
+    } else {
+      // 两点都已选：下一次点击重新从 A 开始。
+      calibrationSceneA.value = [mapPoint[0], 0, mapPoint[2]];
+      calibrationSceneB.value = null;
+    }
+    updateCalibrationAux();
+    return; // 保持 pick 模式，不退出、不恢复视角
   }
 }
 
@@ -1866,6 +2108,19 @@ onBeforeUnmount(() => {
 .origin-editor input {
   width: 88px;
   padding: 0 8px;
+}
+
+.calibration-editor {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(88, 119, 174, 0.14);
+}
+
+.calibration-editor .calibration-scale,
+.calibration-editor .calibration-scene {
+  color: rgba(47, 63, 89, 0.76);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .map-editor-page button,
@@ -2388,6 +2643,8 @@ onBeforeUnmount(() => {
 .map-editor-page--dark .map-row__content p,
 .map-editor-page--dark .panel-heading p,
 .map-editor-page--dark .origin-editor label,
+.map-editor-page--dark .calibration-scale,
+.map-editor-page--dark .calibration-scene,
 .map-editor-page--dark label,
 .map-editor-page--dark .thumbnail-uploader__actions > span {
   color: rgba(224, 235, 255, 0.68);

@@ -47,7 +47,9 @@ export function mapDetailToSavedMap(detail: MapModelDetail): SavedMap | null {
     description: detail.description || '',
     updatedAt: detail.updatedAt || new Date().toISOString(),
     config: cloneSceneConfig(detail.config),
-    metadata: createDefaultMetadata(detail.config, detail.metadata),
+    // 服务端模型 ID 是数据库建筑目录的权威 ID。旧地图 JSON 可能仍带有
+    // 浏览器生成的 map-* ID，读取时必须覆盖，避免信标绑定到不存在的建筑。
+    metadata: createDefaultMetadata(detail.config, { ...detail.metadata, buildingId: detail.id }, detail.id),
   };
 }
 

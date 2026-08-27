@@ -97,7 +97,18 @@ GROUP BY d.id, d.code, d.name;
 `device_id` 同时是轨迹数据中的设备业务编号。它只要求非空且唯一，不限制为
 MAC 地址，可保存 MAC、IMEI、序列号或 `860000000000022` 这类自定义编号。
 
-### 3.5 `beacon`
+### 3.5 `map_building` / `map_floor`
+
+建筑和楼层需要进入数据库，但只保存用于关联的稳定身份与层级信息；GLB 路径、模型变换、围墙和区域等渲染数据仍保存在地图 JSON 中，避免双份场景数据失去同步。
+
+| 表 | 关键字段 | 用途 |
+| --- | --- | --- |
+| `map_building` | `building_id`、`name` | `building_id` 对应服务端地图模型 ID |
+| `map_floor` | `building_id`、`floor_id`、`name`、`sort_order` | 复合主键保证楼层只属于一个建筑 |
+
+地图配置保存时，后端按 `metadata.floors` 同步这两张目录表。删除楼层或建筑前，后端先将受影响信标设为 `undeployed` 并清空绑定。
+
+### 3.6 `beacon`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -108,8 +119,15 @@ MAC 地址，可保存 MAC、IMEI、序列号或 `860000000000022` 这类自定�
 | `z` | DOUBLE PRECISION | NOT NULL, DEFAULT 0 | Z 坐标 |
 | `battery` | SMALLINT | NOT NULL, DEFAULT 80, 0–100 | 电量百分比 |
 | `status` | VARCHAR(10) | NOT NULL, DEFAULT `offline` | 预留状态字符串 |
+| `deployment_status` | VARCHAR(12) | NOT NULL, DEFAULT `undeployed` | `undeployed`、`deployed` |
+| `building_id` | VARCHAR(100) | NULL | 部署建筑 ID |
+| `floor_id` | VARCHAR(100) | NULL | 部署楼层 ID，与 `building_id` 组成外键 |
 
-### 3.6 `alert_event`
+运行状态 `status` 与部署状态分离。新增和 CSV 导入的信标始终依赖数据库默认值成为未部署；只有部署接口验证建筑、楼层后才写入坐标并切换为已部署。
+
+地图 JSON 使用 `metadata.schemaVersion = 2`，并显式保存 `metadata.buildingId`。`metadata.floors[].id` 是楼层绑定的稳定 ID，不应因楼层改名而改变。
+
+### 3.7 `alert_event`
 
 | 字段 | 类型 | 约束 | 用途 |
 | --- | --- | --- | --- |

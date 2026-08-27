@@ -66,16 +66,16 @@ export function downloadCsv(filename: string, headers: string[], rows: unknown[]
   URL.revokeObjectURL(url);
 }
 
-export function assertBattery(value: string | number): number {
+export function assertBattery(value: string | number, errorMessage = '电量必须是 0 到 100 之间的整数'): number {
   const battery = Number(value);
   if (!Number.isInteger(battery) || battery < 0 || battery > 100) {
-    throw new Error('电量必须是 0 到 100 之间的整数');
+    throw new Error(errorMessage);
   }
   return battery;
 }
 
-export function assertFiniteNumber(value: string | number, label: string): number {
+export function assertFiniteNumber(value: string | number, label: string, errorMessage?: string): number {
   const number = Number(value);
-  if (!Number.isFinite(number)) throw new Error(`${label}必须是有效数字`);
+  if (!Number.isFinite(number)) throw new Error(errorMessage ?? `${label}必须是有效数字`);
   return number;
 }

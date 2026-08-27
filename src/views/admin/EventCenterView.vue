@@ -101,31 +101,31 @@
       </aside>
     </section>
 
-    <BaseModal v-if="canManage" :open="processingEventId !== ''" title="处理告警" eyebrow="更新处置结果" :theme-mode="themeMode" @close="closeProcessDialog">
+    <BaseModal v-if="canManage" :open="processingEventId !== ''" :title="t('events.processAlert')" :eyebrow="t('events.updateDisposition')" :theme-mode="themeMode" @close="closeProcessDialog">
       <div class="process-form">
-        <label>处理状态
+        <label>{{ t('events.processStatus') }}
           <select v-model="processForm.status">
-            <option value="pending">未解决</option>
-            <option value="processing">处理中</option>
-            <option value="closed">已解决</option>
-            <option value="ignored">已忽略</option>
+            <option value="pending">{{ t('events.unresolved') }}</option>
+            <option value="processing">{{ t('events.processing') }}</option>
+            <option value="closed">{{ t('events.resolved') }}</option>
+            <option value="ignored">{{ t('events.ignored') }}</option>
           </select>
         </label>
-        <label>报警等级
+        <label>{{ t('events.alertLevel') }}
           <select v-model="processForm.alertLevel">
-            <option value="alarm">高</option>
-            <option value="warn">中</option>
-            <option value="normal">低</option>
+            <option value="alarm">{{ t('events.levelHigh') }}</option>
+            <option value="warn">{{ t('events.levelMedium') }}</option>
+            <option value="normal">{{ t('events.levelLow') }}</option>
           </select>
         </label>
-        <label class="process-form__remark">处置备注
-          <textarea v-model.trim="processForm.remark" maxlength="500" placeholder="填写处理过程、结果或交接说明" />
+        <label class="process-form__remark">{{ t('events.dispositionRemark') }}
+          <textarea v-model.trim="processForm.remark" maxlength="500" :placeholder="t('events.remarkPlaceholder')" />
         </label>
       </div>
       <template #footer>
-        <button type="button" :disabled="processingSaving" @click="closeProcessDialog">取消</button>
+        <button type="button" :disabled="processingSaving" @click="closeProcessDialog">{{ t('common.cancel') }}</button>
         <button class="primary" type="button" :disabled="processingSaving" @click="saveProcessDialog">
-          {{ processingSaving ? '保存中…' : '保存处理结果' }}
+          {{ processingSaving ? t('common.saving') : t('events.saveResult') }}
         </button>
       </template>
     </BaseModal>
@@ -300,10 +300,11 @@ async function saveProcessDialog() {
   try {
     const updated = await updateAlertEvent(processingEventId.value, { ...processForm });
     replaceEvent(updated);
-    toastMessage.value = `告警 ${updated.eventId} 已更新为${eventStatusLabel[updated.status]}`;
+    const statusKey = { pending: 'unresolved', processing: 'processing', closed: 'resolved', ignored: 'ignored' }[updated.status];
+    toastMessage.value = t('events.updated', { id: updated.eventId, status: t(`events.${statusKey}`) });
     processingEventId.value = '';
   } catch (error) {
-    toastMessage.value = error instanceof Error ? error.message : '更新事件失败';
+    toastMessage.value = error instanceof Error ? error.message : t('events.updateFailed');
   } finally {
     processingSaving.value = false;
   }
