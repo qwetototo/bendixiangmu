@@ -1,8 +1,22 @@
 <template>
-  <div ref="host" class="beacon-scene" @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp">
+  <div
+    ref="host"
+    class="beacon-scene"
+    :class="`beacon-scene--${interactionMode}`"
+    @pointerdown="onPointerDown"
+    @pointermove="onPointerMove"
+    @pointerup="onPointerUp"
+    @pointercancel="onPointerUp"
+    @wheel.prevent="onWheel"
+  >
     <div v-if="loading" class="beacon-scene__notice">{{ t('management.loadingMap') }}</div>
     <div v-if="error" class="beacon-scene__notice beacon-scene__notice--error">{{ error }}</div>
-    <div class="beacon-scene__hint">{{ t('management.dragBeaconHint') }}</div>
+    <div class="beacon-scene__hint">{{ t('management.panZoomBeaconHint') }}</div>
+    <div class="beacon-scene__tools" @pointerdown.stop @wheel.stop.prevent>
+      <button type="button" :aria-label="t('management.zoomIn')" :title="t('management.zoomIn')" @click.stop="zoomBy(1.25)">+</button>
+      <button type="button" :aria-label="t('management.zoomOut')" :title="t('management.zoomOut')" @click.stop="zoomBy(0.8)">−</button>
+      <button class="fit-button" type="button" @click.stop="fitView">{{ t('management.fitView') }}</button>
+    </div>
   </div>
 </template>
 
@@ -25,6 +39,7 @@ const { t } = useI18n();
 const host = ref<HTMLElement>();
 const loading = ref(false);
 const error = ref('');
+const interactionMode = ref<'idle' | 'panning' | 'dragging'>('idle');
 
 const modelModules = import.meta.glob('/src/assets/model/**/*.{glb,gltf}', {
   eager: true,
@@ -35,17 +50,31 @@ const loader = new GLTFLoader();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 12;
+const BEACON_DIAMETER_METERS = 1;
 let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
 let camera: THREE.OrthographicCamera | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let frameId = 0;
 let buildToken = 0;
-let editingMarker: THREE.Mesh | null = null;
-let dragging = false;
+let editingMarkerGroup: THREE.Group | null = null;
+let editingHitTarget: THREE.Mesh | null = null;
+let editingHalo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null = null;
 let viewSize = 1000;
+let fittedViewSize = 1000;
+let cameraHeight = 1000;
+let cameraZoom = 1;
 let rendererWidth = 0;
 let rendererHeight = 0;
+let panStartClient: [number, number] = [0, 0];
+let panStartTarget: [number, number] = [0, 0];
+let haloBaseScale = 1;
+const cameraTarget = new THREE.Vector3();
+const fittedTarget = new THREE.Vector3();
+const labels: THREE.Sprite[] = [];
+const hitTargets: THREE.Mesh[] = [];
 const disposableTextures: THREE.Texture[] = [];
 
 function resolveModelPath(path: string) {
@@ -73,8 +102,8 @@ function createLabel(text: string, color: string) {
   texture.colorSpace = THREE.SRGBColorSpace;
   disposableTextures.push(texture);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-  sprite.scale.set(54, 13.5, 1);
   sprite.renderOrder = 20;
+  labels.push(sprite);
   return sprite;
 }
 
@@ -83,24 +112,46 @@ function addMarker(beacon: BeaconVO, editable: boolean) {
   const color = editable ? 0x2f7cff : 0x7b8798;
   const group = new THREE.Group();
   group.position.set(beacon.x, beacon.y, beacon.z);
+
+  // 场景单位与 GLB 米制单位保持一致：信标可见球体直径固定为 1 米。
   const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(editable ? 7 : 5, 24, 16),
-    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: editable ? 0.45 : 0.08 }),
+    new THREE.SphereGeometry(BEACON_DIAMETER_METERS / 2, 24, 16),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: editable ? 0.65 : 0.12 }),
   );
-  marker.position.y = 4;
+  marker.renderOrder = 12;
   group.add(marker);
-  const stem = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.2, 1.2, 8, 12),
-    new THREE.MeshStandardMaterial({ color }),
-  );
-  group.add(stem);
+
   const label = createLabel(beacon.beaconId, editable ? '#60a5fa' : '#94a3b8');
-  label.position.set(0, 17, 0);
   group.add(label);
-  group.userData.beaconMarker = true;
-  group.userData.editable = editable;
+
+  if (editable) {
+    const hitTarget = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+    );
+    hitTarget.userData.editableBeacon = true;
+    group.add(hitTarget);
+    hitTargets.push(hitTarget);
+
+    const haloMaterial = new THREE.MeshBasicMaterial({
+      color: 0x60a5fa,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      depthTest: false,
+    });
+    const halo = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.2, 64), haloMaterial);
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.y = 0.04;
+    halo.renderOrder = 18;
+    halo.visible = false;
+    group.add(halo);
+    editingMarkerGroup = group;
+    editingHitTarget = hitTarget;
+    editingHalo = halo;
+  }
+
   scene.add(group);
-  if (editable) editingMarker = marker;
 }
 
 function addConfigGeometry(config: SceneConfig) {
@@ -135,6 +186,12 @@ async function rebuild() {
   loading.value = true;
   error.value = '';
   disposableTextures.splice(0).forEach((texture) => texture.dispose());
+  labels.splice(0);
+  hitTargets.splice(0);
+  editingMarkerGroup = null;
+  editingHitTarget = null;
+  editingHalo = null;
+
   const nextScene = new THREE.Scene();
   nextScene.background = new THREE.Color(0x111827);
   nextScene.add(new THREE.HemisphereLight(0xffffff, 0x334155, 2.3));
@@ -142,7 +199,6 @@ async function rebuild() {
   light.position.set(200, 500, 250);
   nextScene.add(light);
   scene = nextScene;
-  editingMarker = null;
   addConfigGeometry(props.config);
 
   try {
@@ -161,72 +217,152 @@ async function rebuild() {
   }
   if (token !== buildToken || !scene) return;
 
+  // 先按建筑模型取景，避免信标标签参与包围盒计算并把地图缩得过小。
+  calculateFittedView();
   const visibleBeacons = props.beacons.filter((beacon) => beacon.deploymentStatus === 'deployed');
   visibleBeacons.forEach((beacon) => addMarker(beacon, beacon.beaconId === props.beaconId));
   if (!visibleBeacons.some((beacon) => beacon.beaconId === props.beaconId)) {
     addMarker({ ...props.position, beaconId: props.beaconId, battery: 0, status: '', deploymentStatus: 'deployed' }, true);
   }
-  frameScene();
+  updateMarkerScreenSizes();
   loading.value = false;
 }
 
-function frameScene() {
-  if (!scene || !camera || !host.value) return;
+function calculateFittedView() {
+  if (!scene) return;
   const box = new THREE.Box3().setFromObject(scene);
   const center = box.isEmpty() ? new THREE.Vector3(0, 0, 0) : box.getCenter(new THREE.Vector3());
   const size = box.isEmpty()
     ? new THREE.Vector3(props.config.floor.width, 0, props.config.floor.height)
     : box.getSize(new THREE.Vector3());
-  viewSize = Math.max(size.x, size.z, props.config.floor.width * 0.25, props.config.floor.height * 0.25, 100) * 1.18;
-  camera.position.set(center.x, Math.max(size.y + viewSize, 500), center.z + 0.001);
+  fittedViewSize = Math.max(size.x, size.z, props.config.floor.width * 0.25, props.config.floor.height * 0.25, 20) * 1.18;
+  fittedTarget.set(center.x, 0, center.z);
+  cameraHeight = Math.max(size.y + fittedViewSize, 500);
+  fitView();
+}
+
+function fitView() {
+  viewSize = fittedViewSize;
+  cameraZoom = 1;
+  cameraTarget.copy(fittedTarget);
+  updateCamera();
+}
+
+function updateCamera() {
+  if (!camera) return;
+  camera.position.set(cameraTarget.x, cameraHeight, cameraTarget.z + 0.001);
   camera.up.set(0, 0, -1);
-  camera.lookAt(center.x, 0, center.z);
+  camera.lookAt(cameraTarget.x, 0, cameraTarget.z);
+  if (host.value) {
+    host.value.dataset.cameraZoom = cameraZoom.toFixed(4);
+    host.value.dataset.cameraTarget = `${cameraTarget.x.toFixed(3)},${cameraTarget.z.toFixed(3)}`;
+  }
   updateCameraFrustum();
 }
 
 function updateCameraFrustum() {
   if (!camera || !host.value) return;
   const aspect = Math.max(host.value.clientWidth, 1) / Math.max(host.value.clientHeight, 1);
-  camera.left = -viewSize * aspect / 2;
-  camera.right = viewSize * aspect / 2;
-  camera.top = viewSize / 2;
-  camera.bottom = -viewSize / 2;
+  const visibleSize = viewSize / cameraZoom;
+  camera.left = -visibleSize * aspect / 2;
+  camera.right = visibleSize * aspect / 2;
+  camera.top = visibleSize / 2;
+  camera.bottom = -visibleSize / 2;
   camera.updateProjectionMatrix();
+  updateMarkerScreenSizes();
 }
 
-function setPointer(event: PointerEvent) {
+function updateMarkerScreenSizes() {
+  if (!host.value) return;
+  const worldPerPixel = viewSize / Math.max(cameraZoom * host.value.clientHeight, 1);
+  labels.forEach((label) => {
+    label.scale.set(90 * worldPerPixel, 22.5 * worldPerPixel, 1);
+    label.position.set(0, Math.max(1.1, 15 * worldPerPixel), 0);
+  });
+  hitTargets.forEach((target) => {
+    const radius = Math.max(0.75, 11 * worldPerPixel);
+    target.scale.setScalar(radius);
+  });
+  haloBaseScale = Math.max(1, (16 * worldPerPixel) / 1.2);
+}
+
+function setPointer(event: PointerEvent | WheelEvent) {
   if (!host.value) return;
   const rect = host.value.getBoundingClientRect();
   pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
 }
 
-function onPointerDown(event: PointerEvent) {
-  if (!camera || !editingMarker || !host.value) return;
+function groundPoint(event: PointerEvent | WheelEvent, y = 0) {
+  if (!camera) return null;
   setPointer(event);
   raycaster.setFromCamera(pointer, camera);
-  if (!raycaster.intersectObject(editingMarker, false).length) return;
-  dragging = true;
-  dragPlane.constant = -props.position.y;
+  const point = new THREE.Vector3();
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -y);
+  return raycaster.ray.intersectPlane(plane, point) ? point : null;
+}
+
+function onPointerDown(event: PointerEvent) {
+  if (!camera || !host.value || event.button !== 0) return;
+  setPointer(event);
+  raycaster.setFromCamera(pointer, camera);
+  if (editingHitTarget && raycaster.intersectObject(editingHitTarget, false).length) {
+    interactionMode.value = 'dragging';
+    dragPlane.constant = -props.position.y;
+    if (editingHalo) editingHalo.visible = true;
+    host.value.dataset.haloActive = 'true';
+  } else {
+    interactionMode.value = 'panning';
+    panStartClient = [event.clientX, event.clientY];
+    panStartTarget = [cameraTarget.x, cameraTarget.z];
+  }
   host.value.setPointerCapture(event.pointerId);
 }
 
 function onPointerMove(event: PointerEvent) {
-  if (!dragging || !camera) return;
-  setPointer(event);
-  raycaster.setFromCamera(pointer, camera);
-  const target = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(dragPlane, target)) return;
-  emit('positionChange', { x: target.x, y: props.position.y, z: target.z });
+  if (!camera || !host.value) return;
+  if (interactionMode.value === 'dragging') {
+    setPointer(event);
+    raycaster.setFromCamera(pointer, camera);
+    const target = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(dragPlane, target)) {
+      emit('positionChange', { x: target.x, y: props.position.y, z: target.z });
+    }
+    return;
+  }
+  if (interactionMode.value === 'panning') {
+    const worldPerPixel = viewSize / Math.max(cameraZoom * host.value.clientHeight, 1);
+    cameraTarget.x = panStartTarget[0] - (event.clientX - panStartClient[0]) * worldPerPixel;
+    cameraTarget.z = panStartTarget[1] - (event.clientY - panStartClient[1]) * worldPerPixel;
+    updateCamera();
+  }
 }
 
 function onPointerUp(event: PointerEvent) {
-  dragging = false;
+  interactionMode.value = 'idle';
+  if (editingHalo) editingHalo.visible = false;
+  if (host.value) host.value.dataset.haloActive = 'false';
   if (host.value?.hasPointerCapture(event.pointerId)) host.value.releasePointerCapture(event.pointerId);
 }
 
+function zoomBy(factor: number, anchor?: THREE.Vector3 | null) {
+  const previousZoom = cameraZoom;
+  cameraZoom = THREE.MathUtils.clamp(cameraZoom * factor, MIN_ZOOM, MAX_ZOOM);
+  if (cameraZoom === previousZoom) return;
+  if (anchor) {
+    const ratio = previousZoom / cameraZoom;
+    cameraTarget.x = anchor.x - (anchor.x - cameraTarget.x) * ratio;
+    cameraTarget.z = anchor.z - (anchor.z - cameraTarget.z) * ratio;
+  }
+  updateCamera();
+}
+
+function onWheel(event: WheelEvent) {
+  const anchor = groundPoint(event);
+  zoomBy(Math.exp(-event.deltaY * 0.0015), anchor);
+}
+
 function updateEditingMarker() {
-  const group = editingMarker?.parent;
-  if (group) group.position.set(props.position.x, props.position.y, props.position.z);
+  if (editingMarkerGroup) editingMarkerGroup.position.set(props.position.x, props.position.y, props.position.z);
 }
 
 onMounted(() => {
@@ -235,13 +371,7 @@ onMounted(() => {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.domElement.className = 'beacon-scene__canvas';
-  Object.assign(renderer.domElement.style, {
-    position: 'absolute',
-    inset: '0',
-    display: 'block',
-    width: '100%',
-    height: '100%',
-  });
+  Object.assign(renderer.domElement.style, { position: 'absolute', inset: '0', display: 'block', width: '100%', height: '100%' });
   host.value.prepend(renderer.domElement);
   camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100000);
   resizeObserver = new ResizeObserver(() => {
@@ -257,6 +387,11 @@ onMounted(() => {
   resizeObserver.observe(host.value);
   const animate = () => {
     frameId = requestAnimationFrame(animate);
+    if (editingHalo?.visible) {
+      const pulse = 1 + Math.sin(performance.now() * 0.008) * 0.12;
+      editingHalo.scale.setScalar(haloBaseScale * pulse);
+      editingHalo.material.opacity = 0.62 + Math.sin(performance.now() * 0.008) * 0.16;
+    }
     if (renderer && scene && camera) renderer.render(scene, camera);
   };
   animate();
@@ -277,9 +412,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.beacon-scene { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; border-radius: 10px; background: #111827; touch-action: none; }
+.beacon-scene { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; border-radius: 10px; background: #111827; cursor: grab; touch-action: none; user-select: none; }
+.beacon-scene--panning,
+.beacon-scene--dragging { cursor: grabbing; }
 :deep(.beacon-scene__canvas) { display: block; width: 100%; height: 100%; position: absolute; inset: 0; }
-.beacon-scene__notice { position: absolute; z-index: 2; inset: 50% auto auto 50%; transform: translate(-50%, -50%); padding: 10px 14px; border-radius: 8px; background: rgba(15, 23, 42, .82); color: #fff; }
+.beacon-scene__notice { position: absolute; z-index: 3; inset: 50% auto auto 50%; transform: translate(-50%, -50%); padding: 10px 14px; border-radius: 8px; background: rgba(15, 23, 42, .82); color: #fff; }
 .beacon-scene__notice--error { color: #fecaca; }
 .beacon-scene__hint { position: absolute; z-index: 2; top: 14px; left: 14px; padding: 7px 10px; border-radius: 7px; background: rgba(15, 23, 42, .72); color: #dbeafe; font-size: 12px; pointer-events: none; }
+.beacon-scene__tools { position: absolute; z-index: 4; top: 14px; right: 14px; display: flex; gap: 6px; }
+.beacon-scene__tools button { min-width: 34px; min-height: 34px; padding: 0 10px; border-color: rgba(96, 165, 250, .48); background: rgba(15, 23, 42, .84); color: #dbeafe; backdrop-filter: blur(8px); }
+.beacon-scene__tools .fit-button { min-width: auto; }
 </style>

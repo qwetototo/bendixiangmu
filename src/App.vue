@@ -182,6 +182,10 @@ function getRouteNavState(): StoredNavState {
     const state: StoredNavState = { section: 'config', submenu: 'map-editor' };
     return state;
   }
+  // Parameterized route: /identity/beacons/deployment/:beaconId
+  if (/^\/identity\/beacons\/deployment\/[^/]+$/.test(normalizedPath)) {
+    return { section: 'identity', submenu: 'beacons' };
+  }
   return {};
 }
 
@@ -427,8 +431,14 @@ function selectNav(sectionKey: SectionKey, submenuKey: string, replace = false) 
 
 function syncNavFromRoute() {
   const routeState = getRouteNavState();
-  if (routeState.section && routeState.submenu) {
-    selectNav(routeState.section, routeState.submenu, true);
+  if (isValidNavState(routeState)) {
+    if (!isAdmin.value && (routeState.section === 'identity' || routeState.section === 'config')) {
+      selectNav('home', 'overview', true);
+      return;
+    }
+    activeSection.value = routeState.section;
+    activeSubmenu.value = routeState.submenu;
+    openedSection.value = null;
     return;
   }
   selectNav('home', 'overview', true);

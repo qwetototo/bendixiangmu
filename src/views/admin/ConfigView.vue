@@ -1473,6 +1473,7 @@ async function loadMapsFromApi() {
 
     maps.value = merged;
     saveMapLibrary(merged);
+    openRouteMapEditor();
   } catch {
     // API not available — keep localStorage data as-is
   }
@@ -1990,15 +1991,16 @@ watch(
 // Auto-open editor when navigating directly to a map-editor/:mapId route
 watch(
   () => props.editMapId,
-  (mapId) => {
-    if (!mapId || viewMode.value === 'edit') return;
-    const target = maps.value.find((m) => m.id === mapId);
-    if (target) {
-      openEditor(target);
-    }
-  },
+  () => openRouteMapEditor(),
   { immediate: true },
 );
+
+function openRouteMapEditor() {
+  const mapId = props.editMapId;
+  if (!mapId || (viewMode.value === 'edit' && draftMap.value?.id === mapId)) return;
+  const target = maps.value.find((map) => map.id === mapId);
+  if (target) openEditor(target);
+}
 
 // When the user clicks "back" from the editor, navigate to the map-list route
 function navigateToMapList() {

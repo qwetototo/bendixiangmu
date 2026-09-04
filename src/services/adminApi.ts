@@ -112,6 +112,7 @@ export interface DashboardSummaryVO {
   totalDeviceCount: number;
   /** 已绑定人员（personnel_id 非空）的设备 */
   boundDeviceCount: number;
+  /** 已绑定人员的设备状态统计，三种状态互斥 */
   onlineDevices: number;
   offlineDevices: number;
   sosDevices: number;
@@ -229,6 +230,10 @@ export function deleteBeacon(beaconId: string) {
 
 export function deployBeacon(beaconId: string, data: BeaconDeploymentPayload) {
   return request<BeaconVO>('put', `/api/beacons/${encodeURIComponent(beaconId)}/deployment`, { data });
+}
+
+export function undeployBeacon(beaconId: string) {
+  return request<BeaconVO>('delete', `/api/beacons/${encodeURIComponent(beaconId)}/deployment`);
 }
 
 export function fetchAlertEvents(params: Record<string, QueryValue> = {}) {

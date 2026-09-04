@@ -36,7 +36,7 @@
       </article>
 
       <article class="status-panel">
-        <h3>{{ t('home.deviceStatusDist') }}</h3>
+        <h3>{{ t('home.personnelDeviceStatusDist') }}</h3>
         <div ref="deviceDistChartEl" class="chart chart--donut chart--device" />
       </article>
     </section>
@@ -180,8 +180,8 @@ const todayAlertItems = computed(() => {
   ];
 });
 
-/** 设备状态分布面板（环形图数据源） */
-const deviceStatusItems = computed(() => {
+/** 人员设备状态分布面板：只统计已绑定人员的设备 */
+const personnelDeviceStatusItems = computed(() => {
   const d = dashboard.value;
   return [
     { label: t('home.deviceOnline'), value: d?.onlineDevices ?? 0 },
@@ -275,7 +275,7 @@ const chartColors = computed(() =>
       },
 );
 
-function donutTooltip(c: typeof chartColors.value) {
+function donutTooltip(c: typeof chartColors.value, formatValue?: (value: number) => string) {
   return {
     trigger: 'item' as const,
     confine: true,
@@ -284,7 +284,8 @@ function donutTooltip(c: typeof chartColors.value) {
     textStyle: { color: c.text, fontSize: 12 },
     formatter: (params: unknown) => {
       const p = (Array.isArray(params) ? params[0] : params) as { name?: string; value?: number };
-      return `${p.name ?? ''}<br/>${p.value ?? 0}`;
+      const value = p.value ?? 0;
+      return `${p.name ?? ''}<br/>${formatValue ? formatValue(value) : value}`;
     },
   };
 }
@@ -334,30 +335,31 @@ function buildTodayAlertOption(): EChartsOption {
   };
 }
 
-/** 设备状态分布面板：环形图，中心为设备总数 */
+/** 人员设备状态分布面板：外圈为已绑定人员的设备状态，中心为人员总数 */
 function buildDeviceDistOption(): EChartsOption {
-  const items = deviceStatusItems.value;
-  const total = dashboard.value?.totalDeviceCount ?? 0;
-  const hasData = items.some((item) => item.value > 0);
+  const items = personnelDeviceStatusItems.value;
+  const total = dashboard.value?.totalPersonnel ?? 0;
+  const hasSummary = dashboard.value !== null;
+  const hasBoundDevice = items.some((item) => item.value > 0);
   const c = chartColors.value;
   const deviceDistColors = ['#43e5a0', '#9aa7bd', '#ff8585'];
   return {
     color: deviceDistColors,
-    tooltip: donutTooltip(c),
+    tooltip: donutTooltip(c, (value) => t('home.deviceStatusCount', { count: value })),
     graphic: [
       {
         type: 'text',
         left: 'center',
         top: '40%',
         silent: true,
-        style: { text: hasData ? String(total) : '--', fill: c.text, fontSize: 26, fontWeight: 800, align: 'center' },
+        style: { text: hasSummary ? String(total) : '--', fill: c.text, fontSize: 26, fontWeight: 800, align: 'center' },
       },
       {
         type: 'text',
         left: 'center',
         top: '61%',
         silent: true,
-        style: { text: t('home.totalDevices'), fill: c.muted, fontSize: 12, align: 'center' },
+        style: { text: t('identity.totalPersonnel'), fill: c.muted, fontSize: 12, align: 'center' },
       },
     ],
     series: [
@@ -371,7 +373,7 @@ function buildDeviceDistOption(): EChartsOption {
         animationDuration: 500,
         animationDurationUpdate: 150,
         animationEasingUpdate: 'linear',
-        data: hasData
+        data: hasBoundDevice
           ? items.map((item) => ({ name: item.label, value: item.value }))
           : [{ name: '', value: 1, itemStyle: { color: c.empty } }],
       },
