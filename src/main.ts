@@ -3,6 +3,7 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import i18n from './i18n';
 import './styles/global.css';
+import './styles/responsive-preview.css';
 
 const app = createApp(App);
 
