@@ -208,3 +208,159 @@
     padding-inline: 10px;
   }
 }
+/* Embedded live view: compact overlays on narrow screens. */
+@media (max-width: 980px) {
+  .admin-shell .twin-screen--embedded .topbar {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 60px;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .admin-shell .twin-screen--embedded .topbar__status {
+    flex: 1 1 210px;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .admin-shell .twin-screen--embedded .topbar__spacer {
+    display: none;
+  }
+
+  .admin-shell .twin-screen--embedded .scene-presentation button {
+    min-height: 34px;
+  }
+
+  .admin-shell .twin-screen--embedded .scene-visibility-popover {
+    width: min(256px, calc(100vw - 24px));
+  }
+
+  .admin-shell .twin-screen--embedded .left-rail {
+    top: 10px;
+    bottom: auto;
+    left: 10px;
+    display: flex;
+    flex-direction: column;
+    width: min(300px, calc(100% - 20px));
+    max-height: min(38dvh, 360px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .admin-shell .twin-screen--embedded .left-rail > .glass-panel {
+    flex: 0 0 auto;
+  }
+
+  .admin-shell .twin-screen--embedded .pick-chip {
+    top: 12px;
+    right: 12px;
+    left: auto;
+    max-width: calc(100% - 334px);
+    transform: none;
+    flex-wrap: wrap;
+  }
+
+  .admin-shell .twin-screen--embedded .tool-dock {
+    bottom: max(8px, env(safe-area-inset-bottom));
+    display: flex;
+    grid-template-columns: none;
+    width: min(720px, calc(100% - 16px));
+    max-width: calc(100% - 16px);
+    height: 64px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-shell .twin-screen--embedded .tool-dock button {
+    flex: 0 0 88px;
+    height: 62px;
+    gap: 4px;
+    padding: 5px;
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+
+  .admin-shell .twin-screen--embedded .map-controls {
+    right: 12px;
+    bottom: 86px;
+    gap: 6px;
+  }
+
+  .admin-shell .twin-screen--embedded .map-controls button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .admin-shell .twin-screen--embedded .replay-progress-dock {
+    bottom: 84px;
+  }
+
+  .admin-shell .twin-screen--embedded .floating-popover {
+    bottom: 84px;
+    left: 12px;
+    max-width: calc(100vw - 24px);
+    max-height: min(50dvh, 430px);
+    overflow-y: auto;
+    transform: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-shell .primary-nav {
+    scrollbar-width: none;
+  }
+
+  .admin-shell .primary-nav::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-shell .twin-screen--embedded .topbar__status {
+    flex: 1 0 100%;
+  }
+
+  .admin-shell .twin-screen--embedded .scene-presentation {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .admin-shell .twin-screen--embedded .scene-presentation button {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-inline: 6px;
+  }
+
+  .admin-shell .twin-screen--embedded .left-rail {
+    width: calc(100% - 20px);
+    max-height: min(30dvh, 260px);
+  }
+
+  .admin-shell .twin-screen--embedded .pick-chip {
+    top: auto;
+    right: 64px;
+    bottom: 84px;
+    left: 10px;
+    max-width: none;
+    font-size: 11px;
+  }
+
+  .admin-shell .twin-screen--embedded .tool-dock {
+    height: 60px;
+  }
+
+  .admin-shell .twin-screen--embedded .tool-dock button {
+    flex-basis: 78px;
+    height: 58px;
+    font-size: 11px;
+  }
+}
