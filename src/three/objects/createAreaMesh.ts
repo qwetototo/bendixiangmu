@@ -5,7 +5,7 @@ function toVector(point: Point2D): THREE.Vector2 {
   return new THREE.Vector2(point[0], point[1]);
 }
 
-export function createAreaMesh(area: AreaConfig): THREE.Mesh {
+export function createAreaMesh(area: AreaConfig, isBuildingFootprint = area.type === 'building'): THREE.Mesh {
   const shape = new THREE.Shape(area.points.map(toVector));
   const geometry = new THREE.ExtrudeGeometry(shape, {
     depth: area.height,
@@ -24,6 +24,10 @@ export function createAreaMesh(area: AreaConfig): THREE.Mesh {
     emissive: new THREE.Color(area.color).multiplyScalar(0.12),
     side: THREE.DoubleSide,
   });
+  if (isBuildingFootprint) {
+    material.userData.previewVisibilityRole = 'floor-plate';
+    material.userData.previewBaseOpacity = material.opacity;
+  }
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = `area:${area.id}`;

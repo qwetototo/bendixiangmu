@@ -114,6 +114,7 @@
             <div class="map-row__title">
               <h3>{{ map.name }}</h3>
               <span v-if="map.id === sceneStore.activeMapId">{{ t('config.currentMap') }}</span>
+              <span v-if="isLocalDraftMap(map)" class="map-row__draft-tag">{{ t('config.localDraft') }}</span>
             </div>
             <p>{{ map.description || t('config.noMapDesc') }}</p>
             <div class="map-row__meta">
@@ -129,7 +130,7 @@
               <CheckCircleOutlined />
               <span>{{ t('config.apply') }}</span>
             </button>
-            <button type="button" @click="openEditor(map)">
+            <button type="button" @click="emit('open-modeling-workbench', map)">
               <EditOutlined />
               <span>{{ t('common.edit') }}</span>
             </button>
@@ -148,217 +149,315 @@
           <ArrowLeftOutlined />
           <span>{{ t('config.backToList') }}</span>
         </button>
-        <div>
+        <div class="editor-title">
           <h2>{{ draftMap.name }}</h2>
           <p>{{ t('config.editModelDescription') }}</p>
         </div>
+        <label class="editor-floor-switch">
+          <span>{{ t('config.floorLabel') }}</span>
+          <select :value="draftMap.metadata.activeFloorId" @change="handleFloorSelect">
+            <option v-for="floor in draftMap.metadata.floors" :key="floor.id" :value="floor.id">{{ floor.name }}</option>
+          </select>
+        </label>
         <div class="toolbar-actions">
           <button type="button" class="ghost-button" @click="applyDraft">
             <CheckCircleOutlined />
             <span>{{ t('config.applyToTrack') }}</span>
           </button>
-          <button type="button" class="primary-button" @click="saveDraft">
+          <button type="button" class="primary-button" :disabled="mapSaving" @click="saveDraft">
             <SaveOutlined />
-            <span>{{ t('config.saveMap') }}</span>
+            <span>{{ mapSaving ? '保存中…' : isLocalDraftMap(draftMap) ? t('config.saveLocalDraft') : t('config.saveMap') }}</span>
           </button>
         </div>
       </section>
 
-      <section class="editor-layout">
+      <div class="editor-workbench">
+        <nav class="editor-nav" :aria-label="t('config.editorNavigation')">
+          <button
+            v-for="tab in editorTabs"
+            :key="tab.key"
+            type="button"
+            :class="{ active: editorSection === tab.key }"
+            @click="editorSection = tab.key"
+          >{{ t(tab.label) }}</button>
+        </nav>
 
-        <article class="preview-panel">
-          <div class="panel-heading">
-            <div>
-              <h3>{{ t('config.modelPreview') }}</h3>
-              <p>{{ pickMode ? t('config.pickModeActive', { target: pickModeLabel }) : t('config.pickModeIdle') }}</p>
+        <div class="editor-workspace">
+          <section v-show="editorSection === 'info'" class="editor-pane">
+            <div class="editor-overview-grid">
+              <article class="form-panel">
+                <h3>{{ t('config.basicInfo') }}</h3>
+                <div class="form-grid">
+                  <label>
+                    <span>{{ t('config.buildingName') }}</span>
+                    <input v-model.trim="draftMap.name" type="text" />
+                  </label>
+                  <label>
+                    <span>{{ t('config.region') }}</span>
+                    <input v-model.trim="draftMap.metadata.region" type="text" />
+                  </label>
+                  <label class="wide">
+                    <span>{{ t('config.address') }}</span>
+                    <input v-model.trim="draftMap.metadata.address" type="text" />
+                  </label>
+                  <label class="wide">
+                    <span>{{ t('config.description') }}</span>
+                    <textarea v-model.trim="draftMap.description" rows="3" />
+                  </label>
+                </div>
+                <div class="thumbnail-uploader">
+                  <div class="thumbnail-uploader__preview">
+                    <img v-if="draftMap.metadata.thumbnail" :src="draftMap.metadata.thumbnail" :alt="draftMap.name" />
+                    <span v-else>{{ t('config.noCover') }}</span>
+                  </div>
+                  <div class="thumbnail-uploader__actions">
+                    <span>{{ t('config.cover') }}</span>
+                    <input ref="thumbnailFileInput" class="model-file-input" type="file" accept=".png,.jpg,.jpeg,.webp" @change="importThumbnailFile" />
+                    <button type="button" class="upload-button" :disabled="thumbnailUploading" @click="openThumbnailFilePicker">
+                      <UploadOutlined />
+                      <span>{{ thumbnailUploading ? t('config.uploading') : t('config.uploadCover') }}</span>
+                    </button>
+                    <button v-if="draftMap.metadata.thumbnail" type="button" @click="clearThumbnail">
+                      <DeleteOutlined />
+                      <span>{{ t('config.clearCover') }}</span>
+                    </button>
+                    <small>{{ thumbnailUploadStatus || t('config.coverUploadHint') }}</small>
+                  </div>
+                </div>
+                <div class="building-select-action">
+                  <button type="button" class="building-select-button" @click="navigateToBuildingSelect">
+                    <ShopOutlined />
+                    <span>{{ t('config.goToBuildingSelect') }}</span>
+                  </button>
+                </div>
+              </article>
+
+              <article class="form-panel">
+                <h3>{{ t('config.floorManagement') }}</h3>
+                <div class="floor-management-actions">
+                  <button type="button" @click="addFloor"><PlusOutlined />{{ t('config.addFloor') }}</button>
+                  <button type="button" :disabled="draftMap.metadata.floors.length <= 1" @click="removeCurrentFloor"><DeleteOutlined />{{ t('config.deleteFloor') }}</button>
+                </div>
+                <div class="form-grid">
+                  <label>
+                    <span>{{ t('config.floorName') }}</span>
+                    <input v-model.trim="draftMap.config.floor.name" type="text" @input="updateCurrentFloorName" />
+                  </label>
+                  <label class="wide">
+                    <span>{{ t('config.floorDescription') }}</span>
+                    <textarea v-model.trim="currentFloorDescription" rows="3" />
+                  </label>
+                </div>
+                <div v-if="isLocalDraftMap(draftMap)" class="positioning-binding">
+                  <div>
+                    <strong>{{ t('config.positioningBinding') }}</strong>
+                    <p>{{ t('config.positioningBindingHint') }}</p>
+                  </div>
+                  <div class="positioning-binding__controls">
+                    <label>
+                      <span>{{ t('config.positioningBuilding') }}</span>
+                      <select :value="currentPositioningMap?.id || ''" @change="selectPositioningMap">
+                        <option value="">{{ t('config.choosePositioningBuilding') }}</option>
+                        <option v-for="map in availablePositioningMaps" :key="map.id" :value="map.id">{{ map.name }}</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>{{ t('config.positioningFloor') }}</span>
+                      <select :value="currentPositioningBinding?.floorId || ''" :disabled="!currentPositioningMap" @change="selectPositioningFloor">
+                        <option value="">{{ t('config.choosePositioningFloor') }}</option>
+                        <option v-for="mapFloor in currentPositioningMap?.metadata.floors || []" :key="mapFloor.id" :value="mapFloor.id">{{ mapFloor.name }}</option>
+                      </select>
+                    </label>
+                    <button v-if="currentPositioningBinding" type="button" @click="clearPositioningBinding">{{ t('config.clearPositioningBinding') }}</button>
+                  </div>
+                  <small v-if="!availablePositioningMaps.length">{{ t('config.noPositioningBuildings') }}</small>
+                </div>
+              </article>
             </div>
-            <button v-if="pickMode" type="button" class="ghost-button" @click="cancelPick">
-              <span>{{ t('common.cancel') }}</span>
-            </button>
-          </div>
-          <div
-            ref="preview3dRef"
-            class="map-preview map-preview--3d"
-            role="img"
-            @click="handlePreviewClick"
-            @contextmenu.prevent
-            @mousedown="handlePreviewPointerDown"
-            @wheel.prevent="handlePreviewWheel"
-          >
-            <div class="map-preview__hud">
-              <span>{{ t('config.clickedCoordinate') }}</span>
-              <strong>{{ previewCoordinateText }}</strong>
+          </section>
+
+          <section v-show="editorSection === 'upload'" class="editor-pane">
+            <div class="editor-overview-grid">
+              <article class="form-panel editor-upload-card">
+                <div>
+                  <h3>{{ t('config.uploadPlanTitle') }}</h3>
+                  <p>{{ t('config.uploadPlanHint') }}</p>
+                </div>
+                <button type="button" class="primary-button" @click="openPlanImporter">
+                  <UploadOutlined />
+                  <span>{{ t('config.uploadPlanAction') }}</span>
+                </button>
+                <small>{{ t('config.uploadPlanStatusHint') }}</small>
+              </article>
+              <article class="form-panel editor-upload-card">
+                <div>
+                  <h3>{{ t('config.uploadFloorModelTitle') }}</h3>
+                  <p>{{ t('config.uploadFloorModelHint') }}</p>
+                </div>
+                <input ref="baseMapFileInput" class="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" @change="importBaseMapFile" />
+                <button type="button" class="primary-button" :disabled="baseMapImporting" @click="openBaseMapFilePicker">
+                  <UploadOutlined />
+                  <span>{{ baseMapImporting ? t('config.uploading') : baseMapModel ? t('config.replaceBaseMap') : t('config.uploadBaseMap') }}</span>
+                </button>
+                <small>{{ baseMapModel ? baseMapModel.path : t('config.noBaseMap') }}</small>
+              </article>
             </div>
-            <button
-              type="button"
-              :class="['map-preview__base-toggle', { collapsed: !baseMapToolsOpen }]"
-              :title="baseMapToolsOpen ? t('common.cancel') : t('config.baseMap')"
-              @click.stop="baseMapToolsOpen = !baseMapToolsOpen"
-              @mousedown.stop
-            >
-              <span>{{ baseMapToolsOpen ? '>' : '<' }}</span>
-            </button>
-            <div v-if="baseMapToolsOpen" class="map-preview__base-tools" @click.stop @mousedown.stop @wheel.stop>
-              <div class="map-preview__base-title">
-                <strong>{{ t('config.baseMap') }}</strong>
-                <span>{{ baseMapModel ? baseMapModel.path : t('config.noBaseMap') }}</span>
+          </section>
+
+          <section v-show="editorSection === 'plan'" class="editor-pane">
+            <article class="plan-editor-panel">
+              <div class="plan-editor-heading">
+                <div>
+                  <h3>{{ t('config.editorTabPlan') }}</h3>
+                  <p>{{ t('config.planEditorHint') }}</p>
+                </div>
+                <button type="button" class="ghost-button" @click="editorSection = 'assets'">{{ t('config.editorTabAssets') }}</button>
               </div>
-              <label>
-                <span>{{ t('config.adjustModelScale') }}</span>
-                <input :value="scaleRatioDisplay" type="number" min="0" step="1" @input="onScaleRatioInput" @blur="onScaleRatioBlur" />
-              </label>
-              <template v-if="baseMapModel">
-                <label>
-                  <span>{{ t('config.modelX') }}</span>
-                  <input v-model.number="baseMapModel.center[0]" type="number" step="0.1" @change="commitBaseModelParameter(0)" />
-                </label>
-                <label>
-                  <span>{{ t('config.modelY') }}</span>
-                  <input v-model.number="baseMapModel.center[1]" type="number" step="0.1" @change="commitBaseModelParameter(1)" />
-                </label>
-                <label>
-                  <span>{{ t('config.modelZ') }}</span>
-                  <input v-model.number="baseMapModel.center[2]" type="number" step="0.1" @change="commitBaseModelParameter(2)" />
-                </label>
-                <label class="slider-field map-preview__rotation-field">
-                  <span>{{ t('config.rotationY') }}</span>
-                  <input v-model.number="baseMapModel.rotation[1]" type="range" min="-180" max="180" step="1" @change="commitBaseModelRotation" />
-                  <input v-model.number="baseMapModel.rotation[1]" type="number" step="1" @change="commitBaseModelRotation" />
-                </label>
-              </template>
-              <input ref="baseMapFileInput" class="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" @change="importBaseMapFile" />
-              <button type="button" class="upload-button" :disabled="baseMapImporting" @click.stop="openBaseMapFilePicker">
-                <UploadOutlined />
-                <span>{{ baseMapImporting ? t('config.uploading') : baseMapModel ? t('config.replaceBaseMap') : t('config.uploadBaseMap') }}</span>
-              </button>
-            </div>
-            <span v-if="!baseMapModel" class="map-preview__empty">
-              {{ t('config.noBaseMap') }}
-            </span>
-          </div>
-          <div class="preview-stats">
-            <span>{{ t('config.currentFloor', { name: draftMap.config.floor.name }) }}</span>
-            <span>{{ t('config.scaleLabel', { scale: `1:${getSafeScaleRatio(draftMap)}` }) }}</span>
-          </div>
-          <div class="pick-actions origin-editor">
-            <button type="button" :class="{ active: pickMode === 'positioning-origin' }" @click="startPick('positioning-origin')">
-              <span>{{ t('config.selectPositioningOrigin') }}</span>
-            </button>
-            <label><span>X</span><input v-model.number="positioningOriginDisplay[0]" type="number" @change="commitPositioningOriginDisplay" /></label>
-            <label><span>Y</span><input v-model.number="positioningOriginDisplay[1]" type="number" @change="commitPositioningOriginDisplay" /></label>
-            <label><span>Z</span><input v-model.number="positioningOriginDisplay[2]" type="number" @change="commitPositioningOriginDisplay" /></label>
-          </div>
-          <div class="pick-actions origin-editor calibration-editor">
-            <button type="button" :class="{ active: pickMode === 'two-point-calibration' }" @click="startTwoPointCalibration">
-              <span>{{ t('config.calibrateTwoPoint') }}</span>
-            </button>
-            <span v-if="draftMap.metadata.calibrationScale" class="calibration-scale">
-              {{ t('config.calibrationStored', { scale: draftMap.metadata.calibrationScale.toFixed(4) }) }}
-            </span>
-            <label>
-              <span>{{ t('config.calibrationPointA') }}</span>
-              <strong class="calibration-scene">{{ calibrationSceneADisplay }}</strong>
-            </label>
-            <label>
-              <span>{{ t('config.calibrationPointB') }}</span>
-              <strong class="calibration-scene">{{ calibrationSceneBDisplay }}</strong>
-            </label>
-            <label><span>{{ t('config.calibrationRealDistance') }}</span><input v-model.number="calibrationRealDistance" type="number" min="0" step="any" /></label>
-            <span v-if="calibrationSceneA && calibrationSceneB" class="calibration-scale">
-              {{ t('config.calibrationScaleComputed', { scale: calibrationComputedScale.toFixed(4) }) }}
-            </span>
-            <button
-              v-if="calibrationSceneA && calibrationSceneB"
-              type="button"
-              class="primary-button"
-              :disabled="!calibrationValid"
-              @click="applyTwoPointCalibration"
-            >
-              <span>{{ t('config.calibrationApply') }}</span>
-            </button>
-            <button
-              v-if="draftMap.metadata.calibrationScale"
-              type="button"
-              class="ghost-button"
-              @click="resetCalibrationDefault"
-            >
-              <span>{{ t('config.calibrationResetDefault') }}</span>
-            </button>
-            <button v-if="pickMode === 'two-point-calibration'" type="button" class="ghost-button" @click="cancelTwoPointCalibration">
-              <span>{{ t('common.cancel') }}</span>
-            </button>
-          </div>
-        </article>
+              <FloorPlanEditor
+                ref="floorPlanEditorRef"
+                v-model="draftMap.config"
+                :assets="draftMap.metadata.assets || []"
+                @source-imported="handleSourceImported"
+              />
+            </article>
+          </section>
 
-        <article class="form-panel">
-          <h3>{{ t('config.basicInfo') }}</h3>
-          <div class="form-grid">
-            <label>
-              <span>{{ t('config.buildingName') }}</span>
-              <input v-model.trim="draftMap.name" type="text" />
-            </label>
-<label>
-              <span>{{ t('config.region') }}</span>
-              <input v-model.trim="draftMap.metadata.region" type="text" />
-            </label>
-            <label class="wide">
-              <span>{{ t('config.address') }}</span>
-              <input v-model.trim="draftMap.metadata.address" type="text" />
-            </label>
-            <label class="wide">
-              <span>{{ t('config.description') }}</span>
-              <textarea v-model.trim="draftMap.description" rows="3" />
-            </label>
-          </div>
-          <div class="thumbnail-uploader">
-            <div class="thumbnail-uploader__preview">
-              <img v-if="draftMap.metadata.thumbnail" :src="draftMap.metadata.thumbnail" :alt="draftMap.name" />
-              <span v-else>{{ t('config.noCover') }}</span>
-            </div>
-            <div class="thumbnail-uploader__actions">
-              <span>{{ t('config.cover') }}</span>
-              <input ref="thumbnailFileInput" class="model-file-input" type="file" accept=".png,.jpg,.jpeg,.webp" @change="importThumbnailFile" />
-              <button type="button" class="upload-button" :disabled="thumbnailUploading" @click="openThumbnailFilePicker">
-                <UploadOutlined />
-                <span>{{ thumbnailUploading ? t('config.uploading') : t('config.uploadCover') }}</span>
-              </button>
-              <button v-if="draftMap.metadata.thumbnail" type="button" @click="clearThumbnail">
-                <DeleteOutlined />
-                <span>{{ t('config.clearCover') }}</span>
-              </button>
-              <small>{{ thumbnailUploadStatus || t('config.coverUploadHint') }}</small>
-            </div>
-          </div>
-          <div class="building-select-action">
-            <button type="button" class="building-select-button" @click="navigateToBuildingSelect">
-              <ShopOutlined />
-              <span>{{ t('config.goToBuildingSelect') }}</span>
-            </button>
-          </div>
-        </article>
+          <section v-show="editorSection === 'preview'" class="editor-pane editor-preview-layout">
+            <article class="preview-panel editor-preview-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>{{ t('config.modelPreview') }}</h3>
+                  <p>{{ pickMode ? t('config.pickModeActive', { target: pickModeLabel }) : t('config.pickModeIdle') }}</p>
+                </div>
+                <button v-if="pickMode" type="button" class="ghost-button" @click="cancelPick">
+                  <span>{{ t('common.cancel') }}</span>
+                </button>
+              </div>
+              <div
+                ref="preview3dRef"
+                class="map-preview map-preview--3d"
+                role="img"
+                @click="handlePreviewClick"
+                @contextmenu.prevent
+                @mousedown="handlePreviewPointerDown"
+                @wheel.prevent="handlePreviewWheel"
+              >
+                <div class="map-preview__hud">
+                  <span>{{ t('config.clickedCoordinate') }}</span>
+                  <strong>{{ previewCoordinateText }}</strong>
+                </div>
+                <span v-if="!baseMapModel" class="map-preview__empty">{{ t('config.noBaseMap') }}</span>
+              </div>
+            </article>
 
-        <article class="form-panel">
-          <h3>{{ t('config.floorManagement') }}</h3>
-          <div class="floor-management-actions">
-            <select :value="draftMap.metadata.activeFloorId" @change="handleFloorSelect">
-              <option v-for="floor in draftMap.metadata.floors" :key="floor.id" :value="floor.id">{{ floor.name }}</option>
-            </select>
-            <button type="button" @click="addFloor"><PlusOutlined />{{ t('config.addFloor') }}</button>
-            <button type="button" :disabled="draftMap.metadata.floors.length <= 1" @click="removeCurrentFloor"><DeleteOutlined />{{ t('config.deleteFloor') }}</button>
-          </div>
-          <div class="form-grid">
-            <label>
-              <span>{{ t('config.floorName') }}</span>
-              <input v-model.trim="draftMap.config.floor.name" type="text" @input="updateCurrentFloorName" />
-            </label>
-            <label class="wide">
-              <span>{{ t('config.floorDescription') }}</span>
-              <textarea v-model.trim="currentFloorDescription" rows="3" />
-            </label>
-          </div>
-        </article>
+            <aside class="preview-panel preview-control-panel">
+              <h3>{{ t('config.previewControlsTitle') }}</h3>
+              <div class="preview-mode-switch" role="group" :aria-label="t('config.previewControlsTitle')">
+                <button type="button" :class="{ active: previewMode === 'current' }" @click="previewMode = 'current'">{{ t('config.previewCurrentFloor') }}</button>
+                <button type="button" :class="{ active: previewMode === 'whole' }" @click="previewMode = 'whole'">{{ t('config.wholeBuildingView') }}</button>
+              </div>
+              <div class="preview-metrics">
+                <div><span>{{ t('config.previewFloorCount') }}</span><strong>{{ draftMap.metadata.floors.length }}</strong></div>
+                <div><span>{{ t('config.previewCurrentFloor') }}</span><strong>{{ currentFloor?.name || draftMap.config.floor.name }}</strong></div>
+                <div><span>{{ t('config.previewAssetCount') }}</span><strong>{{ previewAssetCount }}</strong></div>
+              </div>
+              <p class="preview-control-hint">{{ previewMode === 'whole' ? t('config.previewWholeHint') : t('config.previewCurrentHint') }}</p>
+              <button type="button" class="ghost-button preview-settings-link" @click="editorSection = 'settings'">
+                <SettingOutlined />
+                <span>{{ t('config.editorTab3dSettings') }}</span>
+              </button>
+            </aside>
+          </section>
 
-      </section>
+          <section v-show="editorSection === 'settings'" class="editor-pane">
+            <div class="editor-overview-grid editor-settings-grid">
+              <article class="form-panel">
+                <h3>{{ t('config.baseMap') }}</h3>
+                <p class="settings-model-path">{{ baseMapModel ? baseMapModel.path : t('config.noBaseMap') }}</p>
+                <label class="settings-scale-field">
+                  <span>{{ t('config.adjustModelScale') }}</span>
+                  <input :value="scaleRatioDisplay" type="number" min="0" step="1" @input="onScaleRatioInput" @blur="onScaleRatioBlur" />
+                </label>
+                <template v-if="baseMapModel">
+                  <label class="settings-coordinate-field"><span>{{ t('config.modelX') }}</span><input v-model.number="baseMapModel.center[0]" type="number" step="0.1" @change="commitBaseModelParameter(0)" /></label>
+                  <label class="settings-coordinate-field"><span>{{ t('config.modelY') }}</span><input v-model.number="baseMapModel.center[1]" type="number" step="0.1" @change="commitBaseModelParameter(1)" /></label>
+                  <label class="settings-coordinate-field"><span>{{ t('config.modelZ') }}</span><input v-model.number="baseMapModel.center[2]" type="number" step="0.1" @change="commitBaseModelParameter(2)" /></label>
+                  <label class="settings-rotation-field">
+                    <span>{{ t('config.rotationY') }}</span>
+                    <input v-model.number="baseMapModel.rotation[1]" type="range" min="-180" max="180" step="1" @change="commitBaseModelRotation" />
+                    <input v-model.number="baseMapModel.rotation[1]" type="number" step="1" @change="commitBaseModelRotation" />
+                  </label>
+                </template>
+              </article>
+              <article class="form-panel">
+                <h3>{{ t('config.positioningOrigin') }}</h3>
+                <p>{{ t('config.positioningOriginHint') }}</p>
+                <div class="pick-actions origin-editor">
+                  <button type="button" :class="{ active: pickMode === 'positioning-origin' }" @click="startPick('positioning-origin')">
+                    <span>{{ t('config.selectPositioningOrigin') }}</span>
+                  </button>
+                  <label><span>X</span><input v-model.number="positioningOriginDisplay[0]" type="number" @change="commitPositioningOriginDisplay" /></label>
+                  <label><span>Y</span><input v-model.number="positioningOriginDisplay[1]" type="number" @change="commitPositioningOriginDisplay" /></label>
+                  <label><span>Z</span><input v-model.number="positioningOriginDisplay[2]" type="number" @change="commitPositioningOriginDisplay" /></label>
+                  <small v-if="isLocalDraftMap(draftMap)" class="floor-calibration-hint">{{ t('config.floorPositioningCalibrationHint') }}</small>
+                </div>
+              </article>
+              <article class="form-panel">
+                <h3>{{ t('config.calibrateTwoPoint') }}</h3>
+                <div class="pick-actions origin-editor calibration-editor">
+                  <button type="button" :class="{ active: pickMode === 'two-point-calibration' }" @click="startTwoPointCalibration">
+                    <span>{{ t('config.calibrateTwoPoint') }}</span>
+                  </button>
+                  <span v-if="currentCalibrationScale" class="calibration-scale">{{ t('config.calibrationStored', { scale: currentCalibrationScale.toFixed(4) }) }}</span>
+                  <label><span>{{ t('config.calibrationPointA') }}</span><strong class="calibration-scene">{{ calibrationSceneADisplay }}</strong></label>
+                  <label><span>{{ t('config.calibrationPointB') }}</span><strong class="calibration-scene">{{ calibrationSceneBDisplay }}</strong></label>
+                  <label><span>{{ t('config.calibrationRealDistance') }}</span><input v-model.number="calibrationRealDistance" type="number" min="0" step="any" /></label>
+                  <span v-if="calibrationSceneA && calibrationSceneB" class="calibration-scale">{{ t('config.calibrationScaleComputed', { scale: calibrationComputedScale.toFixed(4) }) }}</span>
+                  <button v-if="calibrationSceneA && calibrationSceneB" type="button" class="primary-button" :disabled="!calibrationValid" @click="applyTwoPointCalibration">
+                    <span>{{ t('config.calibrationApply') }}</span>
+                  </button>
+                  <button v-if="currentCalibrationScale" type="button" class="ghost-button" @click="resetCalibrationDefault">
+                    <span>{{ t('config.calibrationResetDefault') }}</span>
+                  </button>
+                  <button v-if="pickMode === 'two-point-calibration'" type="button" class="ghost-button" @click="cancelTwoPointCalibration">
+                    <span>{{ t('common.cancel') }}</span>
+                  </button>
+                  <small v-if="pickMode" class="floor-calibration-hint">{{ t('config.settingsPickHint') }}</small>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section v-show="editorSection === 'assets'" class="editor-pane">
+            <article class="plan-editor-panel">
+              <div class="plan-editor-heading">
+                <div>
+                  <h3>{{ t('config.assetLibraryTitle') }}</h3>
+                  <p>{{ t('config.assetLibraryHint') }}</p>
+                </div>
+                <div class="plan-asset-actions">
+                  <input ref="assetFileInput" class="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" @change="importMapAsset" />
+                  <button type="button" class="upload-button" :disabled="assetUploading" @click="openMapAssetPicker">
+                    <UploadOutlined />
+                    <span>{{ assetUploading ? t('config.uploading') : t('config.uploadSmallModel') }}</span>
+                  </button>
+                  <small v-if="assetUploadStatus">{{ assetUploadStatus }}</small>
+                </div>
+              </div>
+              <div v-if="draftMap.metadata.assets?.length" class="map-asset-library">
+                <div v-for="asset in draftMap.metadata.assets" :key="asset.id" class="map-asset-row">
+                  <span>{{ asset.name }}</span>
+                  <small>{{ asset.path }}</small>
+                  <button type="button" :disabled="assetDeleting === asset.id" :title="`${t('common.delete')} ${asset.name}`" @click="deleteMapAsset(asset)">
+                    <DeleteOutlined />
+                  </button>
+                </div>
+              </div>
+              <p v-else class="editor-empty-state">{{ t('config.assetLibraryEmpty') }}</p>
+            </article>
+          </section>
+        </div>
+      </div>
     </template>
 
     <p v-if="message" class="toast-message">{{ message }}</p>
@@ -377,10 +476,15 @@ import {
   DeleteOutlined,
   PlusOutlined,
   SaveOutlined,
+  SettingOutlined,
   ShopOutlined,
   UploadOutlined,
 } from '@ant-design/icons-vue';
+import FloorPlanEditor from '@/components/FloorPlanEditor.vue';
 import {
+  createMap as apiCreateMap,
+  uploadMapAsset as apiUploadMapAsset,
+  deleteMapAsset as apiDeleteMapAsset,
   uploadModel as apiUploadModel,
   fetchModelList as apiFetchModelList,
   fetchModelDetail as apiFetchModelDetail,
@@ -393,6 +497,7 @@ import {
 } from '@/services/mapApi';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { SceneBuilder } from '@/three/builders/SceneBuilder';
 import { useSceneStore } from '@/stores/scene';
 import type { AreaConfig, ModelConfig, Point3D, SceneConfig } from '@/types/scene';
 import {
@@ -401,14 +506,22 @@ import {
   cloneModels,
   cloneSceneConfig,
   createBlankSceneConfig,
+  createLocalDraftMap,
   createSavedMap,
   getMapLibrary,
+  isLocalDraftMap,
   normalizeModelConfig,
+  registerLocalDraftAssetUrl,
+  releaseLocalDraftAssetUrl,
   saveMapLibrary,
   type MapFloorItem,
+  type MapAsset,
+  type FloorPositioningCalibration,
+  type MapMetadata,
   type SavedMap,
 } from '@/services/mapLibrary';
 import { invalidateModelAssetUrl, versionModelAssetUrl } from '@/services/modelAssetCache';
+import { getModelingAssetUrl, modelingAssetIdFromPath } from '@/modeling-workbench/assetCache';
 
 type RuleLevel = 'alarm' | 'warn' | 'normal';
 type PickMode = 'positioning-origin' | 'two-point-calibration';
@@ -453,6 +566,9 @@ const props = defineProps<{
   editMapId?: string;
   themeMode?: 'dark' | 'light';
 }>();
+const emit = defineEmits<{
+  (event: 'open-modeling-workbench', map: SavedMap): void;
+}>();
 
 /** 当前主题模式，未传入时回退浅色，用于 map-editor 的深色适配 */
 const themeMode = computed<'dark' | 'light'>(() => props.themeMode ?? 'light');
@@ -489,17 +605,41 @@ const selectedSetting = ref(configItems[0]?.title ?? '');
 const selectedRuleName = ref(rules[0]?.name ?? '');
 const selectedChannelName = ref(channels[0]?.name ?? '');
 const sceneStore = useSceneStore();
+const editorTabs = [
+  { key: 'info', label: 'config.editorTabInfo' },
+  { key: 'upload', label: 'config.editorTabUpload' },
+  { key: 'plan', label: 'config.editorTabPlan' },
+  { key: 'preview', label: 'config.editorTabPreview' },
+  { key: 'settings', label: 'config.editorTab3dSettings' },
+  { key: 'assets', label: 'config.editorTabAssets' },
+] as const;
+type EditorSection = (typeof editorTabs)[number]['key'];
 const maps = ref<SavedMap[]>(getMapLibrary());
+const availablePositioningMaps = computed(() => maps.value.filter((map) => map.id !== DEFAULT_MAP_ID && !isLocalDraftMap(map)));
+const currentPositioningBinding = computed(() => {
+  const map = draftMap.value;
+  return map && isLocalDraftMap(map) ? map.metadata.positioningBindings?.[map.metadata.activeFloorId] ?? null : null;
+});
+const currentPositioningMap = computed(() => availablePositioningMaps.value.find(
+  (map) => (map.metadata.buildingId || map.id) === currentPositioningBinding.value?.buildingId,
+) ?? null);
 const viewMode = ref<'list' | 'edit'>('list');
+const editorSection = ref<EditorSection>('info');
+const previewMode = ref<'current' | 'whole'>('current');
 const draftMap = ref<SavedMap | null>(null);
 const message = ref('');
 const preview3dRef = ref<HTMLDivElement | null>(null);
+const floorPlanEditorRef = ref<{ openImportFilePicker: () => void } | null>(null);
 const baseMapFileInput = ref<HTMLInputElement | null>(null);
+const assetFileInput = ref<HTMLInputElement | null>(null);
+const assetUploading = ref(false);
+const assetDeleting = ref('');
+const assetUploadStatus = ref('');
+const mapSaving = ref(false);
 const baseMapImporting = ref(false);
 const thumbnailFileInput = ref<HTMLInputElement | null>(null);
 const thumbnailUploading = ref(false);
 const thumbnailUploadStatus = ref('');
-const baseMapToolsOpen = ref(true);
 const pickMode = ref<PickMode | null>(null);
 const gltfLoader = new GLTFLoader();
 const modelModules = import.meta.glob('/src/assets/model/**/*.{glb,gltf}', {
@@ -607,8 +747,25 @@ const currentFloorDescription = computed({
 });
 const baseMapModel = computed(() => draftMap.value?.config.models.find((model) => model.role === 'base-map') ?? null);
 const transformRange = computed(() => {
-  const floor = draftMap.value?.config.floor;
-  return Math.max(floor?.width ?? 1000, floor?.height ?? 600, 100);
+  const map = draftMap.value;
+  if (!map) return 1000;
+  const configs = previewMode.value === 'whole'
+    ? map.metadata.floors.map((floor) => floor.id === map.metadata.activeFloorId ? map.config : floor.config)
+    : [map.config];
+  const width = Math.max(...configs.map((config) => config.floor.width), 100);
+  const depth = Math.max(...configs.map((config) => config.floor.height), 100);
+  const vertical = previewMode.value === 'whole'
+    ? configs.reduce((height, config) => height + getPreviewFloorHeight(config), 0)
+    : 0;
+  return Math.max(width, depth, vertical, 100);
+});
+const previewAssetCount = computed(() => {
+  const map = draftMap.value;
+  if (!map) return 0;
+  const configs = previewMode.value === 'whole'
+    ? map.metadata.floors.map((floor) => floor.id === map.metadata.activeFloorId ? map.config : floor.config)
+    : [map.config];
+  return configs.reduce((count, config) => count + config.models.filter((model) => model.role !== 'base-map').length, 0);
 });
 const previewCoordinateText = computed(() => {
   if (!previewClickedPoint.value) {
@@ -654,19 +811,57 @@ function onScaleRatioBlur() {
   scaleRatioDisplay.value = String(num);
 }
 
-// Building-level positioning origin shared by every floor.
+// Saved maps share building-level calibration; local drafts can override it per floor.
 const positioningOriginDisplay = ref<Point3D>([0, 0, 0]);
+const currentFloorCalibration = computed(() => {
+  const map = draftMap.value;
+  return map?.metadata.positioningByFloor?.[map.metadata.activeFloorId];
+});
+const currentPositioningOrigin = computed(() =>
+  currentFloorCalibration.value?.positioningOrigin ?? draftMap.value?.metadata.positioningOrigin ?? [0, 0, 0],
+);
+const currentCalibrationScale = computed(() =>
+  currentFloorCalibration.value?.calibrationScale ?? draftMap.value?.metadata.calibrationScale,
+);
+
+function updateCurrentPositioningCalibration(patch: Partial<FloorPositioningCalibration>) {
+  const map = draftMap.value;
+  if (!map) return;
+  if (!isLocalDraftMap(map)) {
+    if (patch.positioningOrigin) map.metadata.positioningOrigin = [...patch.positioningOrigin] as Point3D;
+    if ('calibrationScale' in patch) map.metadata.calibrationScale = patch.calibrationScale;
+    return;
+  }
+
+  const floorId = map.metadata.activeFloorId;
+  const existing = map.metadata.positioningByFloor?.[floorId] ?? {
+    positioningOrigin: [...map.metadata.positioningOrigin] as Point3D,
+    calibrationScale: map.metadata.calibrationScale,
+  };
+  map.metadata.positioningByFloor ??= {};
+  map.metadata.positioningByFloor[floorId] = {
+    ...existing,
+    ...patch,
+    positioningOrigin: patch.positioningOrigin
+      ? [...patch.positioningOrigin] as Point3D
+      : [...existing.positioningOrigin] as Point3D,
+  };
+}
+
 function syncPositioningOriginDisplay() {
   if (!draftMap.value) return;
-  positioningOriginDisplay.value = [...draftMap.value.metadata.positioningOrigin] as Point3D;
+  positioningOriginDisplay.value = [...currentPositioningOrigin.value] as Point3D;
 }
 function commitPositioningOriginDisplay() {
   if (!draftMap.value) return;
-  draftMap.value.metadata.positioningOrigin = [...positioningOriginDisplay.value] as Point3D;
+  updateCurrentPositioningCalibration({ positioningOrigin: [...positioningOriginDisplay.value] as Point3D });
   applyBuildingSettingsToFloors(draftMap.value);
 }
 watch(() => draftMap.value, syncPositioningOriginDisplay, { immediate: true });
-watch(() => draftMap.value?.metadata.activeFloorId, updateScaleRatioDisplay);
+watch(() => draftMap.value?.metadata.activeFloorId, () => {
+  syncPositioningOriginDisplay();
+  updateScaleRatioDisplay();
+});
 watch(() => draftMap.value, updateScaleRatioDisplay, { immediate: true });
 function addAudit(content: string) {
   audits.unshift({ time: t('config.justNow'), content });
@@ -804,8 +999,13 @@ function getBackendConfigId(map: SavedMap): string {
   return uploadedIds.find((id) => id === map.id) ?? uploadedIds[0] ?? map.id;
 }
 
+function requiresServerCreation(map: SavedMap): boolean {
+  if (map.id === DEFAULT_MAP_ID) return true;
+  return map.id.startsWith('map-') && getBackendConfigId(map) === map.id;
+}
+
 function captureBuildingModelParameters(map: SavedMap) {
-  map.metadata.modelParameters = cloneModels(map.config.models);
+  map.metadata.modelParameters = cloneModels(map.config.models.filter((model) => model.role === 'base-map'));
 }
 
 function applyBuildingSettingsToFloors(map: SavedMap) {
@@ -832,6 +1032,7 @@ function cloneMapFloors(floors: MapFloorItem[]): MapFloorItem[] {
 
 function normalizeClonedSceneConfig(config: SceneConfig): SceneConfig {
   const clonedConfig = cloneSceneConfig(config);
+  clonedConfig.doors = clonedConfig.doors ?? [];
   normalizeSceneModelCenters(clonedConfig);
   return clonedConfig;
 }
@@ -915,11 +1116,53 @@ function removeCurrentFloor() {
   const activeFloorId = draftMap.value.metadata.activeFloorId;
   const nextFloors = draftMap.value.metadata.floors.filter((floor) => floor.id !== activeFloorId);
   draftMap.value.metadata.floors = nextFloors;
+  if (draftMap.value.metadata.positioningBindings) {
+    delete draftMap.value.metadata.positioningBindings[activeFloorId];
+  }
+  if (draftMap.value.metadata.positioningByFloor) {
+    delete draftMap.value.metadata.positioningByFloor[activeFloorId];
+  }
   const nextFloor = nextFloors[0];
   draftMap.value.metadata.activeFloorId = nextFloor.id;
   draftMap.value.config = normalizeClonedSceneConfig(nextFloor.config);
   syncScaleRatioToConfig(draftMap.value);
   applyBuildingSettingsToFloors(draftMap.value);
+}
+
+function selectPositioningMap(event: Event) {
+  if (!draftMap.value || !isLocalDraftMap(draftMap.value)) return;
+  const selected = availablePositioningMaps.value.find((map) => map.id === (event.target as HTMLSelectElement).value);
+  const floor = selected?.metadata.floors[0];
+  if (!selected || !floor) {
+    clearPositioningBinding();
+    return;
+  }
+  draftMap.value.metadata.positioningBindings ??= {};
+  draftMap.value.metadata.positioningBindings[draftMap.value.metadata.activeFloorId] = {
+    buildingId: selected.metadata.buildingId || selected.id,
+    floorId: floor.id,
+    buildingName: selected.name,
+    floorName: floor.name,
+  };
+}
+
+function selectPositioningFloor(event: Event) {
+  const binding = currentPositioningBinding.value;
+  const floor = currentPositioningMap.value?.metadata.floors.find(
+    (item) => item.id === (event.target as HTMLSelectElement).value,
+  );
+  if (!draftMap.value || !isLocalDraftMap(draftMap.value) || !binding || !floor) return;
+  draftMap.value.metadata.positioningBindings ??= {};
+  draftMap.value.metadata.positioningBindings[draftMap.value.metadata.activeFloorId] = {
+    ...binding,
+    floorId: floor.id,
+    floorName: floor.name,
+  };
+}
+
+function clearPositioningBinding() {
+  if (!draftMap.value || !isLocalDraftMap(draftMap.value)) return;
+  delete draftMap.value.metadata.positioningBindings?.[draftMap.value.metadata.activeFloorId];
 }
 
 function updateCurrentFloorName() {
@@ -1136,7 +1379,7 @@ function updateCalibrationAux() {
 }
 
 function getPreviewModelKey(modelConfig: ModelConfig, index: number): string {
-  return `${index}:base-map:${modelConfig.path}`;
+  return `${index}:${modelConfig.role || 'asset'}:${modelConfig.path}`;
 }
 
 function getPreviewAssetSignature(config: SceneConfig): string {
@@ -1144,7 +1387,8 @@ function getPreviewAssetSignature(config: SceneConfig): string {
 }
 
 function getPreviewLayoutSignature(config: SceneConfig, origin: [number, number, number]): string {
-  return `${config.floor.width}|${config.floor.height}|${origin[0]}|${origin[1]}|${origin[2]}|${config.floor.scale}`;
+  const geometry = JSON.stringify([config.areas, config.walls, config.doors || [], config.fences, config.devices]);
+  return `${config.floor.width}|${config.floor.height}|${origin[0]}|${origin[1]}|${origin[2]}|${config.floor.scale}|${geometry}`;
 }
 
 function resolveModelUrl(modelPath: string | undefined | null): string | null {
@@ -1307,14 +1551,16 @@ async function rebuildPreviewScene() {
   }
 
   const token = ++previewBuildToken;
-  const config = normalizeClonedSceneConfig(map.config);
-  const positioningOrigin = [...map.metadata.positioningOrigin] as [number, number, number];
-  const assetSignature = getPreviewAssetSignature(config);
-  const layoutSignature = getPreviewLayoutSignature(config, positioningOrigin);
+  const floors = getPreviewFloorEntries(map);
+  const config = createPreviewBoundsConfig(floors);
+  const assetSignature = `${previewMode.value}|${floors.map((floor) => `${floor.id}:${getPreviewAssetSignature(floor.config)}`).join('||')}`;
+  const layoutSignature = `${previewMode.value}|${floors.map((floor) => {
+    const positioningOrigin = map.metadata.positioningByFloor?.[floor.id]?.positioningOrigin ?? map.metadata.positioningOrigin;
+    return `${floor.id}@${floor.elevation}:${getPreviewLayoutSignature(floor.config, positioningOrigin)}`;
+  }).join('||')}`;
   const needsAssetReload = assetSignature !== previewAssetSignature;
   const needsLayoutUpdate = layoutSignature !== previewLayoutSignature || needsAssetReload;
-  // Track model config changes (scale, center, rotation) that affect visual size/position
-  const scaleSignature = config.models.map((m, i) => `${i}:${m.scale}:${m.center?.join(',')}:${m.role}:${config.floor.scale}`).join('|');
+  const scaleSignature = `${previewMode.value}|${floors.flatMap((floor) => floor.config.models.map((model, index) => `${floor.id}:${index}:${model.scale}:${model.center?.join(',')}:${model.role}:${floor.config.floor.scale}:${floor.elevation}`)).join('|')}`;
   const needsCameraReframe = scaleSignature !== previewScaleSignature;
   if (needsCameraReframe) {
     previewScaleSignature = scaleSignature;
@@ -1326,58 +1572,105 @@ async function rebuildPreviewScene() {
   }
   if (needsLayoutUpdate) {
     clearPreviewAuxObjects();
+    const buildingGroup = new THREE.Group();
+    buildingGroup.name = 'twin-floor';
+    floors.forEach((floor) => {
+      const floorGroup = new SceneBuilder().build(floor.config);
+      floorGroup.position.y += floor.elevation;
+      buildingGroup.add(floorGroup);
+    });
+    addPreviewAuxObject(buildingGroup);
     addPreviewAuxObject(createPreviewGrid(config));
     addPreviewAuxObject(createXDirectionIndicator(config));
-    addPreviewAuxObject(createPositioningOriginMarker(positioningOrigin));
-    updateCalibrationAux();
+    if (previewMode.value === 'current') {
+      const positioningOrigin = [...(map.metadata.positioningByFloor?.[map.metadata.activeFloorId]?.positioningOrigin ?? map.metadata.positioningOrigin)] as [number, number, number];
+      addPreviewAuxObject(createPositioningOriginMarker(positioningOrigin));
+      updateCalibrationAux();
+    }
     previewLayoutSignature = layoutSignature;
   }
 
   const loadedModels: THREE.Object3D[] = [];
-  for (const [index, modelConfig] of config.models.entries()) {
-    const modelKey = getPreviewModelKey(modelConfig, index);
-    const cachedModel = previewModelObjects.get(modelKey);
-    if (cachedModel) {
-      applyPreviewModelConfig(cachedModel, modelConfig, config);
-      loadedModels.push(cachedModel);
-      continue;
-    }
-
-    const modelUrl = resolveModelUrl(modelConfig.path);
-    if (!modelUrl) {
-      console.warn('[Preview] no URL for model:', modelConfig.path);
-      continue;
-    }
-
-    try {
-      const gltf = await gltfLoader.loadAsync(modelUrl);
-      if (token !== previewBuildToken) {
-        disposePreviewObject(gltf.scene);
-        return;
+  for (const floor of floors) {
+    for (const [index, modelConfig] of floor.config.models.entries()) {
+      const modelKey = `${floor.id}:${getPreviewModelKey(modelConfig, index)}`;
+      const cachedModel = previewModelObjects.get(modelKey);
+      if (cachedModel) {
+        applyPreviewModelConfig(cachedModel, modelConfig, floor.config);
+        cachedModel.position.y += floor.elevation;
+        loadedModels.push(cachedModel);
+        continue;
       }
-      const model = gltf.scene.clone(true);
-      model.traverse((object) => {
-        const mesh = object as THREE.Mesh;
-        if (mesh.isMesh) {
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
+
+      try {
+        const modelingAssetId = modelingAssetIdFromPath(modelConfig.path);
+        const modelUrl = modelingAssetId
+          ? await getModelingAssetUrl(modelingAssetId)
+          : resolveModelUrl(modelConfig.path);
+        if (!modelUrl) {
+          console.warn('[Preview] no URL for model:', modelConfig.path);
+          continue;
         }
-      });
-      applyPreviewModelConfig(model, modelConfig, config);
-      preview.scene.add(model);
-      previewModelObjects.set(modelKey, model);
-      loadedModels.push(model);
-    } catch (error) {
-      console.warn(`Failed to load preview model ${modelConfig.path}`, error);
+        const gltf = await gltfLoader.loadAsync(modelUrl);
+        if (token !== previewBuildToken) {
+          disposePreviewObject(gltf.scene);
+          return;
+        }
+        const model = gltf.scene.clone(true);
+        model.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          if (mesh.isMesh) {
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+          }
+        });
+        applyPreviewModelConfig(model, modelConfig, floor.config);
+        model.position.y += floor.elevation;
+        preview.scene.add(model);
+        previewModelObjects.set(modelKey, model);
+        loadedModels.push(model);
+      } catch (error) {
+        console.warn(`Failed to load preview model ${modelConfig.path}`, error);
+      }
     }
   }
 
   if (!previewHasFramed || pickMode.value) {
-    framePreviewCamera(loadedModels, config);
+    framePreviewCamera([...loadedModels, ...previewAuxObjects.filter((object) => object.name === 'twin-floor')], config);
     previewHasFramed = true;
   } else {
     updatePreviewCamera();
   }
+}
+
+function getPreviewFloorEntries(map: SavedMap) {
+  const floorItems = map.metadata.floors.length
+    ? map.metadata.floors
+    : [{ id: map.config.floor.id, name: map.config.floor.name, config: map.config }];
+  const selectedFloors = previewMode.value === 'whole'
+    ? floorItems
+    : floorItems.filter((floor) => floor.id === map.metadata.activeFloorId).slice(0, 1);
+  const visibleFloors = selectedFloors.length ? selectedFloors : [floorItems[0]];
+  let elevation = 0;
+  return visibleFloors.map((floor) => {
+    const config = normalizeClonedSceneConfig(floor.id === map.metadata.activeFloorId ? map.config : floor.config);
+    const entry = { id: floor.id, config, elevation };
+    elevation += getPreviewFloorHeight(config);
+    return entry;
+  });
+}
+
+function getPreviewFloorHeight(config: SceneConfig): number {
+  const wallHeight = Math.max(0, ...config.walls.map((wall) => Number(wall.height) || 0));
+  const doorHeight = Math.max(0, ...(config.doors ?? []).map((door) => Number(door.height) || 0));
+  return Math.max(wallHeight, doorHeight, 3.2) + 0.12;
+}
+
+function createPreviewBoundsConfig(floors: ReturnType<typeof getPreviewFloorEntries>): SceneConfig {
+  const base = normalizeClonedSceneConfig(floors[0].config);
+  base.floor.width = Math.max(...floors.map((floor) => floor.config.floor.width), 100);
+  base.floor.height = Math.max(...floors.map((floor) => floor.config.floor.height), 100);
+  return base;
 }
 
 function framePreviewCamera(models: THREE.Object3D[], config: SceneConfig) {
@@ -1402,6 +1695,7 @@ function framePreviewCamera(models: THREE.Object3D[], config: SceneConfig) {
   if (pickMode.value) {
     setPreviewTopDownView();
   } else {
+    if (previewMode.value === 'whole') previewView.pitch = 52;
     updatePreviewCamera();
   }
 }
@@ -1483,8 +1777,12 @@ async function loadMapsFromApi() {
 // populated from localStorage so the UI is immediately usable.
 void loadMapsFromApi();
 
-function openEditor(map: SavedMap) {
+function openEditor(map: SavedMap, initialSection: EditorSection = 'info') {
   previewHasFramed = false;
+  previewMode.value = 'current';
+  previewAssetSignature = '';
+  previewLayoutSignature = '';
+  previewScaleSignature = '';
   previewRestoreView = null;
   previewClickedPoint.value = null;
   resetCalibrationState();
@@ -1494,13 +1792,21 @@ function openEditor(map: SavedMap) {
       ...map.metadata,
       mapOrigin: [...map.metadata.mapOrigin] as [number, number, number],
       positioningOrigin: [...map.metadata.positioningOrigin] as [number, number, number],
+      positioningByFloor: Object.fromEntries(Object.entries(map.metadata.positioningByFloor || {}).map(([floorId, calibration]) => [floorId, {
+        ...calibration,
+        positioningOrigin: [...calibration.positioningOrigin] as [number, number, number],
+      }])),
       modelParameters: cloneModels(map.metadata.modelParameters),
       floors: cloneMapFloors(map.metadata.floors),
+      positioningBindings: { ...(map.metadata.positioningBindings || {}) },
+      assets: (map.metadata.assets || []).map((asset) => ({ ...asset })),
+      mapSource: map.metadata.mapSource ? JSON.parse(JSON.stringify(map.metadata.mapSource)) : undefined,
     },
     config: normalizeClonedSceneConfig(map.config),
   };
   syncScaleRatioToConfig(draftMap.value);
   applyBuildingSettingsToFloors(draftMap.value);
+  editorSection.value = initialSection;
   viewMode.value = 'edit';
 
   // Update URL to include map ID so refresh restores the editor
@@ -1526,19 +1832,21 @@ function closeEditor() {
 
 function createBlankMap() {
   const firstFloorName = t('config.floorNameDefault', { n: 1 });
-  const map = createSavedMap(t('config.unnamedMap'), t('config.blankMap'), createBlankSceneConfig(firstFloorName));
-  syncMaps([map, ...maps.value]);
-  openEditor(map);
+  const map = createLocalDraftMap(t('config.unnamedMap'), t('config.blankMap'), createBlankSceneConfig(firstFloorName));
+  syncMaps([map, ...maps.value.filter((item) => item.id !== map.id)]);
+  emit('open-modeling-workbench', map);
 }
 
-function saveDraft() {
+async function saveDraft(): Promise<boolean> {
   if (!draftMap.value) {
-    return;
+    return false;
   }
+  if (mapSaving.value) return false;
+  mapSaving.value = true;
   syncScaleRatioToConfig(draftMap.value);
   syncActiveFloorFromConfig(draftMap.value);
 
-  const nextMap: SavedMap =
+  let nextMap: SavedMap =
     draftMap.value.id === DEFAULT_MAP_ID
       ? createSavedMap(
           draftMap.value.name || t('config.defaultMapCopy'),
@@ -1559,52 +1867,75 @@ function saveDraft() {
           config: normalizeClonedSceneConfig(draftMap.value.config),
         };
 
-  const nextMaps = maps.value.some((item) => item.id === nextMap.id)
-    ? maps.value.map((item) => (item.id === nextMap.id ? nextMap : item))
-    : [nextMap, ...maps.value];
-  syncMaps(nextMaps);
-  draftMap.value = { ...nextMap, config: normalizeClonedSceneConfig(nextMap.config) };
-  if (sceneStore.activeMapId === nextMap.id) {
-    sceneStore.setActiveMap(nextMap.id, normalizeClonedSceneConfig(nextMap.config));
-  }
+  try {
+    const draftId = draftMap.value.id;
+    if (isLocalDraftMap(nextMap)) {
+      // New models remain browser drafts in this integration phase.
+    } else if (requiresServerCreation(nextMap)) {
+      const detail = await apiCreateMap({
+        name: nextMap.name,
+        description: nextMap.description,
+        config: nextMap.config,
+        metadata: nextMap.metadata,
+      });
+      const persisted = mapDetailToSavedMap(detail);
+      if (!persisted) throw new Error('服务器返回的地图配置不完整');
+      nextMap = persisted;
+    } else {
+      const backendConfigId = getBackendConfigId(nextMap);
+      await apiSaveModelConfig(backendConfigId, {
+        name: nextMap.name,
+        description: nextMap.description,
+        config: nextMap.config,
+        metadata: { ...nextMap.metadata, buildingId: backendConfigId },
+        thumbnail: nextMap.metadata.thumbnail || undefined,
+      });
+      nextMap.id = backendConfigId;
+      nextMap.metadata.buildingId = backendConfigId;
+    }
 
-  // Uploaded model/config files use the server-generated model ID. Legacy
-  // locally-created maps may still have a different `map-*` browser ID, so
-  // resolve the backend ID from the persisted model path before saving.
-  if (nextMap.id !== DEFAULT_MAP_ID) {
-    const backendConfigId = getBackendConfigId(nextMap);
-    apiSaveModelConfig(backendConfigId, {
-      name: nextMap.name,
-      description: nextMap.description,
-      config: nextMap.config,
-      metadata: { ...nextMap.metadata, buildingId: backendConfigId },
-      thumbnail: nextMap.metadata.thumbnail || undefined,
-    }).catch((error) => {
-      console.error(`[saveDraft] failed to save backend config ${backendConfigId}`, error);
-      const reason = error instanceof Error ? error.message : t('config.mapSaveServerFailed');
-      showMessage(t('config.mapSaveServerFailed', { reason }));
-    });
+    const nextMaps = [
+      nextMap,
+      ...maps.value.filter((item) => item.id !== nextMap.id && (draftId === DEFAULT_MAP_ID || item.id !== draftId)),
+    ];
+    syncMaps(nextMaps);
+    draftMap.value = { ...nextMap, config: normalizeClonedSceneConfig(nextMap.config) };
+    if (sceneStore.activeMapId === nextMap.id) {
+      sceneStore.setActiveMap(getMapLibrary().find((map) => map.id === nextMap.id) ?? nextMap);
+    }
+    if (window.location.pathname.includes('/map-editor/')) {
+      const editorUrl = `/config/map-editor/${encodeURIComponent(nextMap.id)}`;
+      if (window.location.pathname !== editorUrl) window.history.replaceState({}, '', editorUrl);
+    }
+    showMessage(t(isLocalDraftMap(nextMap) ? 'config.localDraftSaved' : 'config.mapSaved'));
+    return true;
+  } catch (error) {
+    console.error('[saveDraft] backend persistence failed', error);
+    const reason = error instanceof Error ? error.message : t('config.mapSaveServerFailed');
+    showMessage(t('config.mapSaveServerFailed', { reason }));
+    return false;
+  } finally {
+    mapSaving.value = false;
   }
-
-  showMessage(t('config.mapSaved'));
 }
 
 function applyMap(map: SavedMap) {
-  sceneStore.setActiveMap(map.id, normalizeClonedSceneConfig(map.config));
-  // 把"当前应用的地图"持久化到服务端，保证跨设备一致
-  apiSetActiveModel(map.id).catch((error) => {
-    console.error(`[applyMap] failed to persist active map ${map.id} on server`, error);
-  });
+  const appliedMap = getMapLibrary().find((item) => item.id === map.id) ?? map;
+  sceneStore.setActiveMap(appliedMap);
+  if (!isLocalDraftMap(map)) {
+    apiSetActiveModel(map.id).catch((error) => {
+      console.error(`[applyMap] failed to persist active map ${map.id} on server`, error);
+    });
+  }
   showMessage(t('config.mapApplied', { name: map.name }));
 }
 
-function applyDraft() {
+async function applyDraft() {
   if (!draftMap.value) {
     return;
   }
 
-  saveDraft();
-  applyMap(draftMap.value);
+  if (await saveDraft()) applyMap(draftMap.value!);
 }
 
 async function deleteMap(map: SavedMap) {
@@ -1616,19 +1947,24 @@ async function deleteMap(map: SavedMap) {
     return;
   }
 
-  const nextMaps = maps.value.filter((item) => item.id !== map.id);
+  try {
+    // Keep the row until the server confirms deletion; otherwise a failed request
+    // would make the model reappear after the next reload with no explanation.
+    if (!isLocalDraftMap(map)) {
+      await apiDeleteModel(getBackendConfigId(map));
+    }
 
-  // Delete via backend API (removes model file + config JSON + thumbnail)
-  apiDeleteModel(getBackendConfigId(map)).catch(() => {
-    // Backend not available — silently ignore; localStorage will be cleaned up.
-  });
-
-  syncMaps(nextMaps);
-  if (sceneStore.activeMapId === map.id) {
-    const fallbackMap = nextMaps[0];
-    sceneStore.setActiveMap(fallbackMap.id, normalizeClonedSceneConfig(fallbackMap.config));
+    const nextMaps = maps.value.filter((item) => item.id !== map.id);
+    syncMaps(nextMaps);
+    if (sceneStore.activeMapId === map.id) {
+      const fallbackMap = getMapLibrary().find((item) => item.id === nextMaps[0].id) ?? nextMaps[0];
+      sceneStore.setActiveMap(fallbackMap);
+    }
+    showMessage(t('config.mapDeleted', { name: map.name }));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    showMessage(t('config.mapDeleteFailed', { reason }));
   }
-  showMessage(t('config.mapDeleted', { name: map.name }));
 }
 
 async function importThumbnailFile(event: Event) {
@@ -1648,7 +1984,15 @@ async function importThumbnailFile(event: Event) {
   thumbnailUploading.value = true;
   thumbnailUploadStatus.value = `${t('config.uploading')} ${file.name}...`;
   try {
-    const thumbnailPath = await apiUploadThumbnail(file);
+    let thumbnailPath: string;
+    if (isLocalDraftMap(draftMap.value)) {
+      thumbnailPath = URL.createObjectURL(file);
+      registerLocalDraftAssetUrl(thumbnailPath);
+      const previousThumbnail = draftMap.value.metadata.thumbnail;
+      if (previousThumbnail.startsWith('blob:')) releaseLocalDraftAssetUrl(previousThumbnail);
+    } else {
+      thumbnailPath = await apiUploadThumbnail(file);
+    }
     draftMap.value.metadata.thumbnail = thumbnailPath;
     thumbnailUploadStatus.value = t('config.coverSaved');
     showMessage(thumbnailUploadStatus.value);
@@ -1668,6 +2012,11 @@ async function importThumbnailFile(event: Event) {
 
 function openBaseMapFilePicker() {
   baseMapFileInput.value?.click();
+}
+
+function openPlanImporter() {
+  editorSection.value = 'plan';
+  void nextTick(() => floorPlanEditorRef.value?.openImportFilePicker());
 }
 
 function replaceCurrentFloorBaseMap(baseModel: ModelConfig) {
@@ -1697,6 +2046,85 @@ function clearThumbnail() {
 
   draftMap.value.metadata.thumbnail = '';
   thumbnailUploadStatus.value = '';
+}
+
+function handleSourceImported(source: NonNullable<MapMetadata['mapSource']>) {
+  if (!draftMap.value) return;
+  draftMap.value.metadata.mapSource = source;
+  if (source.center) {
+    draftMap.value.metadata.mapOrigin = [source.center[0], source.center[1], 0];
+  }
+}
+
+function openMapAssetPicker() {
+  assetFileInput.value?.click();
+}
+
+async function importMapAsset(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !draftMap.value) return;
+  if (!/\.(glb|gltf)$/i.test(file.name)) {
+    assetUploadStatus.value = '仅支持 GLB / GLTF 文件';
+    return;
+  }
+
+  assetUploading.value = true;
+  assetUploadStatus.value = `正在上传 ${file.name}`;
+  try {
+    if (requiresServerCreation(draftMap.value)) {
+      const saved = await saveDraft();
+      if (!saved || !draftMap.value) throw new Error('请先成功保存地图');
+    }
+    let nextAsset: MapAsset;
+    if (isLocalDraftMap(draftMap.value)) {
+      const path = URL.createObjectURL(file);
+      registerLocalDraftAssetUrl(path);
+      nextAsset = { id: `local-asset-${crypto.randomUUID()}`, name: file.name, path };
+    } else {
+      const mapId = getBackendConfigId(draftMap.value);
+      const asset = await apiUploadMapAsset(mapId, file);
+      nextAsset = { id: asset.id, name: file.name, path: asset.path };
+    }
+    draftMap.value.metadata.assets = [...(draftMap.value.metadata.assets || []), nextAsset];
+    const temporary = isLocalDraftMap(draftMap.value) ? `（${t('config.localAssetTemporary')}）` : '已上传';
+    assetUploadStatus.value = `${file.name} ${temporary}，可切换“放置小模型”后在画布点击添加`;
+    showMessage(assetUploadStatus.value);
+  } catch (error) {
+    assetUploadStatus.value = error instanceof Error ? error.message : '小模型上传失败';
+    showMessage(assetUploadStatus.value);
+  } finally {
+    assetUploading.value = false;
+  }
+}
+
+async function deleteMapAsset(asset: MapAsset) {
+  if (!draftMap.value || !window.confirm(`删除小模型“${asset.name}”？已放置实例也会移除。`)) return;
+  const current = draftMap.value;
+  const previous = JSON.parse(JSON.stringify(current)) as SavedMap;
+  current.metadata.assets = (current.metadata.assets || []).filter((item) => item.id !== asset.id);
+  current.config.models = current.config.models.filter((model) => model.assetId !== asset.id);
+  current.metadata.floors.forEach((floor) => {
+    floor.config.models = floor.config.models.filter((model) => model.assetId !== asset.id);
+  });
+  assetDeleting.value = asset.id;
+  try {
+    if (!(await saveDraft()) || !draftMap.value) {
+      draftMap.value = previous;
+      return;
+    }
+    if (isLocalDraftMap(draftMap.value)) {
+      if (asset.path.startsWith('blob:')) releaseLocalDraftAssetUrl(asset.path);
+    } else {
+      await apiDeleteMapAsset(getBackendConfigId(draftMap.value), asset.id);
+    }
+    assetUploadStatus.value = `${asset.name} 已从模型库删除`;
+  } catch (error) {
+    assetUploadStatus.value = error instanceof Error ? error.message : '删除小模型失败';
+  } finally {
+    assetDeleting.value = '';
+  }
 }
 
 /** 「前往地图选择建筑」：跳转到 .env 中指定的目标地址（支持裸域名或完整 URL） */
@@ -1779,6 +2207,8 @@ function handlePreviewWheel(event: WheelEvent) {
 }
 
 function startPick(mode: PickMode) {
+  previewMode.value = 'current';
+  editorSection.value = 'preview';
   if (!pickMode.value) {
     previewRestoreView = copyPreviewView();
   }
@@ -1833,7 +2263,7 @@ function applyTwoPointCalibration() {
   const effectiveScale = sceneDist / realDist; // 场景单位/米
 
   // 只校准比例；偏移（定位原点）由"选择定位原点"单独设定，这里不改动。
-  map.metadata.calibrationScale = effectiveScale;
+  updateCurrentPositioningCalibration({ calibrationScale: effectiveScale });
 
   // 应用成功后清空 A/B 标记、连线与输入，直接退出标定状态（已存比例展示保留）。
   resetCalibrationState();
@@ -1852,7 +2282,7 @@ function resetCalibrationDefault() {
   if (!map) {
     return;
   }
-  map.metadata.calibrationScale = 1;
+  updateCurrentPositioningCalibration({ calibrationScale: 1 });
   updateCalibrationAux();
   showMessage(t('config.calibrationResetApplied'));
 }
@@ -1873,6 +2303,26 @@ async function importBaseMapFile(event: Event) {
   baseMapImporting.value = true;
 
   try {
+    if (isLocalDraftMap(draftMap.value)) {
+      const modelPath = URL.createObjectURL(file);
+      registerLocalDraftAssetUrl(modelPath);
+      const existingBase = draftMap.value.config.models.find((model) => model.role === 'base-map');
+      const baseModel: ModelConfig = {
+        path: modelPath,
+        scale: existingBase && Number.isFinite(existingBase.scale) ? existingBase.scale : 2.5,
+        center: existingBase?.center ? [...existingBase.center] as [number, number, number] : [0, 0, 0],
+        rotation: existingBase?.rotation ? [...existingBase.rotation] as [number, number, number] : [0, 0, 0],
+        role: 'base-map',
+      };
+      previewAssetSignature = '';
+      previewModelObjects.clear();
+      replaceCurrentFloorBaseMap(baseModel);
+      if (existingBase?.path.startsWith('blob:')) releaseLocalDraftAssetUrl(existingBase.path);
+      previewHasFramed = false;
+      showMessage(t('config.localAssetTemporary'));
+      return;
+    }
+
     // Each floor keeps its own model path. Replacing the current floor reuses
     // the map file only when that floor already has a base model.
     const existingBase = draftMap.value.config.models.find((m) => m.role === 'base-map');
@@ -1943,11 +2393,11 @@ function handlePreviewClick(event: MouseEvent) {
   }
 
   if (pickMode.value === 'positioning-origin') {
-    draftMap.value.metadata.positioningOrigin = [
+    updateCurrentPositioningCalibration({ positioningOrigin: [
       mapPoint[0],
       0,
       mapPoint[2],
-    ];
+    ] });
     applyBuildingSettingsToFloors(draftMap.value);
     syncPositioningOriginDisplay();
     showMessage(t('config.positioningOriginUpdated'));
@@ -1978,7 +2428,7 @@ function handlePreviewClick(event: MouseEvent) {
 watch(
   () => (viewMode.value === 'edit' ? draftMap.value : null),
   () => {
-    if (viewMode.value !== 'edit') {
+    if (viewMode.value !== 'edit' || editorSection.value !== 'preview') {
       return;
     }
     void nextTick(() => {
@@ -1988,7 +2438,24 @@ watch(
   { deep: true, flush: 'post' },
 );
 
-// Auto-open editor when navigating directly to a map-editor/:mapId route
+watch(editorSection, (section) => {
+  if (section !== 'preview' || viewMode.value !== 'edit') return;
+  void nextTick(() => {
+    resizePreviewRenderer();
+    void rebuildPreviewScene();
+  });
+});
+
+watch(previewMode, () => {
+  previewHasFramed = false;
+  if (editorSection.value !== 'preview' || viewMode.value !== 'edit') return;
+  void nextTick(() => {
+    resizePreviewRenderer();
+    void rebuildPreviewScene();
+  });
+});
+
+// Redirect legacy map-editor links into the integrated modeling workbench.
 watch(
   () => props.editMapId,
   () => openRouteMapEditor(),
@@ -1997,9 +2464,9 @@ watch(
 
 function openRouteMapEditor() {
   const mapId = props.editMapId;
-  if (!mapId || (viewMode.value === 'edit' && draftMap.value?.id === mapId)) return;
+  if (!mapId) return;
   const target = maps.value.find((map) => map.id === mapId);
-  if (target) openEditor(target);
+  if (target) emit('open-modeling-workbench', target);
 }
 
 // When the user clicks "back" from the editor, navigate to the map-list route
@@ -2039,11 +2506,82 @@ onBeforeUnmount(() => {
 .editor-header,
 .map-row,
 .preview-panel,
-.form-panel {
+.form-panel,
+.plan-editor-panel {
   border: 1px solid rgba(118, 148, 212, 0.2);
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 247, 255, 0.94));
   box-shadow: 0 16px 34px rgba(31, 55, 93, 0.08);
+}
+
+.plan-editor-panel {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 18px;
+}
+
+.plan-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.plan-editor-heading h3 {
+  margin: 0 0 5px;
+  color: #142033;
+}
+
+.plan-editor-heading p {
+  margin: 0;
+  color: rgba(47, 63, 89, 0.68);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.plan-asset-actions {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.plan-asset-actions small {
+  max-width: 260px;
+  color: rgba(47, 63, 89, 0.68);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.map-asset-library {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(88, 119, 174, 0.16);
+}
+
+.map-asset-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr) 34px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.map-asset-row span,
+.map-asset-row small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.map-asset-row small {
+  color: rgba(47, 63, 89, 0.62);
+}
+
+.map-asset-row button {
+  width: 34px;
+  padding: 0;
 }
 
 .map-toolbar,
@@ -2053,6 +2591,233 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 18px;
   padding: 18px;
+}
+
+.editor-header {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) minmax(180px, 220px) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+}
+
+.editor-title {
+  min-width: 0;
+}
+
+.editor-title h2 {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.editor-floor-switch {
+  display: grid !important;
+  grid-template-columns: auto minmax(100px, 1fr);
+  align-items: center;
+  gap: 8px !important;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.editor-workbench {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.editor-nav {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 12px 4px 0;
+  border-right: 1px solid rgba(83, 112, 164, 0.2);
+}
+
+.editor-nav button {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(35, 50, 78, 0.82);
+  text-align: left;
+}
+
+.editor-nav button.active {
+  background: rgba(49, 104, 230, 0.1);
+  color: #2864d7;
+  font-weight: 700;
+}
+
+.editor-workspace,
+.editor-pane {
+  min-width: 0;
+}
+
+.editor-pane {
+  display: grid;
+  gap: 14px;
+}
+
+.editor-overview-grid,
+.editor-calibration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.editor-upload-card {
+  display: flex;
+  min-height: 230px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.editor-upload-card p,
+.editor-calibration-grid p {
+  margin: 4px 0 0;
+  color: rgba(47, 63, 89, 0.68);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.editor-upload-card > small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: rgba(47, 63, 89, 0.68);
+}
+
+.editor-upload-card > .primary-button {
+  margin-top: auto;
+}
+
+.editor-preview-panel {
+  grid-column: auto;
+  order: 0;
+  min-height: 0;
+}
+
+.editor-preview-layout {
+  grid-template-columns: minmax(0, 1fr) 250px;
+  align-items: stretch;
+}
+
+.editor-preview-panel,
+.preview-control-panel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.preview-control-panel {
+  grid-column: auto;
+  order: 0;
+  align-content: start;
+  gap: 14px;
+}
+
+.preview-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(83, 112, 164, 0.2);
+  border-radius: 6px;
+  background: rgba(83, 112, 164, 0.07);
+}
+
+.preview-mode-switch button {
+  padding-inline: 6px;
+  white-space: normal;
+}
+
+.preview-metrics {
+  display: grid;
+}
+
+.preview-metrics div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(88, 119, 174, 0.16);
+}
+
+.preview-metrics span {
+  color: rgba(47, 63, 89, 0.68);
+  font-size: 13px;
+}
+
+.preview-metrics strong {
+  min-width: 0;
+  color: #17233c;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.preview-control-hint {
+  margin: 0;
+  color: rgba(47, 63, 89, 0.68);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.preview-settings-link {
+  margin-top: 4px;
+}
+
+.editor-preview-panel .map-preview--3d {
+  height: min(74vh, 840px);
+  min-height: 540px;
+  aspect-ratio: auto;
+}
+
+.editor-settings-grid .form-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.settings-model-path {
+  margin: 0;
+  color: rgba(47, 63, 89, 0.68);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.settings-scale-field,
+.settings-coordinate-field,
+.settings-rotation-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 170px);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: rgba(47, 63, 89, 0.76);
+  font-size: 13px;
+}
+
+.settings-scale-field input,
+.settings-coordinate-field input,
+.settings-rotation-field input[type='number'] {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-rotation-field {
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 1fr) 76px;
+}
+
+.editor-empty-state {
+  margin: 0;
+  padding: 18px 0 4px;
+  color: rgba(47, 63, 89, 0.68);
 }
 
 .map-toolbar h2,
@@ -2094,6 +2859,39 @@ onBeforeUnmount(() => {
   min-height: 34px;
 }
 
+.positioning-binding {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(88, 119, 174, 0.16);
+}
+
+.positioning-binding strong {
+  color: #142033;
+  font-size: 13px;
+}
+
+.positioning-binding p,
+.positioning-binding small {
+  margin: 4px 0 0;
+  color: rgba(47, 63, 89, 0.68);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.positioning-binding__controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.positioning-binding__controls button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 .origin-editor {
   padding: 10px 0 0;
 }
@@ -2110,6 +2908,13 @@ onBeforeUnmount(() => {
 .origin-editor input {
   width: 88px;
   padding: 0 8px;
+}
+
+.floor-calibration-hint {
+  flex-basis: 100%;
+  color: rgba(47, 63, 89, 0.68);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .calibration-editor {
@@ -2265,6 +3070,7 @@ onBeforeUnmount(() => {
 .map-row__title {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -2280,6 +3086,11 @@ onBeforeUnmount(() => {
   color: #1d5db8;
   font-size: 12px;
   font-weight: 700;
+}
+
+.map-row__title .map-row__draft-tag {
+  background: rgba(16, 185, 129, 0.12);
+  color: #087b58;
 }
 
 .map-row__meta {
@@ -2624,7 +3435,8 @@ onBeforeUnmount(() => {
 .map-editor-page--dark .editor-header,
 .map-editor-page--dark .map-row,
 .map-editor-page--dark .preview-panel,
-.map-editor-page--dark .form-panel {
+.map-editor-page--dark .form-panel,
+.map-editor-page--dark .plan-editor-panel {
   border-color: rgba(118, 148, 212, 0.2);
   background:
     linear-gradient(180deg, rgba(25, 31, 45, 0.92), rgba(13, 17, 27, 0.88)),
@@ -2636,20 +3448,42 @@ onBeforeUnmount(() => {
 .map-editor-page--dark .editor-header h2,
 .map-editor-page--dark .preview-panel h3,
 .map-editor-page--dark .form-panel h3,
+.map-editor-page--dark .plan-editor-heading h3,
+.map-editor-page--dark .positioning-binding strong,
 .map-editor-page--dark .map-row__title h3 {
   color: #fff;
 }
 
 .map-editor-page--dark .map-toolbar p,
 .map-editor-page--dark .editor-header p,
+.map-editor-page--dark .editor-upload-card p,
+.map-editor-page--dark .editor-upload-card > small,
+.map-editor-page--dark .editor-calibration-grid p,
+.map-editor-page--dark .editor-empty-state,
 .map-editor-page--dark .map-row__content p,
 .map-editor-page--dark .panel-heading p,
+.map-editor-page--dark .preview-metrics span,
+.map-editor-page--dark .preview-control-hint,
+.map-editor-page--dark .settings-model-path,
+.map-editor-page--dark .settings-scale-field,
+.map-editor-page--dark .settings-coordinate-field,
+.map-editor-page--dark .settings-rotation-field,
+.map-editor-page--dark .plan-editor-heading p,
+.map-editor-page--dark .positioning-binding p,
+.map-editor-page--dark .positioning-binding small,
+  .map-editor-page--dark .floor-calibration-hint,
+.map-editor-page--dark .plan-asset-actions small,
+.map-editor-page--dark .map-asset-row small,
 .map-editor-page--dark .origin-editor label,
 .map-editor-page--dark .calibration-scale,
 .map-editor-page--dark .calibration-scene,
 .map-editor-page--dark label,
 .map-editor-page--dark .thumbnail-uploader__actions > span {
   color: rgba(224, 235, 255, 0.68);
+}
+
+.map-editor-page--dark .preview-metrics strong {
+  color: #edf3ff;
 }
 
 .map-editor-page--dark button {
@@ -2710,6 +3544,11 @@ onBeforeUnmount(() => {
   color: #9cc2ff;
 }
 
+.map-editor-page--dark .map-row__title .map-row__draft-tag {
+  background: rgba(16, 185, 129, 0.16);
+  color: #70dfb3;
+}
+
 .map-editor-page--dark .map-row__meta span,
 .map-editor-page--dark .preview-stats span {
   background: rgba(74, 101, 148, 0.16);
@@ -2750,6 +3589,10 @@ onBeforeUnmount(() => {
 
 .map-editor-page--dark .thumbnail-uploader__actions small {
   color: rgba(201, 218, 255, 0.58);
+}
+
+.map-editor-page--dark .map-asset-library {
+  border-color: rgba(83, 112, 164, 0.22);
 }
 
 .config-page {
@@ -2994,6 +3837,39 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
+  .editor-header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .editor-floor-switch {
+    grid-column: 2;
+    grid-row: 2;
+    max-width: 260px;
+  }
+
+  .editor-header > .toolbar-actions {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .editor-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-nav {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 0 0 8px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(83, 112, 164, 0.2);
+  }
+
+  .editor-nav button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
   .map-row__actions {
     justify-content: flex-start;
   }
@@ -3001,13 +3877,56 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .map-toolbar,
-  .editor-header {
+  .editor-header,
+  .plan-editor-heading {
     align-items: flex-start;
     flex-direction: column;
   }
 
+  .plan-asset-actions {
+    justify-items: start;
+  }
+
+  .plan-asset-actions small {
+    text-align: left;
+  }
+
+  .editor-header > .toolbar-actions,
+  .editor-floor-switch {
+    width: 100%;
+    max-width: none;
+  }
+
+  .editor-header > .toolbar-actions {
+    flex-wrap: wrap;
+  }
+
+  .editor-overview-grid,
+  .editor-calibration-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-preview-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-preview-panel .map-preview--3d {
+    height: 54vh;
+    min-height: 360px;
+  }
+
+  .map-asset-row {
+    grid-template-columns: minmax(0, 1fr) 34px;
+  }
+
+  .map-asset-row small {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
   .form-grid,
   .coordinate-grid,
+  .positioning-binding__controls,
   .thumbnail-uploader,
   .config-grid,
   .config-layout,

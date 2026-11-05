@@ -19,6 +19,7 @@ export interface AreaConfig {
   color: string;
   opacity: number;
   points: Point2D[];
+  groupId?: string;
 }
 
 export interface WallConfig {
@@ -28,6 +29,19 @@ export interface WallConfig {
   thickness: number;
   height: number;
   color: string;
+  baseHeight?: number;
+  groupId?: string;
+}
+
+export interface DoorConfig {
+  id: string;
+  name: string;
+  position: Point2D;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
+  baseHeight?: number;
 }
 
 export interface FenceConfig {
@@ -51,9 +65,16 @@ export interface DeviceConfig {
   color?: string;
   radius?: number;
   height?: number;
+  rotation?: number;
+  modelingAsset?: boolean;
+  assetScale?: number;
+  baseHeight?: number;
 }
 
 export interface ModelConfig {
+  id?: string;
+  assetId?: string;
+  name?: string;
   path: string;
   scale: number;
   center: Point3D;
@@ -75,5 +96,6 @@ export interface SceneConfig {
   fences: FenceConfig[];
   devices: DeviceConfig[];
   models: ModelConfig[];
+  doors?: DoorConfig[];
   overlay: OverlayConfig;
 }

@@ -1,5 +1,6 @@
 import floorConfig from '@/assets/config/config.json';
 import type { ModelConfig, Point3D, SceneConfig } from '@/types/scene';
+import type { ModelingWorkbenchSnapshot } from '@/types/modelingWorkbench';
 import { toRaw } from 'vue';
 
 export interface MapFloorItem {
@@ -7,6 +8,18 @@ export interface MapFloorItem {
   name: string;
   description?: string;
   config: SceneConfig;
+}
+
+export interface PositioningFloorBinding {
+  buildingId: string;
+  floorId: string;
+  buildingName?: string;
+  floorName?: string;
+}
+
+export interface FloorPositioningCalibration {
+  positioningOrigin: Point3D;
+  calibrationScale?: number;
 }
 
 export interface MapMetadata {
@@ -24,6 +37,24 @@ export interface MapMetadata {
   modelParameters: ModelConfig[];
   activeFloorId: string;
   floors: MapFloorItem[];
+  /** Browser-only association from a local draft floor to a deployed building floor. */
+  positioningBindings?: Record<string, PositioningFloorBinding>;
+  /** Browser-only coordinate calibration overrides for individual local draft floors. */
+  positioningByFloor?: Record<string, FloorPositioningCalibration>;
+  assets?: MapAsset[];
+  mapSource?: {
+    type: 'geojson' | 'osm' | 'file';
+    center?: [number, number];
+    geoJson?: unknown;
+  };
+  /** Exact browser-side editor snapshot used to round-trip the integrated 2D-to-3D workbench. */
+  modelingWorkbench?: ModelingWorkbenchSnapshot;
+}
+
+export interface MapAsset {
+  id: string;
+  name: string;
+  path: string;
 }
 
 export interface SavedMap {
@@ -37,7 +68,17 @@ export interface SavedMap {
 
 const MAP_LIBRARY_STORAGE_KEY = 'twintrack.mapLibrary';
 const ACTIVE_MAP_STORAGE_KEY = 'twintrack.activeMapId';
+const localDraftAssetUrls = new Set<string>();
 export const DEFAULT_MAP_ID = 'default-office-floor';
+
+export function registerLocalDraftAssetUrl(url: string): void {
+  localDraftAssetUrls.add(url);
+}
+
+export function releaseLocalDraftAssetUrl(url: string): void {
+  localDraftAssetUrls.delete(url);
+  URL.revokeObjectURL(url);
+}
 
 export function cloneSceneConfig(config: SceneConfig): SceneConfig {
   return JSON.parse(JSON.stringify(toRaw(config))) as SceneConfig;
@@ -53,6 +94,9 @@ export function normalizeModelConfig(model: ModelConfig): ModelConfig {
       : [Number(legacyCenter[0]) || 0, Number.isFinite(legacyHeight) ? legacyHeight : 0, Number(legacyCenter[1]) || 0];
 
   return {
+    id: model.id,
+    assetId: model.assetId,
+    name: model.name,
     path: model.path,
     scale: model.scale,
     center,
@@ -66,13 +110,11 @@ export function cloneModels(models: ModelConfig[]): ModelConfig[] {
 }
 
 export function applySharedModelParameters(models: ModelConfig[], parameters: ModelConfig[]): ModelConfig[] {
-  const roleOffsets = new Map<string, number>();
-  return cloneModels(models).map((model, index) => {
-    const role = model.role || `index-${index}`;
-    const roleOffset = roleOffsets.get(role) ?? 0;
-    roleOffsets.set(role, roleOffset + 1);
-    const roleMatches = parameters.filter((parameter) => parameter.role === model.role);
-    const parameter = roleMatches[roleOffset] ?? parameters[index];
+  const baseParameters = parameters.filter((parameter) => parameter.role === 'base-map');
+  let baseIndex = 0;
+  return cloneModels(models).map((model) => {
+    if (model.role !== 'base-map') return model;
+    const parameter = baseParameters[baseIndex++];
     if (!parameter) return model;
     return {
       ...model,
@@ -128,7 +170,7 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
     : Array.isArray(legacyMetadata?.models)
       ? legacyMetadata.models
       : [];
-  const modelParameters = cloneModels(metadataParameters.length > 0 ? metadataParameters : config.models);
+  const modelParameters = cloneModels(metadataParameters.length > 0 ? metadataParameters : config.models.filter((model) => model.role === 'base-map'));
   normalizedFloors.forEach((floor) => {
     floor.config.floor.scale = scaleRatio;
     floor.config.models = applySharedModelParameters(floor.config.models, modelParameters);
@@ -140,6 +182,45 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
   const rawCalibrationScale = Number(metadata?.calibrationScale);
   const calibrationScale =
     Number.isFinite(rawCalibrationScale) && rawCalibrationScale > 0 ? rawCalibrationScale : undefined;
+  const rawPositioningBindings = metadata?.positioningBindings;
+  const positioningBindings = rawPositioningBindings && typeof rawPositioningBindings === 'object'
+    ? Object.fromEntries(
+        Object.entries(rawPositioningBindings)
+          .filter(([floorId, binding]) => {
+            const item = binding as Partial<PositioningFloorBinding> | null;
+            return normalizedFloors.some((floor) => floor.id === floorId)
+              && typeof item?.buildingId === 'string'
+              && typeof item.floorId === 'string';
+          })
+          .map(([floorId, binding]) => {
+            const item = binding as PositioningFloorBinding;
+            return [floorId, {
+              buildingId: item.buildingId,
+              floorId: item.floorId,
+              buildingName: typeof item.buildingName === 'string' ? item.buildingName : undefined,
+              floorName: typeof item.floorName === 'string' ? item.floorName : undefined,
+            }];
+          }),
+      ) as Record<string, PositioningFloorBinding>
+    : {};
+  const rawPositioningByFloor = metadata?.positioningByFloor;
+  const positioningByFloor = rawPositioningByFloor && typeof rawPositioningByFloor === 'object'
+    ? Object.fromEntries(
+        Object.entries(rawPositioningByFloor)
+          .filter(([floorId, calibration]) => {
+            const item = calibration as Partial<FloorPositioningCalibration> | null;
+            return normalizedFloors.some((floor) => floor.id === floorId) && Array.isArray(item?.positioningOrigin);
+          })
+          .map(([floorId, calibration]) => {
+            const item = calibration as FloorPositioningCalibration;
+            const scale = Number(item.calibrationScale);
+            return [floorId, {
+              positioningOrigin: normalizePoint3D(item.positioningOrigin, positioningOrigin),
+              calibrationScale: Number.isFinite(scale) && scale > 0 ? scale : undefined,
+            }];
+          }),
+      ) as Record<string, FloorPositioningCalibration>
+    : {};
 
   return {
     schemaVersion: 2,
@@ -154,12 +235,32 @@ export function createDefaultMetadata(config: SceneConfig, metadata?: Partial<Ma
     modelParameters,
     activeFloorId,
     floors: normalizedFloors,
+    positioningBindings,
+    positioningByFloor,
+    assets: Array.isArray(metadata?.assets)
+      ? metadata.assets.filter((asset) => asset && typeof asset.id === 'string' && typeof asset.path === 'string')
+      : [],
+    mapSource: metadata?.mapSource,
+    modelingWorkbench: metadata?.modelingWorkbench,
   };
 }
 
 function normalizeSavedMap(map: SavedMap): SavedMap {
   const config = cloneSceneConfig(map.config);
   const metadata = createDefaultMetadata(config, map.metadata, map.id);
+  if (isLocalDraftMap(map)) {
+    const isAvailableAssetPath = (path: string) => !path.startsWith('blob:') || localDraftAssetUrls.has(path);
+    const availableAssets = (metadata.assets || []).filter((asset) => isAvailableAssetPath(asset.path));
+    const assetIds = new Set(availableAssets.map((asset) => asset.id));
+    const keepModel = (model: ModelConfig) => isAvailableAssetPath(model.path) && (!model.assetId || assetIds.has(model.assetId));
+    metadata.assets = availableAssets;
+    metadata.modelParameters = metadata.modelParameters.filter(keepModel);
+    metadata.floors.forEach((floor) => {
+      floor.config.models = floor.config.models.filter(keepModel);
+    });
+    config.models = config.models.filter(keepModel);
+    if (metadata.thumbnail.startsWith('blob:') && !localDraftAssetUrls.has(metadata.thumbnail)) metadata.thumbnail = '';
+  }
   const activeFloor = metadata.floors.find((floor) => floor.id === metadata.activeFloorId) ?? metadata.floors[0];
   const activeConfig = activeFloor ? cloneSceneConfig(activeFloor.config) : config;
   activeConfig.floor.scale = metadata.scaleRatio;
@@ -278,6 +379,19 @@ export function createSavedMap(name: string, description: string, config: SceneC
   };
 }
 
+export function createLocalDraftMap(name: string, description: string, config: SceneConfig, metadata?: Partial<MapMetadata>): SavedMap {
+  const map = createSavedMap(name, description, config, metadata);
+  map.id = `local-map-${crypto.randomUUID()}`;
+  map.metadata.buildingId = map.id;
+  return map;
+}
+
+export function isLocalDraftMap(map: Pick<SavedMap, 'id'> | string | null | undefined): boolean {
+  if (!map) return false;
+  const id = typeof map === 'string' ? map : map.id;
+  return id.startsWith('local-map-');
+}
+
 export function createBlankSceneConfig(name: string): SceneConfig {
   return {
     floor: {
@@ -294,6 +408,7 @@ export function createBlankSceneConfig(name: string): SceneConfig {
     fences: [],
     devices: [],
     models: [],
+    doors: [],
     overlay: {
       path: '',
       scale: 1,

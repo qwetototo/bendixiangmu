@@ -6,7 +6,7 @@ import type { SavedMap } from '@/services/mapLibrary';
  * 默认变换为中性值：1 场景单位 = 1 米，UWB 原点 (0,0) 即场景坐标 (0,0)。
  * 内置模板地图（overlay 底图）的旧标定值（scale 14.5 / 偏移 -84.95, 79.67）
  * 固化在其 metadata（calibrationScale / positioningOrigin），由 derivePositionTransform
- * 读取，不依赖这里的默认值，因此模板地图行为保持不变。
+ * 读取，不依赖这里的默认值。
  */
 export interface PositionTransform {
   scale: number;
@@ -26,10 +26,14 @@ export function setPositionTransform(transform: PositionTransform): void {
   currentTransform = { ...transform };
 }
 
-export function transformProtocolCoordinates(x: number, y: number): { x: number; y: number } {
+export function transformProtocolCoordinates(
+  x: number,
+  y: number,
+  transform: PositionTransform = currentTransform,
+): { x: number; y: number } {
   return {
-    x: currentTransform.scale * x + currentTransform.xOffset,
-    y: currentTransform.scale * -y + currentTransform.zOffset,
+    x: transform.scale * x + transform.xOffset,
+    y: transform.scale * -y + transform.zOffset,
   };
 }
 
@@ -51,20 +55,22 @@ const DEFAULT_MODEL_SCALE_RATIO = 1;
  *   3. 回退到默认 1（1 场景单位 = 1 米）。
  *
  *   内置模板地图没有 base-map 模型，但 getDefaultMap 在其 metadata 写入了
- *   calibrationScale=14.5 与 positioningOrigin，因此仍走第 1 级，行为与旧默认值一致。
+ *   calibrationScale=14.5 与 positioningOrigin，因此仍走第 1 级。
  */
-export function derivePositionTransform(map: SavedMap): PositionTransform {
-  const origin = map.metadata.positioningOrigin;
-  const configured = Boolean(origin) && (origin[0] !== 0 || origin[1] !== 0);
+export function derivePositionTransform(map: SavedMap, floorId = map.metadata.activeFloorId): PositionTransform {
+  const floorCalibration = map.metadata.positioningByFloor?.[floorId];
+  const origin = floorCalibration?.positioningOrigin ?? map.metadata.positioningOrigin;
+  const configured = Boolean(origin) && (origin[0] !== 0 || origin[2] !== 0);
 
   // 1) 显式标定值优先。
-  const rawCalibrationScale = Number(map.metadata.calibrationScale);
+  const rawCalibrationScale = Number(floorCalibration?.calibrationScale ?? map.metadata.calibrationScale);
   const calibrated =
     Number.isFinite(rawCalibrationScale) && rawCalibrationScale > 0 ? rawCalibrationScale : undefined;
 
   // 2) 无标定值时，若存在 base-map GLB，按 TwinScene 相同的最终缩放推导。
-  const baseMapModel = map.config.models.find((model) => model.role === 'base-map');
-  const floorScale = Number(map.config.floor.scale);
+  const floorConfig = map.metadata.floors.find((floor) => floor.id === floorId)?.config ?? map.config;
+  const baseMapModel = floorConfig.models.find((model) => model.role === 'base-map');
+  const floorScale = Number(floorConfig.floor.scale);
   const scaleRatioFactor =
     baseMapModel && Number.isFinite(floorScale) && floorScale > 0 ? floorScale / DEFAULT_MODEL_SCALE_RATIO : 1;
   const baseModelScale = baseMapModel ? Number(baseMapModel.scale) : NaN;
@@ -76,6 +82,6 @@ export function derivePositionTransform(map: SavedMap): PositionTransform {
   return {
     scale: calibrated ?? baseMapScale ?? DEFAULT_POSITION_TRANSFORM.scale,
     xOffset: configured ? origin[0] : DEFAULT_POSITION_TRANSFORM.xOffset,
-    zOffset: configured ? origin[1] : DEFAULT_POSITION_TRANSFORM.zOffset,
+    zOffset: configured ? origin[2] : DEFAULT_POSITION_TRANSFORM.zOffset,
   };
 }

@@ -78,6 +78,8 @@ function normalizeTrajectoryPoint(point: TrajectoryPointVO): TrajectoryReplayPoi
     x,
     y,
     z,
+    protocolX: rawX,
+    protocolY: rawY,
     theta,
     time,
   };

@@ -97,7 +97,7 @@ import '@/styles/management.css';
 defineProps<{ themeMode: 'dark' | 'light' }>();
 const { t } = useI18n(); const axes = ['x', 'y', 'z'] as const; type Axis = typeof axes[number];
 const beacons = ref<BeaconVO[]>([]); const total = ref(0); const loading = ref(false); const saving = ref(false); const feedback = ref('');
-const keyword = ref(''); const statusFilter = ref(''); const editorOpen = ref(false); const editingId = ref(''); const deleteTarget = ref<BeaconVO | null>(null);
+const keyword = ref(new URLSearchParams(window.location.search).get('keyword') || ''); const statusFilter = ref(''); const editorOpen = ref(false); const editingId = ref(''); const deleteTarget = ref<BeaconVO | null>(null);
 const importOpen = ref(false); const exportOpen = ref(false); const exportAll = ref(true); const exportCount = ref(10); const fileInput = ref<HTMLInputElement>(); const formError = ref('');
 const form = reactive({ beaconId: '', battery: 80, status: 'offline' });
 const wizardOpen = ref(false); const wizardStep = ref(1); const availableMaps = ref<SavedMap[]>([]); const mapsLoading = ref(false); const selectedMapId = ref(''); const selectedFloorId = ref(''); const selectedMapDetail = ref<SavedMap | null>(null);

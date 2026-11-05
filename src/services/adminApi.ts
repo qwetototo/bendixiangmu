@@ -22,6 +22,10 @@ export interface DeviceVO {
   status: DeviceStatus;
   boundPersonId?: string | null;
   boundPersonName?: string | null;
+  buildingId?: string | null;
+  buildingName?: string | null;
+  floorId?: string | null;
+  floorName?: string | null;
 }
 
 export interface DeviceWritePayload {
@@ -29,6 +33,11 @@ export interface DeviceWritePayload {
   boundPersonId?: string | null;
   battery: number;
   status: DeviceStatus;
+}
+
+export interface DeviceDeploymentPayload {
+  buildingId: string;
+  floorId: string;
 }
 
 export interface PersonnelVO {
@@ -172,6 +181,14 @@ export function createDevice(data: DeviceWritePayload) {
 
 export function updateDevice(deviceId: string, data: DeviceWritePayload) {
   return request<DeviceVO>('put', `/api/devices/${encodeURIComponent(deviceId)}`, { data });
+}
+
+export function deployDevice(deviceId: string, data: DeviceDeploymentPayload) {
+  return request<DeviceVO>('put', `/api/devices/${encodeURIComponent(deviceId)}/deployment`, { data });
+}
+
+export function undeployDevice(deviceId: string) {
+  return request<DeviceVO>('delete', `/api/devices/${encodeURIComponent(deviceId)}/deployment`);
 }
 
 export function deleteDevice(deviceId: string) {

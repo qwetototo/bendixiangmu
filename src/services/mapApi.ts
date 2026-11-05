@@ -30,6 +30,12 @@ export interface MapModelDetail extends MapModel {
   metadata: MapMetadata;
 }
 
+export interface UploadedMapAsset {
+  id: string;
+  name: string;
+  path: string;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Internal helpers                                                   */
 /* ------------------------------------------------------------------ */
@@ -118,6 +124,37 @@ export async function uploadModel(
     return result[0];
   }
   return result;
+}
+
+export async function createMap(data: {
+  name: string;
+  description: string;
+  config: SceneConfig;
+  metadata: MapMetadata;
+}): Promise<MapModelDetail> {
+  const response = await authFetch(API_BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<MapModelDetail>(response, '创建地图');
+}
+
+export async function uploadMapAsset(mapId: string, file: File): Promise<UploadedMapAsset> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await authFetch(`${API_BASE}/${encodeURIComponent(mapId)}/assets`, {
+    method: 'POST',
+    body: formData,
+  });
+  return handleResponse<UploadedMapAsset>(response, '上传小模型');
+}
+
+export async function deleteMapAsset(mapId: string, assetId: string): Promise<void> {
+  const response = await authFetch(`${API_BASE}/${encodeURIComponent(mapId)}/assets/${encodeURIComponent(assetId)}`, {
+    method: 'DELETE',
+  });
+  await handleResponse<{ success: boolean }>(response, '删除小模型');
 }
 
 /**

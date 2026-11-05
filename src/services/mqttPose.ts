@@ -41,6 +41,12 @@ interface InnerPoseMessage {
   theta?: number;
 }
 
+interface PendingPath {
+  segments: Map<number, PathPoint[]>;
+  updatedAt: number;
+  pointCount: number;
+}
+
 interface MqttPoseClientOptions {
   url: string;
   onPose: (pose: LivePose) => void;
@@ -49,7 +55,7 @@ interface MqttPoseClientOptions {
   onDeviceDisconnect?: (deviceId: string) => void;
   onStatusChange?: (status: MqttConnectionStatus) => void;
   onError?: (error: MqttConnectionError) => void;
-  /** 超过该时长未收到设备任何消息即判定离线（默认 10s）。 */
+  /** 超过该时长未收到设备任何消息即判定离线（默认 60s）。 */
   deviceTimeoutMs?: number;
   /** 离线检测轮询间隔（默认 2s）。 */
   deviceCheckIntervalMs?: number;
@@ -63,7 +69,12 @@ export class MqttPoseClient {
   private static readonly DEVICE_TOPIC_PATTERN = /^dfmotion\/([^/]+)\//;
   private static readonly DEFAULT_DEVICE_TIMEOUT_MS = 60 * 1000;
   private static readonly DEFAULT_DEVICE_CHECK_INTERVAL_MS = 2 * 1000;
-  private static readonly DEBUG = true;
+  private static readonly CONNECT_TIMEOUT_MS = 15 * 1000;
+  private static readonly MESSAGE_TIMEOUT_MS = 90 * 1000;
+  private static readonly PATH_TIMEOUT_MS = 2 * 60 * 1000;
+  private static readonly MAX_PATH_SEGMENTS = 500;
+  private static readonly MAX_PATH_POINTS = 10000;
+  private static readonly DEBUG = false;
   private readonly url: string;
   private readonly onPose: (pose: LivePose) => void;
   private readonly onPath?: (deviceId: string, points: PathPoint[]) => void;
@@ -75,9 +86,34 @@ export class MqttPoseClient {
   private readonly deviceCheckIntervalMs: number;
   private socket: WebSocket | null = null;
   private reconnectTimer: number | null = null;
+  private connectTimer: number | null = null;
   private deviceCheckTimer: number | null = null;
   private manuallyClosed = false;
-  private readonly pathSegments = new Map<string, Map<number, PathPoint[]>>();
+  private readonly pathSegments = new Map<string, PendingPath>();
+  private readonly rejectedPaths = new Set<string>();
+  private lastMessageAt = 0;
+  private hasReceivedMessage = false;
+  private reconnectAttempts = 0;
+  private listeningForWake = false;
+  private readonly handleWake = (): void => {
+    if (this.manuallyClosed) return;
+    const socket = this.socket;
+    if (socket?.readyState === WebSocket.OPEN) {
+      if (this.hasReceivedMessage && Date.now() - this.lastMessageAt >= MqttPoseClient.MESSAGE_TIMEOUT_MS) {
+        this.failConnection(socket, 'WebSocket stopped receiving messages.');
+      }
+    } else if (socket?.readyState === WebSocket.CONNECTING) {
+      if (Date.now() - this.lastMessageAt >= MqttPoseClient.CONNECT_TIMEOUT_MS) {
+        this.failConnection(socket, 'WebSocket connection timed out.');
+      }
+    } else if (!socket || socket.readyState === WebSocket.CLOSED) {
+      this.clearReconnectTimer();
+      this.connect();
+    }
+  };
+  private readonly handleVisibilityChange = (): void => {
+    if (!document.hidden) this.handleWake();
+  };
   /** 设备最后一次收到消息的时间（毫秒时间戳），用于心跳超时离线判定。 */
   private readonly lastActivityAt = new Map<string, number>();
 
@@ -95,27 +131,45 @@ export class MqttPoseClient {
   }
 
   connect(): void {
-
     this.manuallyClosed = false;
     this.clearReconnectTimer();
-    this.onStatusChange?.('connecting');
 
     if (typeof WebSocket === 'undefined') {
       this.warn('connect aborted: WebSocket is not available in this runtime', { url: this.url });
       this.onStatusChange?.('error');
       return;
     }
+    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) return;
+    this.onStatusChange?.('connecting');
+    if (!this.listeningForWake) {
+      window.addEventListener('online', this.handleWake);
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+      this.listeningForWake = true;
+    }
 
     const socket = new WebSocket(this.url);
     this.socket = socket;
+    this.lastMessageAt = Date.now();
+    this.hasReceivedMessage = false;
+    this.connectTimer = window.setTimeout(() => {
+      if (this.socket === socket && socket.readyState === WebSocket.CONNECTING) {
+        this.failConnection(socket, 'WebSocket connection timed out.');
+      }
+    }, MqttPoseClient.CONNECT_TIMEOUT_MS);
 
     socket.addEventListener('open', () => {
-
+      if (this.socket !== socket) return;
+      this.clearConnectTimer();
+      this.lastMessageAt = Date.now();
       this.onStatusChange?.('connected');
+      this.startDeviceCheck();
     });
 
     socket.addEventListener('message', (event) => {
-
+      if (this.socket !== socket) return;
+      this.lastMessageAt = Date.now();
+      this.hasReceivedMessage = true;
+      this.reconnectAttempts = 0;
       // 收到设备相关消息即视为活跃，刷新离线超时计时。
       this.recordEnvelopeActivity(event.data);
 
@@ -128,10 +182,10 @@ export class MqttPoseClient {
 
       const path = this.parsePath(event.data);
       if (path) {
-
         this.onPath?.(path.deviceId, path.points);
         return;
       }
+      if (this.isPathMessage(event.data)) return;
 
       const disconnectedDeviceId = this.parseDeviceDisconnect(event.data);
       if (disconnectedDeviceId) {
@@ -153,6 +207,7 @@ export class MqttPoseClient {
     });
 
     socket.addEventListener('close', (event) => {
+      if (this.socket !== socket) return;
       this.warn('close event received', {
         url: this.url,
         manuallyClosed: this.manuallyClosed,
@@ -161,7 +216,10 @@ export class MqttPoseClient {
         reason: event.reason,
         wasClean: event.wasClean,
       });
+      this.clearConnectTimer();
+      this.clearDeviceCheck();
       this.socket = null;
+      this.clearDeviceCache();
       if (this.manuallyClosed) {
         this.onStatusChange?.('disconnected');
         return;
@@ -174,43 +232,87 @@ export class MqttPoseClient {
         wasClean: event.wasClean,
       });
       this.onError?.({
-        message: 'WebSocket closed before a stable MQTT connection was established.',
+        message: 'WebSocket connection closed.',
         closeCode: event.code,
         closeReason: event.reason,
         wasClean: event.wasClean,
       });
       this.onStatusChange?.('error');
-      this.reconnectTimer = window.setTimeout(() => this.connect(), 3000);
+      this.scheduleReconnect();
     });
 
     socket.addEventListener('error', () => {
+      if (this.socket !== socket) return;
       this.warn('error event received', {
         url: this.url,
         readyState: socket.readyState,
         protocol: socket.protocol,
       });
-      console.error('MQTT WebSocket handshake failed', {
+      console.error('MQTT WebSocket error', {
         url: this.url,
         readyState: socket.readyState,
       });
       this.onError?.({
-        message: 'WebSocket handshake failed. Check endpoint, TLS certificate, auth, and server origin policy.',
+        message: 'WebSocket error. Check the endpoint, network, TLS certificate, and server logs.',
       });
       this.onStatusChange?.('error');
     });
-
-    this.startDeviceCheck();
   }
 
   disconnect(): void {
-
     this.manuallyClosed = true;
+    if (this.listeningForWake) {
+      window.removeEventListener('online', this.handleWake);
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+      this.listeningForWake = false;
+    }
     this.clearReconnectTimer();
+    this.clearConnectTimer();
     this.clearDeviceCheck();
-    this.socket?.close();
+    const socket = this.socket;
     this.socket = null;
-    this.lastActivityAt.clear();
+    socket?.close();
+    this.clearDeviceCache(false);
     this.onStatusChange?.('disconnected');
+  }
+
+  private failConnection(socket: WebSocket, message: string): void {
+    if (this.socket !== socket || this.manuallyClosed) return;
+    this.socket = null;
+    this.clearConnectTimer();
+    this.clearDeviceCheck();
+    socket.close();
+    this.clearDeviceCache();
+    this.onError?.({ message });
+    this.onStatusChange?.('error');
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    this.clearReconnectTimer();
+    if (!this.manuallyClosed) {
+      const delay = Math.min(3000 * 2 ** Math.min(this.reconnectAttempts, 4), 30000);
+      this.reconnectAttempts += 1;
+      this.reconnectTimer = window.setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, delay);
+    }
+  }
+
+  private clearConnectTimer(): void {
+    if (this.connectTimer !== null) {
+      window.clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
+  }
+
+  private clearDeviceCache(notify = true): void {
+    const deviceIds = notify ? [...this.lastActivityAt.keys()] : [];
+    this.lastActivityAt.clear();
+    this.pathSegments.clear();
+    this.rejectedPaths.clear();
+    deviceIds.forEach((deviceId) => this.onDeviceDisconnect?.(deviceId));
   }
 
   private clearReconnectTimer(): void {
@@ -256,9 +358,18 @@ export class MqttPoseClient {
       }
 
       const now = Date.now();
+      if (this.hasReceivedMessage && now - this.lastMessageAt >= MqttPoseClient.MESSAGE_TIMEOUT_MS) {
+        this.failConnection(this.socket, 'WebSocket stopped receiving messages.');
+        return;
+      }
       this.lastActivityAt.forEach((lastSeenAt, deviceId) => {
         if (now - lastSeenAt >= this.deviceTimeoutMs) {
           this.markDeviceOffline(deviceId);
+        }
+      });
+      this.pathSegments.forEach((path, deviceId) => {
+        if (now - path.updatedAt >= MqttPoseClient.PATH_TIMEOUT_MS) {
+          this.pathSegments.delete(deviceId);
         }
       });
     }, this.deviceCheckIntervalMs);
@@ -277,6 +388,7 @@ export class MqttPoseClient {
   private markDeviceOffline(deviceId: string): void {
     this.lastActivityAt.delete(deviceId);
     this.pathSegments.delete(deviceId);
+    this.rejectedPaths.delete(deviceId);
     this.onDeviceDisconnect?.(deviceId);
   }
 
@@ -286,6 +398,15 @@ export class MqttPoseClient {
     }
 
     console.warn(`[MqttPoseClient] ${message}`, details ?? '');
+  }
+
+  private isPathMessage(rawData: string): boolean {
+    try {
+      const outer = JSON.parse(rawData) as OuterMqttMessage;
+      return outer.type === 'mqtt' && MqttPoseClient.PATH_TOPIC_PATTERN.test(outer.topic ?? '');
+    } catch {
+      return false;
+    }
   }
 
   private parsePose(rawData: string): LivePose | null {
@@ -321,6 +442,8 @@ export class MqttPoseClient {
         y,
         z,
         theta,
+        protocolX: rawX,
+        protocolY: rawY,
         time: this.normalizeTimestamp(payload.time ?? outer.receivedAt),
         receivedAt: outer.receivedAt,
       };
@@ -348,10 +471,12 @@ export class MqttPoseClient {
       const deviceId = topicMatch[1] ?? outer.deviceId ?? '';
       const normalizedPayload = outer.payload.trim();
       if (normalizedPayload === 'end') {
+        if (this.rejectedPaths.delete(deviceId)) return null;
         const points = this.flushPathSegments(deviceId);
 
         return points.length > 0 ? { deviceId, points } : null;
       }
+      if (this.rejectedPaths.has(deviceId)) return null;
 
       const values = this.parsePathPayloadValues(normalizedPayload);
 
@@ -373,9 +498,26 @@ export class MqttPoseClient {
         return null;
       }
 
-      const segments = this.pathSegments.get(deviceId) ?? new Map<number, PathPoint[]>();
-      segments.set(index, points);
-      this.pathSegments.set(deviceId, segments);
+      const pending = this.pathSegments.get(deviceId) ?? {
+        segments: new Map<number, PathPoint[]>(),
+        updatedAt: Date.now(),
+        pointCount: 0,
+      };
+      const priorCount = pending.segments.get(index)?.length ?? 0;
+      const nextPointCount = pending.pointCount - priorCount + points.length;
+      if (
+        (!pending.segments.has(index) && pending.segments.size >= MqttPoseClient.MAX_PATH_SEGMENTS) ||
+        nextPointCount > MqttPoseClient.MAX_PATH_POINTS
+      ) {
+        this.pathSegments.delete(deviceId);
+        this.rejectedPaths.add(deviceId);
+        console.warn('[MqttPoseClient] incomplete path exceeded cache limit', { deviceId });
+        return null;
+      }
+      pending.segments.set(index, points);
+      pending.pointCount = nextPointCount;
+      pending.updatedAt = Date.now();
+      this.pathSegments.set(deviceId, pending);
 
       return null;
     } catch (error) {
@@ -462,7 +604,7 @@ export class MqttPoseClient {
       return null;
     }
 
-    return { x, y, z };
+    return { x, y, z, protocolX: rawX, protocolY: rawY };
   }
 
   private parseDeviceDisconnect(rawData: string): string | null {
@@ -555,12 +697,12 @@ export class MqttPoseClient {
   }
 
   private flushPathSegments(deviceId: string): PathPoint[] {
-    const segments = this.pathSegments.get(deviceId);
-    if (!segments) {
+    const pending = this.pathSegments.get(deviceId);
+    if (!pending) {
       return [];
     }
 
-    const points = [...segments.entries()]
+    const points = [...pending.segments.entries()]
       .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
       .flatMap(([, segmentPoints]) => segmentPoints);
 

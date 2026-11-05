@@ -27,6 +27,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { SceneConfig } from '@/types/scene';
 import type { BeaconVO } from '@/services/adminApi';
+import { getModelingAssetUrl, modelingAssetIdFromPath } from '@/modeling-workbench/assetCache';
 
 const props = defineProps<{
   config: SceneConfig;
@@ -204,7 +205,12 @@ async function rebuild() {
   try {
     await Promise.all((props.config.models ?? []).map(async (model) => {
       if (!model.path) return;
-      const gltf = await loader.loadAsync(resolveModelPath(model.path));
+      const modelingAssetId = modelingAssetIdFromPath(model.path);
+      const modelUrl = modelingAssetId
+        ? await getModelingAssetUrl(modelingAssetId)
+        : resolveModelPath(model.path);
+      if (!modelUrl) return;
+      const gltf = await loader.loadAsync(modelUrl);
       if (token !== buildToken || !scene) return;
       const object = gltf.scene;
       object.scale.setScalar(Number(model.scale) || 1);

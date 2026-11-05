@@ -8,6 +8,44 @@
         <span class="topbar__mqtt">{{ mqttStatusText }}</span>
       </div>
       <div class="topbar__spacer" />
+      <div class="scene-presentation" role="group" :aria-label="t('dashboard.scenePresentation')">
+        <button
+          type="button"
+          :class="{ 'is-active': scenePresentation === 'floor' }"
+          :aria-pressed="scenePresentation === 'floor'"
+          @click="setScenePresentation('floor')"
+        >{{ t('dashboard.currentFloorView') }}</button>
+        <button
+          type="button"
+          :class="{ 'is-active': scenePresentation === 'building' }"
+          :aria-pressed="scenePresentation === 'building'"
+          :disabled="floorOptions.length <= 1"
+          @click="setScenePresentation('building')"
+        >{{ t('dashboard.wholeBuildingView') }}</button>
+      </div>
+      <div v-if="scenePresentation === 'building'" class="scene-visibility-control">
+        <button
+          type="button"
+          class="scene-visibility-toggle"
+          :aria-expanded="visibilityPanelOpen"
+          @click="visibilityPanelOpen = !visibilityPanelOpen"
+        >
+          <EyeOutlined />
+          <span>{{ t('dashboard.buildingVisibility') }}</span>
+        </button>
+        <section v-if="visibilityPanelOpen" class="scene-visibility-popover glass-panel" :aria-label="t('dashboard.buildingVisibility')">
+          <header>{{ t('dashboard.buildingVisibility') }}</header>
+          <label>
+            <span>{{ t('dashboard.exteriorTransparency') }} <strong>{{ exteriorTransparency }}%</strong></span>
+            <input v-model.number="exteriorTransparency" type="range" min="0" max="90" step="1" @input="applyBuildingVisibility" />
+          </label>
+          <label>
+            <span>{{ t('dashboard.floorTransparency') }} <strong>{{ slabTransparency }}%</strong></span>
+            <input v-model.number="slabTransparency" type="range" min="0" max="90" step="1" @input="applyBuildingVisibility" />
+          </label>
+          <p>{{ t('dashboard.buildingVisibilityHint') }}</p>
+        </section>
+      </div>
       <label class="select-field">
         <span>{{ t('dashboard.view3D') }}</span>
         <select v-model="cameraMode" @change="applyCameraMode">
@@ -49,6 +87,39 @@
               <span>{{ t('dashboard.totalDevices') }}</span>
             </div>
           </div>
+          <section class="floor-match-summary" aria-live="polite">
+            <header>
+              <div class="floor-match-summary__context">
+                <span>{{ t('dashboard.floorMatchTitle') }}</span>
+                <strong :title="floorContextName">{{ floorContextName }}</strong>
+              </div>
+              <button
+                type="button"
+                :title="t('dashboard.inspectFloorMatches')"
+                :aria-label="t('dashboard.inspectFloorMatches')"
+                @click="filterOpen = true"
+              >
+                <FilterOutlined />
+              </button>
+            </header>
+            <p :class="['floor-match-summary__notice', { 'is-warning': deviceAssignmentStatus !== 'ready' || hasMissingFloorBinding }]">
+              {{ floorAssignmentMessage }}
+            </p>
+            <div class="floor-match-metrics">
+              <button type="button" :aria-pressed="deviceFloorFilter === 'current'" @click="openFloorStatusFilter('current')">
+                <strong>{{ floorMatchCounts.current }}</strong>
+                <span>{{ t('dashboard.floorMatched') }}</span>
+              </button>
+              <button type="button" :aria-pressed="deviceFloorFilter === 'other'" @click="openFloorStatusFilter('other')">
+                <strong>{{ floorMatchCounts.other }}</strong>
+                <span>{{ t('dashboard.floorOther') }}</span>
+              </button>
+              <button type="button" :aria-pressed="deviceFloorFilter === 'unresolved'" @click="openFloorStatusFilter('unresolved')">
+                <strong>{{ floorMatchCounts.unresolved }}</strong>
+                <span>{{ t('dashboard.floorUnresolved') }}</span>
+              </button>
+            </div>
+          </section>
           <div class="donut-wrap">
             <div ref="areaChartContainer" class="area-chart" />
           </div>
@@ -127,10 +198,13 @@
         <button
           type="button"
           :class="{ active: livePoseLabelsVisible }"
+          :aria-pressed="livePoseLabelsVisible"
+          :aria-label="livePoseLabelsVisible ? t('dashboard.hideDeviceText') : t('dashboard.showDeviceText')"
+          :title="livePoseLabelsVisible ? t('dashboard.hideDeviceText') : t('dashboard.showDeviceText')"
           @click="toggleLivePoseLabels"
         >
           <TagsOutlined />
-          <span>{{ t('dashboard.poseLabels') }}</span>
+          <span>{{ livePoseLabelsVisible ? t('dashboard.hideDeviceText') : t('dashboard.showDeviceText') }}</span>
         </button>
         <button
           type="button"
@@ -198,6 +272,16 @@
           <strong>{{ t('dashboard.deviceFilter') }}</strong>
           <span>{{ t('dashboard.deviceFilterCount', { selected: selectedDevices.length, total: deviceOptions.length }) }}</span>
         </div>
+        <div class="filter-floor-context">
+          <strong>{{ floorContextName }}</strong>
+          <span>{{ floorAssignmentMessage }}</span>
+        </div>
+        <div class="filter-status-tabs" role="group" :aria-label="t('dashboard.floorMatchTitle')">
+          <button type="button" :class="{ 'is-active': deviceFloorFilter === 'all' }" @click="deviceFloorFilter = 'all'">{{ t('dashboard.floorFilterAll') }}</button>
+          <button type="button" :class="{ 'is-active': deviceFloorFilter === 'current' }" @click="deviceFloorFilter = 'current'">{{ t('dashboard.floorFilterCurrent') }}</button>
+          <button type="button" :class="{ 'is-active': deviceFloorFilter === 'other' }" @click="deviceFloorFilter = 'other'">{{ t('dashboard.floorFilterOther') }}</button>
+          <button type="button" :class="{ 'is-active': deviceFloorFilter === 'unresolved' }" @click="deviceFloorFilter = 'unresolved'">{{ t('dashboard.floorFilterUnresolved') }}</button>
+        </div>
         <input
           v-model.trim="deviceFilterKeyword"
           class="filter-search"
@@ -205,10 +289,26 @@
           :placeholder="t('dashboard.deviceFilterSearch')"
         />
         <div class="filter-list">
-          <label v-for="device in filteredDeviceOptions" :key="device">
-            <input v-model="selectedDevices" type="checkbox" :value="device" />
-            <span>{{ device }}</span>
-          </label>
+          <div v-for="(device, index) in filteredDeviceOptions" :key="device" class="filter-device-row">
+            <input :id="`floor-device-${index}`" v-model="selectedDevices" type="checkbox" :value="device" />
+            <label :for="`floor-device-${index}`" class="filter-device-row__id">
+              {{ getDeviceDisplayName(device) }}
+              <small v-if="getDeviceDisplayName(device) !== device">{{ device }}</small>
+            </label>
+            <small :class="['filter-device-row__status', `is-${getPoseFloorStatus(device)}`]">
+              {{ getPoseFloorStatusLabel(getPoseFloorStatus(device)) }}
+            </small>
+            <button
+              v-if="props.canManageBeacons"
+              type="button"
+              class="filter-device-row__config"
+              :title="t('dashboard.openBeaconConfig')"
+              :aria-label="t('dashboard.openBeaconConfig') + ': ' + device"
+              @click="emit('show-beacons', device)"
+            >
+              <SettingOutlined />
+            </button>
+          </div>
           <p v-if="filteredDeviceOptions.length === 0" class="filter-empty">{{ t('dashboard.noDeviceMatch') }}</p>
         </div>
         <div class="filter-actions">
@@ -319,6 +419,7 @@ import {
   CompassOutlined,
   DashboardOutlined,
   DeploymentUnitOutlined,
+  EyeOutlined,
   FilterOutlined,
   HeatMapOutlined,
   MinusOutlined,
@@ -334,25 +435,44 @@ import * as echarts from 'echarts';
 import type { ECharts, EChartsOption } from 'echarts';
 
 import { useSceneStore } from '@/stores/scene';
+import { fetchDevices } from '@/services/adminApi';
+import { onDeviceAssignmentsUpdated } from '@/services/deviceAssignmentSync';
 import { MqttPoseClient, type MqttConnectionError, type MqttConnectionStatus } from '@/services/mqttPose';
 import { fetchTrajectoryPoints } from '@/services/trajectoryService';
 import { getAllAlertMessage, type AlertEvent } from '@/services/alert';
-import { cloneSceneConfig, getMapLibrary, saveMapLibrary, type SavedMap } from '@/services/mapLibrary';
+import { cloneSceneConfig, getMapLibrary, isLocalDraftMap, saveMapLibrary, type SavedMap } from '@/services/mapLibrary';
+import { derivePositionTransform, setPositionTransform, transformProtocolCoordinates } from '@/services/positionTransform';
 import { TwinScene, clearModelTemplateCache, type LivePose, type PathPoint, type PickPointResult } from '@/three/TwinScene';
+import type { ModelingPlan, ModelingPoint } from '@/types/modelingWorkbench';
 
 const props = defineProps<{
   embedded?: boolean;
   themeMode?: 'dark' | 'light';
+  canManageBeacons?: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   'show-events': [];
+  'show-beacons': [deviceId: string];
 }>();
 
 interface ReplayPoint extends PathPoint {
   deviceId: string;
   time: number;
   theta?: number;
+}
+
+type PoseFloorStatus = 'current' | 'other-floor' | 'other-building' | 'unmapped' | 'unlinked' | 'unknown';
+type DeviceFloorFilter = 'all' | 'current' | 'other' | 'unresolved';
+type DeviceAssignmentStatus = 'loading' | 'ready' | 'error';
+
+interface DeviceFloorAssignment {
+  buildingId: string;
+  buildingName?: string;
+  floorId: string;
+  floorName?: string;
+  boundPersonId?: string | null;
+  boundPersonName?: string | null;
 }
 
 const ALL_REPLAY_DEVICES = '__all__';
@@ -380,11 +500,16 @@ const mqttStatus = ref<MqttConnectionStatus>('connecting');
 const mqttError = ref<MqttConnectionError | null>(null);
 const currentTime = ref(formatClock(new Date()));
 const cameraMode = ref<'overview' | 'top' | 'side'>('overview');
+const scenePresentation = ref<'floor' | 'building'>('floor');
+const exteriorTransparency = ref(72);
+const slabTransparency = ref(84);
+const visibilityPanelOpen = ref(false);
 const viewMode = ref('monitor');
 const selectedFloorId = ref(sceneStore.config.floor.id);
 const overviewOpen = ref(true);
 const filterOpen = ref(false);
 const deviceFilterKeyword = ref('');
+const deviceFloorFilter = ref<DeviceFloorFilter>('all');
 const replayPanelOpen = ref(false);
 const replayPlaying = ref(false);
 const replayProgress = ref(0);
@@ -420,6 +545,7 @@ const replayLoadComplete = ref(false);
 
 let twinScene: TwinScene | null = null;
 let mqttClient: MqttPoseClient | null = null;
+let stopDeviceAssignmentSync: (() => void) | null = null;
 let areaChart: ECharts | null = null;
 let clockTimer = 0;
 let replayTimer = 0;
@@ -434,6 +560,9 @@ let lastAreaStatsAt = 0;
 const replayTracks = new Map<string, ReplayPoint[]>();
 const latestLivePoses = new Map<string, LivePose>();
 const pendingLivePoses = new Map<string, LivePose>();
+const deviceFloorById = ref(new Map<string, DeviceFloorAssignment>());
+const deviceAssignmentStatus = ref<DeviceAssignmentStatus>('loading');
+let deviceAssignmentLoadSequence = 0;
 const livePoseVersion = ref(0);
 const onlineDeviceCount = ref(0);
 const replayOnlineCount = ref(0);
@@ -445,8 +574,16 @@ const deviceOptions = computed(() => {
 });
 const filteredDeviceOptions = computed(() => {
   const keyword = deviceFilterKeyword.value.trim().toLowerCase();
-  if (!keyword) return deviceOptions.value;
-  return deviceOptions.value.filter((device) => device.toLowerCase().includes(keyword));
+  return deviceOptions.value.filter((device) => {
+    const assignment = deviceFloorById.value.get(device.trim().toLowerCase());
+    const searchable = `${device} ${assignment?.boundPersonName ?? ''} ${assignment?.floorName ?? ''} ${assignment?.buildingName ?? ''}`.toLowerCase();
+    if (keyword && !searchable.includes(keyword)) return false;
+    const status = getPoseFloorStatus(device);
+    if (deviceFloorFilter.value === 'current') return status === 'current';
+    if (deviceFloorFilter.value === 'other') return status === 'other-floor' || status === 'other-building';
+    if (deviceFloorFilter.value === 'unresolved') return status === 'unmapped' || status === 'unlinked' || status === 'unknown';
+    return true;
+  });
 });
 const replayDeviceOptions = computed(() => {
   const historyDeviceIds = replayPoints.value.map((point) => point.deviceId);
@@ -473,6 +610,50 @@ const floorOptions = computed(() => {
     id: floor.id,
     name: floor.name || floor.config.floor.name || floor.id,
   }));
+});
+const buildingPresentationKey = computed(() => {
+  const map = activeSavedMap.value;
+  return map ? `${map.id}:${map.metadata.floors.map((floor) => floor.id).join('|')}` : '';
+});
+watch(buildingPresentationKey, () => {
+  scenePresentation.value = floorOptions.value.length > 1 ? 'building' : 'floor';
+  if (sceneContainer.value) createTwinScene();
+}, { immediate: true });
+watch([exteriorTransparency, slabTransparency], applyBuildingVisibility);
+const activeFloorBinding = computed(() => activeSavedMap.value?.metadata.positioningBindings?.[selectedFloorId.value] ?? null);
+const hasMissingFloorBinding = computed(() => Boolean(
+  activeSavedMap.value
+  && isLocalDraftMap(activeSavedMap.value)
+  && !activeFloorBinding.value,
+));
+const floorContextName = computed(() => {
+  const floorName = floorOptions.value.find((floor) => floor.id === selectedFloorId.value)?.name;
+  return [activeSavedMap.value?.name, floorName].filter(Boolean).join(' · ') || t('dashboard.currentFloor');
+});
+const floorAssignmentMessage = computed(() => {
+  if (deviceAssignmentStatus.value === 'loading') return t('dashboard.floorAssignmentLoading');
+  if (deviceAssignmentStatus.value === 'error') return t('dashboard.floorAssignmentError');
+  if (hasMissingFloorBinding.value) return t('dashboard.floorBindingMissing');
+  return t('dashboard.floorAssignmentLoaded');
+});
+const floorMatchCounts = computed(() => {
+  livePoseVersion.value;
+  const counts: Record<PoseFloorStatus, number> = {
+    current: 0,
+    'other-floor': 0,
+    'other-building': 0,
+    unmapped: 0,
+    unlinked: 0,
+    unknown: 0,
+  };
+  latestLivePoses.forEach((_, deviceId) => {
+    counts[getPoseFloorStatus(deviceId)] += 1;
+  });
+  return {
+    current: counts.current,
+    other: counts['other-floor'] + counts['other-building'],
+    unresolved: counts.unmapped + counts.unlinked + counts.unknown,
+  };
 });
 const totalDevices = 30; // 设备总数，可从数据库动态更新
 
@@ -790,6 +971,59 @@ function applyCameraMode() {
   twinScene?.setCameraView(cameraMode.value);
 }
 
+function applyBuildingVisibility() {
+  twinScene?.setBuildingVisibility(
+    exteriorTransparency.value,
+    slabTransparency.value,
+    scenePresentation.value === 'building',
+  );
+}
+
+function getExteriorWallIds(plan?: ModelingPlan): string[] {
+  if (!plan) return [];
+  const boundaryEdges = plan.buildings.flatMap((building) => {
+    if (building.closed === false || building.outer.length < 3) return [];
+    return building.outer.map((start, edgeIndex) => ({
+      id: `outer:${building.id}:${edgeIndex}`,
+      start,
+      end: building.outer[(edgeIndex + 1) % building.outer.length],
+    }));
+  });
+  const exteriorIds = boundaryEdges.map((edge) => edge.id);
+  plan.walls.forEach((wall) => {
+    const start = { x: wall.x1, y: wall.y1 };
+    const end = { x: wall.x2, y: wall.y2 };
+    if (boundaryEdges.some((edge) => (
+      pointOnModelingSegment(start, edge.start, edge.end)
+      && pointOnModelingSegment(end, edge.start, edge.end)
+    ))) exteriorIds.push(wall.id);
+  });
+  return [...new Set(exteriorIds)];
+}
+
+function pointOnModelingSegment(point: ModelingPoint, start: ModelingPoint, end: ModelingPoint, tolerance = 2.5): boolean {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.001) return false;
+  const projection = ((point.x - start.x) * dx + (point.y - start.y) * dy) / (length * length);
+  if (projection < -tolerance / length || projection > 1 + tolerance / length) return false;
+  return Math.hypot(point.x - start.x - dx * projection, point.y - start.y - dy * projection) <= tolerance;
+}
+
+function setScenePresentation(presentation: 'floor' | 'building') {
+  if (presentation === 'building' && floorOptions.value.length <= 1) {
+    return;
+  }
+  if (scenePresentation.value === presentation) {
+    return;
+  }
+
+  scenePresentation.value = presentation;
+  if (presentation === 'floor') visibilityPanelOpen.value = false;
+  createTwinScene();
+}
+
 function zoomScene(delta: number) {
   twinScene?.zoom(delta);
 }
@@ -846,20 +1080,113 @@ function applyFloorSwitch() {
   viewMode.value = 'monitor';
 
   sceneStore.setConfig(cloneSceneConfig(targetFloor.config));
-  const nextMaps = getMapLibrary().map((map) =>
-    map.id === activeMap.id
-      ? {
-          ...map,
-          config: cloneSceneConfig(targetFloor.config),
-          metadata: {
-            ...map.metadata,
-            activeFloorId: targetFloor.id,
-            floor: targetFloor.name,
-          },
-        }
-      : map,
-  );
+  const updatedMap = {
+    ...activeMap,
+    config: cloneSceneConfig(targetFloor.config),
+    metadata: {
+      ...activeMap.metadata,
+      activeFloorId: targetFloor.id,
+      floor: targetFloor.name,
+    },
+  };
+  const nextMaps = getMapLibrary().map((map) => map.id === activeMap.id ? updatedMap : map);
   saveMapLibrary(nextMaps);
+  sceneStore.savedMap = updatedMap;
+  setPositionTransform(derivePositionTransform(updatedMap, targetFloor.id));
+  applyLiveDeviceFilter();
+  if (replayPanelOpen.value && replayFrameTimes.value.length) applyReplayFrame();
+}
+
+function getPoseFloorStatus(deviceId: string): PoseFloorStatus {
+  const assignment = deviceFloorById.value.get(deviceId.trim().toLowerCase());
+  if (!assignment) return deviceAssignmentStatus.value === 'ready' ? 'unmapped' : 'unknown';
+  const map = activeSavedMap.value;
+  if (!map) return 'other-building';
+  if (isLocalDraftMap(map)) {
+    const binding = activeFloorBinding.value;
+    if (!binding) return 'unlinked';
+    if (assignment.buildingId !== binding.buildingId) return 'other-building';
+    return assignment.floorId === binding.floorId ? 'current' : 'other-floor';
+  }
+  const buildingId = map?.metadata.buildingId || map?.id || '';
+  if (assignment.buildingId !== buildingId) return 'other-building';
+  return assignment.floorId === selectedFloorId.value ? 'current' : 'other-floor';
+}
+
+function getDeviceDisplayName(deviceId: string): string {
+  const assignment = deviceFloorById.value.get(deviceId.trim().toLowerCase());
+  return assignment?.boundPersonName?.trim() || deviceId;
+}
+
+function getPoseFloorStatusLabel(status: PoseFloorStatus): string {
+  switch (status) {
+    case 'current': return t('dashboard.floorStatusCurrent');
+    case 'other-floor': return t('dashboard.floorStatusOtherFloor');
+    case 'other-building': return t('dashboard.floorStatusOtherBuilding');
+    case 'unmapped': return t('dashboard.floorStatusUnmapped');
+    case 'unlinked': return t('dashboard.floorStatusUnlinked');
+    default: return t('dashboard.floorStatusUnknown');
+  }
+}
+
+function isPoseOnSelectedFloor(deviceId: string): boolean {
+  const status = getPoseFloorStatus(deviceId);
+  return status === 'current' || status === 'unmapped' || status === 'unknown';
+}
+
+function getPoseModelFloorId(deviceId: string): string | null {
+  const assignment = deviceFloorById.value.get(deviceId.trim().toLowerCase());
+  if (!assignment) return selectedFloorId.value;
+
+  const map = activeSavedMap.value;
+  if (!map) return null;
+  if (isLocalDraftMap(map)) {
+    return map.metadata.floors.find((floor) => {
+      const binding = map.metadata.positioningBindings?.[floor.id];
+      return binding?.buildingId === assignment.buildingId && binding.floorId === assignment.floorId;
+    })?.id ?? null;
+  }
+
+  const buildingId = map.metadata.buildingId || map.id;
+  if (assignment.buildingId !== buildingId) return null;
+  return map.metadata.floors.find((floor) => floor.id === assignment.floorId)?.id ?? null;
+}
+
+function isPoseVisibleInPresentation(deviceId: string): boolean {
+  if (scenePresentation.value === 'floor') return isPoseOnSelectedFloor(deviceId);
+  const status = getPoseFloorStatus(deviceId);
+  return (status === 'current' || status === 'other-floor' || status === 'unmapped' || status === 'unknown')
+    && getPoseModelFloorId(deviceId) !== null;
+}
+
+async function loadDeviceFloorAssignments() {
+  const requestSequence = ++deviceAssignmentLoadSequence;
+  try {
+    const page = await fetchDevices({ page: 1, pageSize: 10000 });
+    if (requestSequence !== deviceAssignmentLoadSequence) return;
+    deviceFloorById.value = new Map(
+      page.records
+        .filter((device) => device.buildingId && device.floorId)
+        .map((device): [string, DeviceFloorAssignment] => [device.deviceId.trim().toLowerCase(), {
+          buildingId: device.buildingId!,
+          buildingName: device.buildingName ?? undefined,
+          floorId: device.floorId!,
+          floorName: device.floorName ?? undefined,
+          boundPersonId: device.boundPersonId,
+          boundPersonName: device.boundPersonName,
+        }]),
+    );
+    deviceAssignmentStatus.value = 'ready';
+    applyLiveDeviceFilter();
+    if (!replayPanelOpen.value) restoreLivePoseView();
+    if (replayPanelOpen.value && replayFrameTimes.value.length) applyReplayFrame();
+  } catch (error) {
+    if (requestSequence !== deviceAssignmentLoadSequence) return;
+    deviceAssignmentStatus.value = 'error';
+    applyLiveDeviceFilter();
+    if (!replayPanelOpen.value) restoreLivePoseView();
+    console.warn('[TwinScreen] failed to load device floor assignments; showing unassigned live poses', error);
+  }
 }
 
 function applyReplayDeviceSelection() {
@@ -954,7 +1281,9 @@ function clearReplayScene(deviceIds = getReplayDeviceIds()) {
 
 function restoreLivePoseView() {
   latestLivePoses.forEach((pose) => {
-    twinScene?.updateLivePose(pose);
+    if (!isPoseVisibleInPresentation(pose.deviceId)) return;
+    const floorId = getPoseModelFloorId(pose.deviceId) ?? selectedFloorId.value;
+    twinScene?.updateLivePose(projectProtocolPoint(pose, floorId));
   });
   applyLiveDeviceFilter();
   // 恢复实时数据的区域统计
@@ -985,7 +1314,30 @@ function flushPendingLivePoses() {
   }
   const poses = [...pendingLivePoses.values()];
   pendingLivePoses.clear();
-  poses.forEach((pose) => twinScene?.updateLivePose(pose));
+  poses.forEach((pose) => {
+    if (!isPoseVisibleInPresentation(pose.deviceId)) return;
+    const floorId = getPoseModelFloorId(pose.deviceId) ?? selectedFloorId.value;
+    twinScene?.updateLivePose(projectProtocolPoint(pose, floorId));
+  });
+}
+
+function projectProtocolPoint<T extends { x: number; y: number; protocolX?: number; protocolY?: number; deviceId?: string }>(
+  point: T,
+  floorId = point.deviceId ? getPoseModelFloorId(point.deviceId) ?? selectedFloorId.value : selectedFloorId.value,
+): T & { floorId: string; displayLabel?: string } {
+  let { x, y } = point;
+  if (Number.isFinite(point.protocolX) && Number.isFinite(point.protocolY)) {
+    const map = activeSavedMap.value;
+    const transform = map ? derivePositionTransform(map, floorId) : undefined;
+    const projected = transformProtocolCoordinates(point.protocolX!, point.protocolY!, transform);
+    x = projected.x;
+    y = projected.y;
+  }
+  const assignment = point.deviceId ? deviceFloorById.value.get(point.deviceId.trim().toLowerCase()) : undefined;
+  const displayLabel = point.deviceId
+    ? `${assignment?.boundPersonName?.trim() || point.deviceId}${assignment?.floorName ? ` · ${assignment.floorName}` : ''}`
+    : undefined;
+  return { ...point, x, y, floorId, displayLabel };
 }
 
 function scheduleLivePoseRender(pose: LivePose) {
@@ -1000,12 +1352,19 @@ function applyLiveDeviceFilter() {
     return;
   }
 
-  twinScene?.setVisibleLivePoses([...selectedDevices.value]);
+  twinScene?.setVisibleLivePoses(selectedDevices.value.filter(isPoseVisibleInPresentation));
+}
+
+function openFloorStatusFilter(filter: DeviceFloorFilter) {
+  deviceFloorFilter.value = filter;
+  deviceFilterKeyword.value = '';
+  filterOpen.value = true;
 }
 
 function cancelDeviceFilter() {
   selectedDevices.value = [...deviceOptions.value];
   deviceFilterKeyword.value = '';
+  deviceFloorFilter.value = 'all';
   filterOpen.value = false;
 }
 
@@ -1032,8 +1391,29 @@ function createTwinScene() {
     () => {
       // Map selection is handled inside TwinScene; the replay device filter only changes from the select control.
     },
+    scenePresentation.value === 'building' && (activeSavedMap.value?.metadata.floors.length ?? 0) > 1
+      ? {
+          buildingFloors: activeSavedMap.value!.metadata.floors.map((floor) => {
+            const snapshot = activeSavedMap.value!.metadata.modelingWorkbench;
+            const snapshotFloor = snapshot?.floors.find((item) => item.id === floor.id);
+            const metersPerPixel = Number(snapshot?.canvas.metersPerPixel);
+            const storyHeight = Number(snapshotFloor?.height);
+            return {
+              id: floor.id,
+              name: floor.name,
+              config: floor.config,
+              exteriorWallIds: getExteriorWallIds(snapshotFloor?.plan),
+              storyHeight: Number.isFinite(storyHeight) && storyHeight > 0
+                ? storyHeight / (Number.isFinite(metersPerPixel) && metersPerPixel > 0 ? metersPerPixel : 0.08)
+                : undefined,
+            };
+          }),
+          activeFloorId: selectedFloorId.value,
+        }
+      : undefined,
   );
   twinScene.init();
+  applyBuildingVisibility();
   // Re-apply the selected multi-view preset so a rebuilt scene (e.g. after a
   // floor switch) keeps the user's view instead of resetting to overview.
   applyCameraMode();
@@ -1044,6 +1424,8 @@ function createTwinScene() {
   if (!replayPanelOpen.value) {
     restoreLivePoseView();
     applyLiveDeviceFilter();
+  } else if (replayFrameTimes.value.length > 0) {
+    applyReplayFrame();
   }
 }
 
@@ -1078,7 +1460,7 @@ function mergeReplayPoints(existingPoints: ReplayPoint[], incomingPoints: Replay
   const pointMap = new Map<string, ReplayPoint>();
 
   [...existingPoints, ...incomingPoints].forEach((point) => {
-    pointMap.set(`${point.deviceId}:${point.time}:${point.x}:${point.y}:${point.z}`, point);
+    pointMap.set(`${point.deviceId}:${point.time}:${point.protocolX ?? point.x}:${point.protocolY ?? point.y}:${point.z}`, point);
   });
 
   return [...pointMap.values()].sort((left, right) => left.time - right.time);
@@ -1088,7 +1470,9 @@ function refreshReplayDataAfterLoad() {
   prepareReplayTracks();
   prepareReplayFrameTimes();
   getReplayDeviceIds().forEach((deviceId) => {
-    twinScene?.setDevicePath(deviceId, replayTracks.get(deviceId) ?? []);
+    if (!isPoseVisibleInPresentation(deviceId)) return;
+    const floorId = getPoseModelFloorId(deviceId) ?? selectedFloorId.value;
+    twinScene?.setDevicePath(deviceId, (replayTracks.get(deviceId) ?? []).map((point) => projectProtocolPoint(point, floorId)));
   });
 }
 
@@ -1255,6 +1639,12 @@ function interpolateReplayPoint(points: ReplayPoint[], time: number): ReplayPoin
     x: left.x + (right.x - left.x) * ratio,
     y: left.y + (right.y - left.y) * ratio,
     z: left.z + (right.z - left.z) * ratio,
+    protocolX: typeof left.protocolX === 'number' && typeof right.protocolX === 'number'
+      ? left.protocolX + (right.protocolX - left.protocolX) * ratio
+      : undefined,
+    protocolY: typeof left.protocolY === 'number' && typeof right.protocolY === 'number'
+      ? left.protocolY + (right.protocolY - left.protocolY) * ratio
+      : undefined,
     theta: typeof left.theta === 'number' && typeof right.theta === 'number' ? left.theta + (right.theta - left.theta) * ratio : left.theta,
     time,
   };
@@ -1311,8 +1701,8 @@ function getReplayPositionsAtTime(time: number): ReplayPoint[] {
   replayTracks.forEach((track) => {
     if (track.length > 0) {
       const point = interpolateReplayPoint(track, time);
-      if (point) {
-        positions.push(point);
+      if (point && isPoseOnSelectedFloor(point.deviceId)) {
+        positions.push(projectProtocolPoint(point));
       }
     }
   });
@@ -1376,7 +1766,9 @@ function updateAreaStats(time?: number): void {
 
   const positions = time !== undefined
     ? getReplayPositionsAtTime(time)
-    : [...latestLivePoses.values()];
+    : [...latestLivePoses.values()]
+        .filter((pose) => isPoseOnSelectedFloor(pose.deviceId))
+          .map((pose) => projectProtocolPoint(pose, selectedFloorId.value));
   const total = time !== undefined ? Math.max(positions.length, 1) : (onlineDevices.value || 1);
 
   const fenceCounts = new Map<string, { name: string; count: number; color: string }>();
@@ -1435,8 +1827,9 @@ function applyReplayTime(time: number) {
     let visibleCount = 0;
     replayTracks.forEach((devicePoints, deviceId) => {
       const framePoint = interpolateReplayPoint(devicePoints, time);
-      if (framePoint) {
-        twinScene?.updateReplayPose(deviceId, framePoint, framePoint.theta ?? 0);
+      if (framePoint && isPoseVisibleInPresentation(deviceId)) {
+        const floorId = getPoseModelFloorId(deviceId) ?? selectedFloorId.value;
+        twinScene?.updateReplayPose(deviceId, projectProtocolPoint(framePoint, floorId), framePoint.theta ?? 0);
         visibleCount += 1;
       } else {
         twinScene?.hideReplayPose(deviceId);
@@ -1449,8 +1842,9 @@ function applyReplayTime(time: number) {
   }
 
   const point = interpolateReplayPoint(replayPoints.value, time);
-  if (point) {
-    twinScene?.updateReplayPose(point.deviceId, point, point.theta ?? 0);
+  if (point && isPoseVisibleInPresentation(point.deviceId)) {
+    const floorId = getPoseModelFloorId(point.deviceId) ?? selectedFloorId.value;
+    twinScene?.updateReplayPose(point.deviceId, projectProtocolPoint(point, floorId), point.theta ?? 0);
     replayOnlineCount.value = 1;
     updateAreaStats(time);
   } else if (selectedReplayDevice.value !== ALL_REPLAY_DEVICES) {
@@ -1593,8 +1987,10 @@ async function startReplay(options: { autoPlay?: boolean } = {}) {
   }
 
   replayDeviceIds.forEach((deviceId) => {
+    if (!isPoseVisibleInPresentation(deviceId)) return;
+    const floorId = getPoseModelFloorId(deviceId) ?? selectedFloorId.value;
     const devicePoints = replayTracks.get(deviceId) ?? [];
-    twinScene?.setDevicePath(deviceId, devicePoints);
+    twinScene?.setDevicePath(deviceId, devicePoints.map((point) => projectProtocolPoint(point, floorId)));
   });
   if (selectedReplayDevice.value === ALL_REPLAY_DEVICES) {
     // 实时监控可能保留空的设备筛选集合；全部回放必须显式解除该过滤。
@@ -1720,6 +2116,10 @@ async function loadAlertEvents() {
 
 onMounted(() => {
   void loadAlertEvents();
+  stopDeviceAssignmentSync = onDeviceAssignmentsUpdated(() => {
+    void loadDeviceFloorAssignments();
+  });
+  void loadDeviceFloorAssignments();
 
   updateAreaStats();
 
@@ -1753,8 +2153,9 @@ onMounted(() => {
       }
     },
     onPath: (deviceId, points) => {
-      if (!replayPanelOpen.value) {
-        twinScene?.setDevicePath(deviceId, points);
+      if (!replayPanelOpen.value && isPoseVisibleInPresentation(deviceId)) {
+        const floorId = getPoseModelFloorId(deviceId) ?? selectedFloorId.value;
+        twinScene?.setDevicePath(deviceId, points.map((point) => projectProtocolPoint(point, floorId)));
       }
     },
     onDeviceDisconnect: (deviceId) => {
@@ -1782,6 +2183,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopDeviceAssignmentSync?.();
+  stopDeviceAssignmentSync = null;
   window.clearInterval(clockTimer);
   window.clearTimeout(areaStatsTimer);
   window.cancelAnimationFrame(livePoseFrameId);
@@ -1844,6 +2247,7 @@ watch(
 
 <style scoped>
 .twin-screen {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100vw;
@@ -1917,6 +2321,146 @@ watch(
 
 .topbar__spacer {
   flex: 1;
+}
+
+.scene-presentation {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid rgba(83, 153, 224, 0.24);
+  border-radius: 7px;
+  background: rgba(3, 18, 32, 0.56);
+}
+
+.scene-presentation button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(224, 238, 250, 0.78);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.scene-presentation button.is-active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.scene-presentation button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.scene-visibility-control {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.scene-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(105, 167, 232, 0.26);
+  border-radius: 6px;
+  background: rgba(8, 26, 45, 0.78);
+  color: #eef8ff;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.scene-visibility-toggle:hover,
+.scene-visibility-toggle[aria-expanded="true"] {
+  border-color: rgba(78, 163, 255, 0.65);
+  color: #8bdcff;
+}
+
+.twin-screen--light .scene-visibility-toggle {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(34, 45, 66, 0.78);
+}
+
+.scene-visibility-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 12;
+  display: grid;
+  gap: 12px;
+  width: 256px;
+  padding: 14px;
+}
+
+.scene-visibility-popover > header {
+  color: #f3f9ff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.twin-screen--light .scene-visibility-popover > header {
+  color: #26344d;
+}
+
+.scene-visibility-popover label {
+  display: grid;
+  gap: 8px;
+  color: rgba(220, 234, 247, 0.78);
+  font-size: 12px;
+}
+
+.scene-visibility-popover label span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scene-visibility-popover label strong {
+  color: #fff;
+}
+
+.scene-visibility-popover input[type="range"] {
+  width: 100%;
+  accent-color: #3b82f6;
+}
+
+.scene-visibility-popover p {
+  margin: 0;
+  color: rgba(220, 234, 247, 0.56);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.twin-screen--light .scene-visibility-popover label {
+  color: rgba(52, 65, 89, 0.72);
+}
+
+.twin-screen--light .scene-visibility-popover label strong {
+  color: #26344d;
+}
+
+.twin-screen--light .scene-visibility-popover p {
+  color: rgba(52, 65, 89, 0.58);
+}
+
+.twin-screen--light .scene-presentation {
+  border-color: rgba(78, 101, 140, 0.18);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.twin-screen--light .scene-presentation button {
+  color: rgba(52, 65, 89, 0.82);
+}
+
+.twin-screen--light .scene-presentation button.is-active {
+  color: #fff;
 }
 
 .status-dot {
@@ -2086,6 +2630,109 @@ watch(
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   padding: 14px 16px;
+}
+
+.floor-match-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0 16px 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(85, 145, 206, 0.18);
+}
+
+.floor-match-summary > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.floor-match-summary__context {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.floor-match-summary__context span,
+.floor-match-metrics span {
+  color: rgba(218, 232, 244, 0.66);
+  font-size: 11px;
+}
+
+.floor-match-summary__context strong {
+  overflow: hidden;
+  color: rgba(235, 244, 252, 0.92);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floor-match-summary > header button {
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(104, 169, 232, 0.28);
+  border-radius: 6px;
+  background: rgba(55, 142, 232, 0.14);
+  color: #8bdcff;
+  cursor: pointer;
+}
+
+.floor-match-summary > header button:hover {
+  border-color: rgba(84, 189, 255, 0.58);
+  background: rgba(55, 142, 232, 0.26);
+}
+
+.floor-match-summary__notice {
+  margin: 0;
+  color: rgba(34, 216, 134, 0.86);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.floor-match-summary__notice.is-warning {
+  color: #f5bd63;
+}
+
+.floor-match-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.floor-match-metrics > button {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: rgba(4, 17, 33, 0.48);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s, background 0.18s;
+}
+
+.floor-match-metrics > button:hover,
+.floor-match-metrics > button[aria-pressed="true"] {
+  border-color: rgba(84, 189, 255, 0.42);
+  background: rgba(55, 142, 232, 0.18);
+}
+
+.floor-match-metrics strong {
+  color: #e7f3ff;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.floor-match-metrics span {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stat-pill {
@@ -2381,13 +3028,13 @@ watch(
 }
 
 .pick-chip {
-  position: fixed;
-  top: 80px;
+  position: absolute;
+  top: 76px;
   left: 50%;
   display: flex;
   gap: 10px;
   transform: translateX(-50%);
-  z-index: 10;
+  z-index: 4;
   padding: 8px 12px;
   border: 1px solid rgba(104, 169, 232, 0.3);
   border-radius: 6px;
@@ -2411,6 +3058,225 @@ watch(
 .twin-screen--light .filter-popover__header span,
 .twin-screen--light .filter-empty {
   color: rgba(52, 65, 89, 0.58);
+}
+
+.twin-screen--light .floor-match-summary {
+  border-top-color: rgba(78, 101, 140, 0.14);
+}
+
+.twin-screen--light .floor-match-summary__context span,
+.twin-screen--light .floor-match-metrics span {
+  color: rgba(52, 65, 89, 0.64);
+}
+
+.twin-screen--light .floor-match-summary__context strong {
+  color: #26344d;
+}
+
+.twin-screen--light .floor-match-summary > header button {
+  border-color: rgba(78, 101, 140, 0.18);
+  background: rgba(240, 245, 251, 0.96);
+  color: #2563eb;
+}
+
+.twin-screen--light .floor-match-summary__notice {
+  color: #15803d;
+}
+
+.twin-screen--light .floor-match-summary__notice.is-warning {
+  color: #b45309;
+}
+
+.twin-screen--light .floor-match-metrics > button {
+  border-color: transparent;
+  background: rgba(240, 245, 251, 0.86);
+}
+
+.twin-screen--light .floor-match-metrics > button:hover,
+.twin-screen--light .floor-match-metrics > button[aria-pressed="true"] {
+  border-color: rgba(37, 99, 235, 0.3);
+  background: rgba(226, 238, 253, 0.96);
+}
+
+.twin-screen--light .floor-match-metrics strong {
+  color: #172033;
+}
+
+.filter-floor-context {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border-left: 2px solid rgba(84, 189, 255, 0.68);
+  background: rgba(55, 142, 232, 0.1);
+}
+
+.filter-floor-context strong {
+  overflow: hidden;
+  color: rgba(235, 244, 252, 0.92);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-floor-context span {
+  color: rgba(226, 239, 250, 0.64);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.filter-status-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.filter-status-tabs button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 4px;
+  overflow: hidden;
+  border: 1px solid rgba(104, 169, 232, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 239, 250, 0.72);
+  cursor: pointer;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-status-tabs button.is-active {
+  border-color: rgba(84, 189, 255, 0.52);
+  background: rgba(55, 142, 232, 0.2);
+  color: #9bdcff;
+}
+
+.filter-device-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.filter-device-row input {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.filter-device-row__id {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0 !important;
+  padding: 0 !important;
+  color: rgba(226, 239, 250, 0.86);
+  font-size: 12px;
+}
+
+.filter-device-row__config {
+  display: grid;
+  flex: 0 0 26px;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(104, 169, 232, 0.22);
+  border-radius: 6px;
+  background: rgba(55, 142, 232, 0.12);
+  color: #8bdcff;
+  cursor: pointer;
+}
+
+.filter-device-row__config:hover {
+  border-color: rgba(84, 189, 255, 0.56);
+  background: rgba(55, 142, 232, 0.28);
+}
+
+.filter-device-row__status {
+  flex: 0 0 auto;
+  max-width: 100px;
+  overflow: hidden;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  color: rgba(226, 239, 250, 0.72);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-device-row__status.is-current {
+  background: rgba(34, 197, 94, 0.16);
+  color: #7ce3a5;
+}
+
+.filter-device-row__status.is-other-floor,
+.filter-device-row__status.is-other-building {
+  background: rgba(245, 158, 11, 0.16);
+  color: #ffd07b;
+}
+
+.filter-device-row__status.is-unmapped,
+.filter-device-row__status.is-unlinked,
+.filter-device-row__status.is-unknown {
+  background: rgba(148, 163, 184, 0.16);
+  color: rgba(226, 239, 250, 0.72);
+}
+
+.twin-screen--light .filter-floor-context {
+  background: rgba(226, 238, 253, 0.72);
+}
+
+.twin-screen--light .filter-floor-context strong,
+.twin-screen--light .filter-device-row__id {
+  color: #26344d;
+}
+
+.twin-screen--light .filter-floor-context span {
+  color: rgba(52, 65, 89, 0.66);
+}
+
+.twin-screen--light .filter-status-tabs button {
+  border-color: rgba(78, 101, 140, 0.16);
+  background: #fff;
+  color: #52627a;
+}
+
+.twin-screen--light .filter-status-tabs button.is-active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: rgba(226, 238, 253, 0.96);
+  color: #1d4ed8;
+}
+
+.twin-screen--light .filter-device-row {
+  background: rgba(240, 245, 251, 0.72);
+}
+
+.twin-screen--light .filter-device-row__config {
+  border-color: rgba(78, 101, 140, 0.18);
+  background: #fff;
+  color: #2563eb;
+}
+
+.twin-screen--light .filter-device-row__status.is-current {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.twin-screen--light .filter-device-row__status.is-other-floor,
+.twin-screen--light .filter-device-row__status.is-other-building {
+  background: rgba(217, 119, 6, 0.12);
+  color: #a16207;
+}
+
+.twin-screen--light .filter-device-row__status.is-unmapped,
+.twin-screen--light .filter-device-row__status.is-unlinked,
+.twin-screen--light .filter-device-row__status.is-unknown {
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
 }
 
 .twin-screen--light .filter-search {
@@ -3131,6 +3997,11 @@ watch(
   .topbar {
     gap: 12px;
     padding: 0 12px;
+  }
+
+  .scene-presentation button {
+    padding: 0 7px;
+    font-size: 11px;
   }
 
   .select-field {

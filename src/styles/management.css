@@ -22,6 +22,70 @@
   padding: 18px 20px;
 }
 
+.device-flow-guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.device-flow-guide > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(255, 255, 255, 0.94));
+}
+
+.device-flow-guide > div > span {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: #2f6fff;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.device-flow-guide p {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.device-flow-guide strong {
+  color: #1e3a8a;
+  font-size: 13px;
+}
+
+.device-flow-guide small,
+.management-table td small {
+  display: block;
+  margin-top: 3px;
+  color: #718096;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.device-binding-hint {
+  margin: 12px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .device-flow-guide {
+    grid-template-columns: 1fr;
+  }
+}
+
 .management-toolbar h2,
 .management-panel h3,
 .management-modal h3 {

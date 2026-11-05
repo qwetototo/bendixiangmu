@@ -9,6 +9,7 @@
     @toggle-theme="toggleTheme"
   />
 
+
   <main v-else :class="['admin-shell', `admin-shell--${themeMode}`]">
     <header class="admin-topbar" @mouseleave="closeMenu">
       <button class="brand-button" type="button" @click="selectNav('home', 'overview')">
@@ -57,8 +58,9 @@
     </header>
 
     <section class="admin-body">
-      <section v-if="activePageKey === 'live.live'" class="track-page">
-        <TwinScreen embedded :theme-mode="themeMode" @show-events="selectNav('events', 'events')" />
+      <ModelingWorkbench v-if="modelingWorkbenchOpen" @back-to-list="closeModelingWorkbench" />
+      <section v-else-if="activePageKey === 'live.live'" class="track-page">
+        <TwinScreen embedded :theme-mode="themeMode" :can-manage-beacons="isAdmin" @show-events="selectNav('events', 'events')" @show-beacons="openBeaconManagement" />
       </section>
 
       <section v-else class="content-page">
@@ -79,7 +81,8 @@
         <IdentityView v-else-if="activePageKey === 'identity.personnel'" :key="`personnel-${pageRefreshKey}`" :theme-mode="themeMode" />
         <BeaconDeviceView v-else-if="activePageKey === 'identity.beacons'" :key="`beacons-${pageRefreshKey}`" :theme-mode="themeMode" />
         <UserManagementView v-else-if="activePageKey === 'config.users'" :key="`users-${pageRefreshKey}`" :theme-mode="themeMode" />
-        <ConfigView v-else :key="`config-${activeSubmenu}-${editingMapId}-${pageRefreshKey}`" :page-key="activeSubmenu" :edit-map-id="editingMapId" :theme-mode="themeMode" />
+        <MapImportView v-else-if="activePageKey === 'config.map-import'" :key="`map-import-${pageRefreshKey}`" :theme-mode="themeMode" />
+        <ConfigView v-else :key="`config-${activeSubmenu}-${editingMapId}-${pageRefreshKey}`" :page-key="activeSubmenu" :edit-map-id="editingMapId" :theme-mode="themeMode" @open-modeling-workbench="openModelingWorkbench" />
       </section>
     </section>
 
@@ -97,7 +100,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { BellOutlined, BgColorsOutlined, LogoutOutlined, ReloadOutlined } from '@ant-design/icons-vue';
 import BeaconDeviceView from '@/views/admin/BeaconDeviceView.vue';
@@ -109,12 +112,16 @@ import IdentityView from '@/views/admin/IdentityView.vue';
 import UserManagementView from '@/views/admin/UserManagementView.vue';
 import LoginView from '@/views/LoginView.vue';
 import TwinScreen from '@/views/TwinScreen.vue';
+import ModelingWorkbench from '@/modeling-workbench/ModelingWorkbench.vue';
 import { useNavigation, type SectionKey } from '@/services/navigation';
 import { useLanguageStore } from '@/stores/language';
-import { useAuthStore } from '@/stores/auth';
+import { isLocalPreviewMode, useAuthStore } from '@/stores/auth';
 import { useSceneStore } from '@/stores/scene';
 import type { LoginPayload } from '@/services/authApi';
 import { fetchAlertEvents, type DeviceStatus, type DeviceVO } from '@/services/adminApi';
+import { getMapLibrary, type SavedMap } from '@/services/mapLibrary';
+
+const MapImportView = defineAsyncComponent(() => import('@/views/admin/MapImportView.vue'));
 
 const { t, locale } = useI18n();
 const languageStore = useLanguageStore();
@@ -163,6 +170,7 @@ const routeAliases = new Map<string, StoredNavState>([
   ['/config/scene', { section: 'config', submenu: 'map-editor' }],
   ['/config/users', { section: 'config', submenu: 'users' }],
   ['/config/map-editor', { section: 'config', submenu: 'map-editor' }],
+  ['/config/map-import', { section: 'config', submenu: 'map-import' }],
 ]);
 
 function isValidNavState(state: StoredNavState): state is Required<StoredNavState> {
@@ -172,6 +180,9 @@ function isValidNavState(state: StoredNavState): state is Required<StoredNavStat
 
 function getRouteNavState(): StoredNavState {
   const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (normalizedPath.startsWith('/config/modeling-workbench')) {
+    return { section: 'config', submenu: 'map-editor' };
+  }
   const routeState = routeAliases.get(normalizedPath);
   if (routeState) {
     return routeState;
@@ -208,12 +219,33 @@ function getStoredThemeMode(): 'dark' | 'light' {
   return stored === 'dark' || stored === 'light' ? stored : 'light';
 }
 
+function getPreviewQuerySuffix(): string {
+  return new URLSearchParams(window.location.search).get('preview') === '1' ? '?preview=1' : '';
+}
+
 const isAuthed = computed(() => authStore.isAuthenticated);
 const isAdmin = computed(() => authStore.isAdmin);
+function seedModelingWorkbenchFromRoute() {
+  const match = window.location.pathname.match(/^\/config\/modeling-workbench\/([^/]+)\/?$/);
+  if (!match) return;
+  try {
+    const mapId = decodeURIComponent(match[1]);
+    const map = getMapLibrary().find((item) => item.id === mapId);
+    if (map) {
+      localStorage.setItem('twintrack.modeling.seed', JSON.stringify(map));
+    } else {
+      localStorage.removeItem('twintrack.modeling.seed');
+    }
+  } catch {
+    localStorage.removeItem('twintrack.modeling.seed');
+  }
+}
+seedModelingWorkbenchFromRoute();
 const storedNavState = getStoredNavState();
 const activeSection = ref<SectionKey>(storedNavState.section && findNavSection(storedNavState.section) ? storedNavState.section : 'home');
 const openedSection = ref<SectionKey | null>(null);
 const activeSubmenu = ref(storedNavState.submenu || getDefaultSubmenu(activeSection.value));
+const modelingWorkbenchOpen = ref(window.location.pathname.startsWith('/config/modeling-workbench'));
 const themeMode = ref<'dark' | 'light'>(getStoredThemeMode());
 const pageRefreshKey = ref(0);
 const loginLoading = ref(false);
@@ -308,13 +340,38 @@ async function handleLogin(payload: LoginPayload) {
 
 function handleLogout() {
   authStore.logout();
+  modelingWorkbenchOpen.value = false;
   localStorage.removeItem(NAV_STORAGE_KEY);
   activeSection.value = 'home';
   activeSubmenu.value = 'overview';
   window.history.replaceState({}, '', '/home/overview');
 }
 
+function openModelingWorkbench(map: SavedMap) {
+  localStorage.setItem('twintrack.modeling.seed', JSON.stringify(map));
+  activeSection.value = 'config';
+  activeSubmenu.value = 'map-editor';
+  openedSection.value = null;
+  modelingWorkbenchOpen.value = true;
+  const path = `/config/modeling-workbench/${encodeURIComponent(map.id)}`;
+  if (window.location.pathname !== path) {
+    const isLegacyEditorRoute = window.location.pathname.startsWith('/config/map-editor/');
+    window.history[isLegacyEditorRoute ? 'replaceState' : 'pushState']({}, '', `${path}${getPreviewQuerySuffix()}`);
+  }
+}
+
+function closeModelingWorkbench() {
+  modelingWorkbenchOpen.value = false;
+  activeSection.value = 'config';
+  activeSubmenu.value = 'map-editor';
+  openedSection.value = null;
+  if (window.location.pathname.startsWith('/config/modeling-workbench')) {
+    window.history.replaceState({}, '', `/config/map-editor${getPreviewQuerySuffix()}`);
+  }
+}
+
 function handleUnauthorized() {
+  if (isLocalPreviewMode()) return;
   if (authStore.isAuthenticated) handleLogout();
 }
 
@@ -418,6 +475,7 @@ function selectNav(sectionKey: SectionKey, submenuKey: string, replace = false) 
     return;
   }
 
+  modelingWorkbenchOpen.value = false;
   activeSection.value = sectionKey;
   activeSubmenu.value = nextSubmenu;
   openedSection.value = null;
@@ -429,7 +487,16 @@ function selectNav(sectionKey: SectionKey, submenuKey: string, replace = false) 
   }
 }
 
+function openBeaconManagement(deviceId: string) {
+  if (!isAdmin.value) return;
+  selectNav('identity', 'beacons');
+  const params = new URLSearchParams({ keyword: deviceId });
+  window.history.replaceState({}, '', `/identity/beacons?${params.toString()}`);
+  pageRefreshKey.value += 1;
+}
+
 function syncNavFromRoute() {
+  modelingWorkbenchOpen.value = window.location.pathname.startsWith('/config/modeling-workbench');
   const routeState = getRouteNavState();
   if (isValidNavState(routeState)) {
     if (!isAdmin.value && (routeState.section === 'identity' || routeState.section === 'config')) {

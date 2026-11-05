@@ -5,6 +5,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import type { ModelConfig, OverlayConfig, SceneConfig } from '@/types/scene';
 import { SceneBuilder } from '@/three/builders/SceneBuilder';
 import { versionModelAssetUrl } from '@/services/modelAssetCache';
+import { getModelingAssetUrl, modelingAssetIdFromPath } from '@/modeling-workbench/assetCache';
 
 const modelModules = import.meta.glob('/src/assets/model/**/*.{glb,gltf}', {
   eager: true,
@@ -23,6 +24,10 @@ const sharedGltfLoader = new GLTFLoader();
 let sharedModelTemplateCache = new Map<string, Promise<THREE.Object3D | null>>();
 const DEFAULT_MODEL_SCALE_RATIO = 1;
 
+function clampTransparency(value: number): number {
+  return Math.min(0.9, Math.max(0, Number.isFinite(value) ? value / 100 : 0));
+}
+
 /** Clear the model template cache. Call when switching maps to avoid stale geometry. */
 export function clearModelTemplateCache() {
   sharedModelTemplateCache = new Map();
@@ -40,12 +45,29 @@ export interface PickPointResult {
   };
 }
 
+interface BuildingFloorScene {
+  id: string;
+  name: string;
+  config: SceneConfig;
+  exteriorWallIds?: string[];
+  storyHeight?: number;
+}
+
+interface TwinSceneOptions {
+  buildingFloors?: BuildingFloorScene[];
+  activeFloorId?: string;
+}
+
 export interface LivePose {
   deviceId: string;
   x: number;
   y: number;
   z: number;
   theta: number;
+  protocolX?: number;
+  protocolY?: number;
+  floorId?: string;
+  displayLabel?: string;
   time?: number;
   receivedAt?: string;
 }
@@ -54,6 +76,9 @@ export interface PathPoint {
   x: number;
   y: number;
   z: number;
+  protocolX?: number;
+  protocolY?: number;
+  floorId?: string;
   time?: number;
 }
 
@@ -62,6 +87,7 @@ interface LivePoseSample {
   x: number;
   y: number;
   z: number;
+  floorElevation?: number;
 }
 
 export class TwinScene {
@@ -106,6 +132,10 @@ export class TwinScene {
   private readonly builder = new SceneBuilder();
   private readonly onPointPick?: (point: PickPointResult) => void;
   private readonly onLivePoseSelect?: (deviceId: string) => void;
+  private readonly buildingFloors: BuildingFloorScene[];
+  private readonly floorElevations = new Map<string, number>();
+  private readonly sceneCenterY: number;
+  private livePoseElevation = 0;
 
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
@@ -143,11 +173,20 @@ export class TwinScene {
     config: SceneConfig,
     onPointPick?: (point: PickPointResult) => void,
     onLivePoseSelect?: (deviceId: string) => void,
+    options: TwinSceneOptions = {},
   ) {
     this.container = container;
     this.config = config;
     this.onPointPick = onPointPick;
     this.onLivePoseSelect = onLivePoseSelect;
+    this.buildingFloors = options.buildingFloors ?? [];
+    let totalHeight = 0;
+    this.buildingFloors.forEach((floor) => {
+      this.floorElevations.set(floor.id, totalHeight);
+      totalHeight += this.getFloorStoryHeight(floor.config, floor.storyHeight);
+    });
+    this.sceneCenterY = this.buildingFloors.length > 1 ? totalHeight / 2 : 0;
+    this.livePoseElevation = this.floorElevations.get(options.activeFloorId ?? '') ?? 0;
     this.resizeHandler = () => this.handleResize();
     this.clickHandler = (event: MouseEvent) => this.handleSceneClick(event);
     this.doubleClickHandler = (event: MouseEvent) => this.handleSceneDoubleClick(event);
@@ -266,15 +305,43 @@ export class TwinScene {
       return;
     }
 
-    this.addFloorOverlay();
-    this.floorGroup = this.builder.build(this.config);
+    if (this.buildingFloors.length > 1) {
+      const buildingGroup = new THREE.Group();
+      buildingGroup.name = 'twin-building';
+      this.buildingFloors.forEach((floor) => {
+        const floorGroup = this.builder.build(floor.config, new Set(floor.exteriorWallIds ?? []));
+        floorGroup.name = `twin-floor:${floor.id}`;
+        floorGroup.position.y = this.floorElevations.get(floor.id) ?? 0;
+        buildingGroup.add(floorGroup);
+      });
+      this.floorGroup = buildingGroup;
+    } else {
+      this.addFloorOverlay();
+      this.floorGroup = this.builder.build(this.config);
+    }
     this.addLivePoseLayer();
     this.scene.add(this.floorGroup);
     this.updateShadowCameraBounds();
     // Frame the scene from the base-map scale so the initial view and the
     // multi-view presets track the model even before it finishes loading.
     this.applySceneFraming(true);
-    void this.loadReferenceModels();
+    if (this.buildingFloors.length > 1) {
+      void Promise.all(this.buildingFloors.map((floor, floorIndex) =>
+        this.loadReferenceModels(floor.config, this.floorElevations.get(floor.id) ?? 0, floorIndex),
+      ));
+    } else {
+      void this.loadReferenceModels();
+    }
+  }
+
+  private getFloorStoryHeight(config: SceneConfig, storyHeight?: number): number {
+    if (Number.isFinite(storyHeight) && Number(storyHeight) > 0) {
+      return Number(storyHeight);
+    }
+    const configuredHeights = config.walls
+      .map((wall) => Number(wall.height))
+      .filter((height) => Number.isFinite(height) && height > 0);
+    return configuredHeights.length > 0 ? Math.max(...configuredHeights) : 3;
   }
 
   private addLivePoseLayer(): void {
@@ -387,6 +454,25 @@ export class TwinScene {
       return new THREE.Sprite();
     }
 
+    this.drawDeviceLabel(context, deviceId || 'unknown', canvas);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+    });
+
+    const sprite = new THREE.Sprite(material);
+    sprite.name = `device:label:${deviceId}`;
+    sprite.userData.labelText = deviceId || 'unknown';
+    sprite.scale.set(52, 16, 1);
+    sprite.renderOrder = 30;
+    return sprite;
+  }
+
+  private drawDeviceLabel(context: CanvasRenderingContext2D, text: string, canvas: HTMLCanvasElement): void {
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = 'rgba(5, 18, 30, 0.72)';
     context.strokeStyle = 'rgba(96, 236, 255, 0.95)';
@@ -399,24 +485,28 @@ export class TwinScene {
     context.stroke();
 
     context.fillStyle = '#dffbff';
-    context.font = '600 30px sans-serif';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillText(deviceId || 'unknown', canvas.width / 2, canvas.height / 2);
+    let fontSize = 30;
+    context.font = `600 ${fontSize}px sans-serif`;
+    while (context.measureText(text).width > canvas.width - 42 && fontSize > 18) {
+      fontSize -= 2;
+      context.font = `600 ${fontSize}px sans-serif`;
+    }
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
+  }
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-    });
-
-    const sprite = new THREE.Sprite(material);
-    sprite.name = `device:label:${deviceId}`;
-    sprite.scale.set(52, 16, 1);
-    sprite.renderOrder = 30;
-    return sprite;
+  private updateDeviceLabel(marker: THREE.Group, deviceId: string, text: string): void {
+    const label = marker.getObjectByName(`device:label:${deviceId}`) as THREE.Sprite | undefined;
+    if (!label || label.userData.labelText === text) return;
+    const material = label.material as THREE.SpriteMaterial;
+    const texture = material.map;
+    const canvas = texture?.image as HTMLCanvasElement | undefined;
+    const context = canvas?.getContext('2d');
+    if (!texture || !canvas || !context) return;
+    this.drawDeviceLabel(context, text, canvas);
+    texture.needsUpdate = true;
+    label.userData.labelText = text;
   }
 
   private createRadialGradientTexture(color: string): THREE.CanvasTexture {
@@ -542,7 +632,7 @@ export class TwinScene {
     this.livePoseMarkers.forEach((marker, deviceId) => {
       marker.traverse((object) => {
         if (object.name.startsWith('device:label:')) {
-          object.visible = this.isLivePoseVisible(deviceId) && (this.livePoseLabelsVisible || deviceId === this.selectedLivePoseId);
+          object.visible = this.isLivePoseVisible(deviceId) && this.livePoseLabelsVisible;
         }
       });
     });
@@ -648,7 +738,7 @@ export class TwinScene {
     const start = samples.length - count;
     for (let index = 0; index < count; index += 1) {
       const sample = samples[start + index];
-      position.setXYZ(index, sample.x, Math.max(sample.z, 0) + TwinScene.LIVE_POSE_TRAIL_HEIGHT, sample.y);
+      position.setXYZ(index, sample.x, Math.max(sample.z, 0) + (sample.floorElevation ?? this.livePoseElevation) + TwinScene.LIVE_POSE_TRAIL_HEIGHT, sample.y);
     }
     position.clearUpdateRanges();
     position.addUpdateRange(0, count * 3);
@@ -664,7 +754,7 @@ export class TwinScene {
     if (!position) return;
 
     const nextIndex = samples.length - 1;
-    position.setXYZ(nextIndex, sample.x, Math.max(sample.z, 0) + TwinScene.LIVE_POSE_TRAIL_HEIGHT, sample.y);
+    position.setXYZ(nextIndex, sample.x, Math.max(sample.z, 0) + (sample.floorElevation ?? this.livePoseElevation) + TwinScene.LIVE_POSE_TRAIL_HEIGHT, sample.y);
     position.clearUpdateRanges();
     position.addUpdateRange(nextIndex * 3, 3);
     position.needsUpdate = true;
@@ -699,6 +789,7 @@ export class TwinScene {
       x: pose.x,
       y: pose.y,
       z: pose.z,
+      floorElevation: this.floorElevations.get(pose.floorId ?? '') ?? this.livePoseElevation,
     };
     const lastSample = samples[samples.length - 1];
     const canAppend = samples.length < TwinScene.LIVE_TRAIL_MAX_POINTS && (!lastSample || sample.sortKey >= lastSample.sortKey);
@@ -729,6 +820,7 @@ export class TwinScene {
         x: point.x,
         y: point.y,
         z: point.z,
+        floorElevation: this.floorElevations.get(point.floorId ?? '') ?? this.livePoseElevation,
       }));
 
     const limitedSamples = pathSamples.slice(-TwinScene.REPLAY_TRAIL_MAX_POINTS);
@@ -827,6 +919,38 @@ export class TwinScene {
     });
   }
 
+  setBuildingVisibility(exteriorTransparency: number, slabTransparency: number, enabled = this.buildingFloors.length > 1): void {
+    const wholeBuilding = enabled;
+    if (!this.floorGroup) return;
+    const transparencyByRole = {
+      exterior: wholeBuilding ? clampTransparency(exteriorTransparency) : 0,
+      'floor-plate': wholeBuilding ? clampTransparency(slabTransparency) : 0,
+    };
+    this.floorGroup.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      let structureTransparency = 0;
+      list.forEach((material) => {
+        if (!material?.userData?.previewVisibilityRole) return;
+        const role = material.userData.previewVisibilityRole as keyof typeof transparencyByRole;
+        const baseOpacity = Number(material.userData.previewBaseOpacity ?? 1);
+        const transparency = transparencyByRole[role] ?? 0;
+        structureTransparency = Math.max(structureTransparency, transparency);
+        const opacity = wholeBuilding && role === 'floor-plate'
+          ? 1 - transparency
+          : baseOpacity * (1 - transparency);
+        material.opacity = opacity;
+        material.transparent = opacity < 0.999;
+        material.depthWrite = !material.transparent;
+        material.needsUpdate = true;
+      });
+      if (list.some((material) => material?.userData?.previewVisibilityRole)) {
+        mesh.castShadow = structureTransparency === 0;
+      }
+    });
+  }
+
   toggleLivePoseLabels(visible: boolean): void {
     this.livePoseLabelsVisible = visible;
     this.updateLivePoseLabelVisibility();
@@ -905,6 +1029,10 @@ export class TwinScene {
     return new THREE.Vector3(220 * scale, 240 * scale, 360 * scale);
   }
 
+  private getSceneCameraTarget(): THREE.Vector3 {
+    return new THREE.Vector3(0, this.sceneCenterY, 0);
+  }
+
   /**
    * Apply the model-scale-aware camera setup: zoom range, far plane and fog.
    * When frameCamera is true (initial framing), the camera is also positioned
@@ -922,8 +1050,9 @@ export class TwinScene {
       this.camera.far = TwinScene.CAMERA_FAR * this.modelScaleFactor;
       this.camera.updateProjectionMatrix();
       if (frameCamera) {
-        this.camera.position.copy(this.getCameraViewPosition('overview'));
-        this.camera.lookAt(0, 0, 0);
+        const target = this.getSceneCameraTarget();
+        this.camera.position.copy(target).add(this.getCameraViewPosition('overview'));
+        this.camera.lookAt(target);
       }
     }
 
@@ -943,8 +1072,8 @@ export class TwinScene {
       return;
     }
 
-    const target = new THREE.Vector3(0, 0, 0);
-    this.camera.position.copy(this.getCameraViewPosition(view));
+    const target = this.getSceneCameraTarget();
+    this.camera.position.copy(target).add(this.getCameraViewPosition(view));
 
     this.controls.target.copy(target);
     this.camera.lookAt(target);
@@ -980,8 +1109,10 @@ export class TwinScene {
     }
 
     this.updateLivePoseTrail(pose.deviceId, pose);
+    this.updateDeviceLabel(marker, pose.deviceId, pose.displayLabel?.trim() || pose.deviceId || 'unknown');
     marker.visible = this.isLivePoseVisible(pose.deviceId);
-    marker.position.set(x, Math.max(z, 0) + TwinScene.LIVE_POSE_MARKER_HEIGHT, y);
+    const floorElevation = this.floorElevations.get(pose.floorId ?? '') ?? this.livePoseElevation;
+    marker.position.set(x, Math.max(z, 0) + floorElevation + TwinScene.LIVE_POSE_MARKER_HEIGHT, y);
 
     if (pose.deviceId === this.trackedLivePoseId) {
       this.focusTrackedLivePose(marker);
@@ -999,7 +1130,8 @@ export class TwinScene {
     }
 
     marker.visible = this.isLivePoseVisible(deviceId);
-    marker.position.set(point.x, Math.max(point.z, 0) + TwinScene.LIVE_POSE_MARKER_HEIGHT, point.y);
+    const floorElevation = this.floorElevations.get(point.floorId ?? '') ?? this.livePoseElevation;
+    marker.position.set(point.x, Math.max(point.z, 0) + floorElevation + TwinScene.LIVE_POSE_MARKER_HEIGHT, point.y);
     if (deviceId === this.trackedLivePoseId) {
       this.focusTrackedLivePose(marker);
     }
@@ -1077,12 +1209,14 @@ export class TwinScene {
     }
   }
 
-  private async loadReferenceModels(): Promise<void> {
-    const tasks = this.config.models.map((modelConfig, index) => this.loadReferenceModel(modelConfig, index));
+  private async loadReferenceModels(config: SceneConfig = this.config, elevation = 0, floorIndex = 0): Promise<void> {
+    const tasks = config.models.map((modelConfig, index) =>
+      this.loadReferenceModel(modelConfig, index, config, elevation, floorIndex),
+    );
     await Promise.all(tasks);
   }
 
-  private async loadReferenceModel(modelConfig: ModelConfig, index: number): Promise<void> {
+  private async loadReferenceModel(modelConfig: ModelConfig, index: number, config: SceneConfig, elevation: number, floorIndex: number): Promise<void> {
     if (!this.scene) {
       return;
     }
@@ -1095,8 +1229,9 @@ export class TwinScene {
     try {
       const model = cloneSkeleton(template);
 
-      model.name = `model:${index}:${modelConfig.path}`;
-      this.applyModelConfig(model, modelConfig);
+      model.name = `model:${floorIndex}:${index}:${modelConfig.path}`;
+      this.applyModelConfig(model, modelConfig, config);
+      model.position.y += elevation;
 
       this.modelGroups.push(model);
       this.scene.add(model);
@@ -1107,7 +1242,14 @@ export class TwinScene {
   }
 
   private async loadModelTemplate(modelPath: string): Promise<THREE.Object3D | null> {
-    const modelUrl = this.resolveModelUrl(modelPath);
+    let modelUrl: string | null;
+    try {
+      const modelingAssetId = modelingAssetIdFromPath(modelPath);
+      modelUrl = modelingAssetId ? await getModelingAssetUrl(modelingAssetId) : this.resolveModelUrl(modelPath);
+    } catch (error) {
+      console.error(`Failed to read local modeling asset ${modelPath}`, error);
+      return null;
+    }
     if (!modelUrl) {
       console.error(`Model file not found in src/assets/model: ${modelPath}`);
       return null;
@@ -1192,12 +1334,12 @@ export class TwinScene {
     return import.meta.env.DEV ? directKey : null;
   }
 
-  private applyModelConfig(model: THREE.Object3D, modelConfig: ModelConfig): void {
+  private applyModelConfig(model: THREE.Object3D, modelConfig: ModelConfig, config: SceneConfig = this.config): void {
     const { scale, center, rotation } = modelConfig;
     const modelX = Number.isFinite(Number(center[0])) ? Number(center[0]) : 0;
     const modelY = center.length > 2 ? (Number.isFinite(Number(center[1])) ? Number(center[1]) : 0) : 0;
     const modelZ = center.length > 2 ? (Number.isFinite(Number(center[2])) ? Number(center[2]) : 0) : (Number.isFinite(Number(center[1])) ? Number(center[1]) : 0);
-    const floorScaleRatio = Number(this.config.floor.scale);
+    const floorScaleRatio = Number(config.floor.scale);
     const scaleRatioFactor =
       modelConfig.role !== 'base-map' || !Number.isFinite(floorScaleRatio) || floorScaleRatio <= 0
         ? 1

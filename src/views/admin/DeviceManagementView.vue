@@ -12,6 +12,21 @@
       </div>
     </header>
 
+    <section class="device-flow-guide">
+      <div>
+        <span>01</span>
+        <p><strong>{{ t('management.deviceFlowStep1Title') }}</strong><small>{{ t('management.deviceFlowStep1Desc') }}</small></p>
+      </div>
+      <div>
+        <span>02</span>
+        <p><strong>{{ t('management.deviceFlowStep2Title') }}</strong><small>{{ t('management.deviceFlowStep2Desc') }}</small></p>
+      </div>
+      <div>
+        <span>03</span>
+        <p><strong>{{ t('management.deviceFlowStep3Title') }}</strong><small>{{ t('management.deviceFlowStep3Desc') }}</small></p>
+      </div>
+    </section>
+
     <section class="management-panel">
       <div class="management-panel-title">
         <div>
@@ -38,12 +53,17 @@
       <div class="management-table-wrap">
         <table class="management-table">
           <thead>
-            <tr><th>{{ t('management.deviceId') }}</th><th>{{ t('management.boundPersonId') }}</th><th>{{ t('management.battery') }}</th><th>{{ t('management.status') }}</th><th>{{ t('management.action') }}</th></tr>
+            <tr><th>{{ t('management.deviceId') }}</th><th>{{ t('management.boundPersonId') }}</th><th>{{ t('management.building') }}</th><th>{{ t('management.floor') }}</th><th>{{ t('management.battery') }}</th><th>{{ t('management.status') }}</th><th>{{ t('management.action') }}</th></tr>
           </thead>
           <tbody>
             <tr v-for="device in devices" :key="device.deviceId">
               <td>{{ device.deviceId }}</td>
-              <td>{{ device.boundPersonId || t('management.unbound') }}</td>
+              <td>
+                <strong>{{ device.boundPersonName || device.boundPersonId || t('management.unbound') }}</strong>
+                <small v-if="device.boundPersonName && device.boundPersonId">{{ device.boundPersonId }}</small>
+              </td>
+              <td>{{ device.buildingName || device.buildingId || t('management.notSet') }}</td>
+              <td>{{ device.floorName || device.floorId || t('management.notSet') }}</td>
               <td>
                 <div class="battery-value">
                   <span>{{ device.battery }}%</span>
@@ -58,8 +78,8 @@
                 </div>
               </td>
             </tr>
-            <tr v-if="!loading && devices.length === 0"><td class="empty-row" colspan="5">{{ t('management.noDevices') }}</td></tr>
-            <tr v-if="loading"><td class="empty-row" colspan="5">{{ t('management.loading') }}</td></tr>
+            <tr v-if="!loading && devices.length === 0"><td class="empty-row" colspan="7">{{ t('management.noDevices') }}</td></tr>
+            <tr v-if="loading"><td class="empty-row" colspan="7">{{ t('management.loading') }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -82,7 +102,22 @@
             <option value="online">{{ t('management.online') }}</option><option value="offline">{{ t('management.offline') }}</option><option value="SOS">SOS</option>
           </select>
         </label>
+        <label>{{ t('management.building') }}
+          <select v-model="form.buildingId" @change="onBuildingChange">
+            <option value="">{{ t('management.chooseBuilding') }}</option>
+            <option v-for="map in availableMaps" :key="map.id" :value="map.metadata.buildingId || map.id">{{ map.name }}</option>
+          </select>
+        </label>
+        <label>{{ t('management.floor') }}
+          <select v-model="form.floorId" :disabled="!form.buildingId || mapsLoading">
+            <option value="">{{ t('management.chooseFloor') }}</option>
+            <option v-for="floor in floorOptions" :key="floor.id" :value="floor.id">{{ floor.name }}</option>
+          </select>
+        </label>
       </div>
+      <p class="device-binding-hint">{{ t('management.deviceBindingHint') }}</p>
+      <p v-if="mapsLoading" class="import-hint">{{ t('management.loadingMaps') }}</p>
+      <p v-else-if="availableMaps.length === 0" class="import-hint">{{ t('management.noDeployableMaps') }}</p>
       <p v-if="formError" class="form-error">{{ formError }}</p>
       <template #footer>
         <div class="modal-actions">
@@ -135,10 +170,13 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '@/components/BaseModal.vue';
 import {
-  createDevice, deleteDevice, fetchDevices, fetchPersonnel, updateDevice,
+  createDevice, deleteDevice, deployDevice, fetchDevices, fetchPersonnel, updateDevice, undeployDevice,
   type DeviceStatus, type DeviceVO, type PersonnelVO,
 } from '@/services/adminApi';
+import { fetchModelDetail, fetchModelList, mapDetailToSavedMap, type MapModelDetail } from '@/services/mapApi';
+import type { SavedMap } from '@/services/mapLibrary';
 import { assertBattery, downloadCsv, parseCsv, readCsvValue } from '@/services/csvTransfer';
+import { notifyDeviceAssignmentsUpdated } from '@/services/deviceAssignmentSync';
 import '@/styles/management.css';
 
 defineProps<{ themeMode: 'dark' | 'light' }>();
@@ -146,6 +184,7 @@ const { t } = useI18n();
 
 const devices = ref<DeviceVO[]>([]);
 const people = ref<PersonnelVO[]>([]);
+const availableMaps = ref<SavedMap[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const saving = ref(false);
@@ -164,12 +203,15 @@ const exportAll = ref(true);
 const exportCount = ref(10);
 const fileInput = ref<HTMLInputElement>();
 const formError = ref('');
-const form = reactive({ deviceId: '', boundPersonId: null as string | null, battery: 80, status: 'offline' as DeviceStatus });
+const mapsLoading = ref(false);
+const form = reactive({ deviceId: '', boundPersonId: null as string | null, battery: 80, status: 'offline' as DeviceStatus, buildingId: '', floorId: '' });
 
 const filteredPeople = computed(() => {
   const value = personKeyword.value.trim().toLowerCase();
   return people.value.filter((person) => !value || `${person.personId} ${person.personName || person.name}`.toLowerCase().includes(value));
 });
+const selectedMap = computed(() => availableMaps.value.find((map) => (map.metadata.buildingId || map.id) === form.buildingId) ?? null);
+const floorOptions = computed(() => selectedMap.value?.metadata.floors ?? []);
 
 function statusLabel(status: DeviceStatus) {
   return status === 'online' ? t('management.online') : status === 'offline' ? t('management.offline') : 'SOS';
@@ -201,8 +243,33 @@ function openEditor(device?: DeviceVO) {
   form.boundPersonId = device?.boundPersonId ?? null;
   form.battery = device?.battery ?? 80;
   form.status = device?.status ?? 'offline';
+  form.buildingId = device?.buildingId ?? '';
+  form.floorId = device?.floorId ?? '';
   formError.value = '';
   editorOpen.value = true;
+  void loadAvailableMaps();
+}
+
+async function loadAvailableMaps() {
+  mapsLoading.value = true;
+  try {
+    const models = await fetchModelList();
+    const details = await Promise.all(models.map((model) => fetchModelDetail(model.id).catch(() => null)));
+    const maps = details
+      .filter((detail): detail is MapModelDetail => detail !== null && Array.isArray(detail.metadata?.floors))
+      .map(mapDetailToSavedMap)
+      .filter((map): map is SavedMap => map !== null && map.metadata.floors.length > 0);
+    availableMaps.value = Array.from(new Map(maps.map((map) => [map.metadata.buildingId || map.id, map])).values());
+  } catch (error) {
+    availableMaps.value = [];
+    formError.value = error instanceof Error ? error.message : t('management.loadMapsFailed');
+  } finally {
+    mapsLoading.value = false;
+  }
+}
+
+function onBuildingChange() {
+  form.floorId = '';
 }
 
 function closeEditor() {
@@ -228,26 +295,43 @@ function choosePerson(person: PersonnelVO | null) {
 
 async function save() {
   formError.value = '';
+  let backendChanged = false;
   try {
     if (!form.deviceId) throw new Error(t('management.deviceIdRequired'));
     if (!editingId.value && devices.value.some((item) => item.deviceId.toLowerCase() === form.deviceId.toLowerCase())) {
       throw new Error(t('management.deviceIdExists'));
     }
-    const payload = { ...form, battery: assertBattery(form.battery, t('management.batteryInvalid')) };
+    const payload = {
+      deviceId: form.deviceId,
+      boundPersonId: form.boundPersonId,
+      battery: assertBattery(form.battery, t('management.batteryInvalid')),
+      status: form.status,
+    };
     saving.value = true;
-    const previousStatus = devices.value.find((item) => item.deviceId === editingId.value)?.status;
-    const result = editingId.value ? await updateDevice(editingId.value, payload) : await createDevice(payload);
+    const wasEditing = Boolean(editingId.value);
+    const previous = devices.value.find((item) => item.deviceId === editingId.value);
+    const previousStatus = previous?.status;
+    if (form.buildingId && !form.floorId) throw new Error(t('management.selectFloorRequired'));
+    const result = wasEditing ? await updateDevice(editingId.value, payload) : await createDevice(payload);
+    backendChanged = true;
+    editingId.value = result.deviceId;
+    if (form.buildingId && form.floorId) {
+      await deployDevice(result.deviceId, { buildingId: form.buildingId, floorId: form.floorId });
+    } else if (previous?.buildingId && previous.floorId) {
+      await undeployDevice(result.deviceId);
+    }
     window.dispatchEvent(new CustomEvent('twintrack:device-status', {
       detail: { device: result, previousStatus },
     }));
     editorOpen.value = false;
-    feedback.value = editingId.value ? t('management.deviceUpdated') : t('management.deviceAdded');
+    feedback.value = wasEditing ? t('management.deviceUpdated') : t('management.deviceAdded');
     // 新增成功后清空筛选，保证新设备在完整列表中立即可见
-    if (!editingId.value) { keyword.value = ''; statusFilter.value = ''; bindingFilter.value = ''; }
+    if (!wasEditing) { keyword.value = ''; statusFilter.value = ''; bindingFilter.value = ''; }
     await load();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : t('management.saveFailed');
   } finally {
+    if (backendChanged) notifyDeviceAssignmentsUpdated();
     saving.value = false;
   }
 }
@@ -261,6 +345,7 @@ async function remove() {
   saving.value = true;
   try {
     await deleteDevice(deleteTarget.value.deviceId);
+    notifyDeviceAssignmentsUpdated();
     feedback.value = t('management.deviceDeleted');
     deleteTarget.value = null;
     await load();
@@ -312,6 +397,7 @@ async function importCsv(event: Event) {
     // 批量导入成功后清空筛选，保证导入的新设备立即可见
     keyword.value = ''; statusFilter.value = ''; bindingFilter.value = '';
     await load();
+    notifyDeviceAssignmentsUpdated();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : t('management.importFailed');
   }
@@ -322,8 +408,8 @@ async function exportCsv() {
     const limit = exportAll.value ? Math.max(total.value, 1) : Math.max(1, exportCount.value);
     const page = await fetchDevices({ page: 1, pageSize: limit });
     const rows = exportAll.value ? page.records : page.records.slice(0, limit);
-    downloadCsv(t('management.deviceCsvFilename'), [t('management.deviceId'), t('management.boundPersonId'), t('management.battery'), t('management.status')], rows.map((item) => [
-      item.deviceId, item.boundPersonId ?? '', item.battery, item.status,
+    downloadCsv(t('management.deviceCsvFilename'), [t('management.deviceId'), t('management.boundPersonId'), t('management.building'), t('management.floor'), t('management.battery'), t('management.status')], rows.map((item) => [
+      item.deviceId, item.boundPersonId ?? '', item.buildingName ?? item.buildingId ?? '', item.floorName ?? item.floorId ?? '', item.battery, item.status,
     ]));
     exportOpen.value = false;
   } catch (error) {
