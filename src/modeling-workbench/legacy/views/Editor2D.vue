@@ -2,19 +2,7 @@
   <section class="view active editor-screen">
     <div class="editor-layout">
       <article class="panel canvas-panel">
-        <div class="canvas-header editor-canvas-header">
-          <div class="editor-heading">
-            <span class="editor-kicker">平面图</span>
-            <strong>{{ store.project.name }} · {{ store.activeFloor.name }}</strong>
-          </div>
-          <label class="floor-switcher">
-            <span class="sr-only">当前楼层</span>
-            <select v-model="store.activeFloorId" aria-label="切换编辑楼层">
-              <option v-for="floor in store.floors" :key="floor.id" :value="floor.id">{{ floor.name }}</option>
-            </select>
-          </label>
-          <span class="zoom-indicator">{{ toolLabel }} <b>{{ Math.round(view.zoom * 100) }}%</b></span>
-        </div>
+
         <div class="canvas-stage">
           <div class="editor-tool-rail" role="toolbar" aria-label="绘图工具">
             <template v-for="item in tools" :key="item.key">
@@ -80,18 +68,44 @@
             @mouseup="onMouseUp"
             @wheel.prevent="onWheel"
           ></canvas>
+          <div class="canvas-reset-controls" role="group" aria-label="画布重置操作">
+            <button
+              type="button"
+              class="canvas-reset-button"
+              aria-label="重置视图"
+              title="重置视图：恢复画布平移和缩放"
+              data-tooltip="重置视图：恢复画布平移和缩放"
+              @click="resetView"
+            >
+              <span class="canvas-reset-icon" aria-hidden="true">⤢</span>
+            </button>
+            <button
+              type="button"
+              class="canvas-reset-button canvas-reset-button--danger"
+              aria-label="重置画布"
+              title="重置画布：清空当前楼层，可通过撤销恢复"
+              data-tooltip="重置画布：清空当前楼层，可通过撤销恢复"
+              @click="resetCanvas"
+            >
+              <span class="canvas-reset-icon" aria-hidden="true">⌫</span>
+            </button>
+            <button
+              type="button"
+              class="canvas-reset-button"
+              aria-label="重置初始框架"
+              title="重置初始框架：恢复可编辑初始结构"
+              data-tooltip="重置初始框架：恢复可编辑初始结构"
+              @click="resetPlan"
+            >
+              <span class="canvas-reset-icon" aria-hidden="true">↺</span>
+            </button>
+          </div>
+          <div class="canvas-status-live" role="status" aria-live="polite">{{ status }}</div>
         </div>
-        <footer class="canvas-footer">
-          <div class="file-state tool-status" role="status" aria-live="polite">{{ status }}</div>
-          <span>V 选择 · Delete 删除对象 · 方向键微移 · Ctrl + 方向键移动整层 · Shift 加大步长</span>
-        </footer>
       </article>
 
       <aside class="panel editor-properties" aria-label="属性面板">
-        <header class="properties-header">
-          <h2>属性面板</h2>
-          <span>按需显示</span>
-        </header>
+
 
         <section class="property-section editor-document-actions" aria-label="编辑操作">
           <h3>编辑操作</h3>
@@ -108,19 +122,24 @@
             <span class="selected-object-mark" aria-hidden="true">{{ selectedObjectMark }}</span>
             <div><strong>{{ selectedObjectName }}</strong><small>{{ selectedObjectType }}</small></div>
           </div>
-          <button class="delete-object-button" :disabled="!selected && !pendingOuter" @click="deleteSelected">
-            <span aria-hidden="true">⌫</span> 删除此对象
-          </button>
+          <span class="delete-object-tooltip" :title="selected ? '删除当前选中对象' : '选择后删除对象'">
+            <button
+              type="button"
+              class="delete-object-button"
+              :disabled="!selected"
+              :aria-label="selected ? '删除' + selectedObjectName : '删除对象（请先选择）'"
+              @click="deleteSelected"
+            >
+              <span aria-hidden="true">⌫</span> 删除
+            </button>
+          </span>
         </section>
 
         <section class="property-section floor-property">
           <h3>楼层信息</h3>
+          <div class="property-value"><span>建筑名称</span><strong>{{ store.project.name }}</strong></div>
           <div class="property-value"><span>楼层名称</span><strong>{{ store.activeFloor.name }}</strong></div>
           <div class="property-value"><span>层高</span><strong>{{ Number(store.activeFloor.height || 0).toFixed(1) }} m</strong></div>
-          <div class="floor-description">
-            <span>楼层介绍</span>
-            <p>{{ store.activeFloor.note || '尚未填写楼层介绍' }}</p>
-          </div>
         </section>
 
         <section class="property-section layer-property">
@@ -131,25 +150,7 @@
           </div>
         </section>
 
-        <section class="property-section canvas-property">
-          <h3>画布视图</h3>
-          <button class="ghost reset-view-button" @click="resetView">重置视图</button>
-          <div class="tool-more" :class="{ 'is-open': showResetActions }">
-            <button
-              type="button"
-              class="tool-more-toggle"
-              :aria-expanded="showResetActions"
-              aria-controls="reset-recovery-actions"
-              @click="toggleResetActions"
-            >
-              <span>重置与恢复</span>
-            </button>
-            <div v-show="showResetActions" id="reset-recovery-actions" ref="resetActionsRef" class="tool-more-actions">
-              <button class="danger ghost" @click="resetCanvas">重置画布</button>
-              <button class="ghost" @click="resetPlan">重置为初始框架</button>
-            </div>
-          </div>
-        </section>
+
       </aside>
     </div>
   </section>
@@ -169,8 +170,7 @@ const pendingOuter = ref(null)
 const pendingWall = ref(null)
 const selected = ref(null)
 const selectedAssetInstance = ref(null)
-const showResetActions = ref(false)
-const resetActionsRef = ref(null)
+
 const showAssetPicker = ref(false)
 const metersPerPixel = 0.08
 const view = reactive({ zoom: 1, offsetX: 0, offsetY: 0 })
@@ -317,15 +317,7 @@ function translateActivePlan(dx, dy) {
   if (pendingWall.value) { pendingWall.value.x += dx; pendingWall.value.y += dy }
 }
 
-function toggleResetActions() {
-  showResetActions.value = !showResetActions.value
-  if (!showResetActions.value) return
 
-  nextTick(() => {
-    const lastAction = resetActionsRef.value?.lastElementChild
-    lastAction?.scrollIntoView({ block: 'nearest', behavior: 'auto' })
-  })
-}
 
 function activateTool(item) {
   tool.value = item.key
@@ -751,7 +743,7 @@ function resetPlan() {
   selected.value = null
   selectedAssetInstance.value = null
   tool.value = 'select'
-  status.value = '已重置为可编辑测试框架。'
+  status.value = '已恢复初始框架。'
   draw()
 }
 

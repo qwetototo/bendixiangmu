@@ -457,6 +457,32 @@
   }
 
 
+  .admin-shell .twin-screen--embedded .right-rail {
+    top: 10px;
+    right: 10px;
+    bottom: 80px;
+    display: flex;
+    flex-direction: column;
+    width: min(292px, calc(100% - 20px));
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    touch-action: pan-y;
+  }
+
+  .admin-shell .twin-screen--embedded .right-rail > .glass-panel {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+
+  .admin-shell .twin-screen--embedded .right-rail .player-card {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+  }
   .admin-shell .twin-screen--embedded .topbar .select-field {
     display: flex;
     flex: 0 1 auto;
